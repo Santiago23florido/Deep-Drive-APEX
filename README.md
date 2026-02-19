@@ -100,3 +100,4 @@ Useful arguments:
 ## WSL notes
 - Use WSLg or an X/Wayland server to view the Gazebo GUI; on Windows 11 with WSLg it usually works out of the box.
 - If you switch ROS or Gazebo distros, adjust package names accordingly.
+-Use networkingMode=mirrored

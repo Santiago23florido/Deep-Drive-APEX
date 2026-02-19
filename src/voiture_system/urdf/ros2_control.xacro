@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!-- Include this block in your robot xacro if not already present. -->
-  <ros2_control name="rc_car_system" type="system">
+v  <ros2_control name="rc_car_system" type="system">
     <hardware>
       <plugin>gazebo_ros2_control/GazeboSystem</plugin>
     </hardware>
@@ -27,7 +27,7 @@
     </joint>
   </ros2_control>
 
-  <gazebo>
+  <gazebo> 
     <plugin name="gazebo_ros2_control" filename="libgazebo_ros2_control.so"/>
   </gazebo>
 </robot>
