@@ -176,7 +176,35 @@ Also available:
 Lidar/pc/run_subscriber.sh --topic /lidar/scan --full
 ```
 
-## 4) Quick troubleshooting
+## 4) LiDAR-only mapping on PC (new)
+
+The PC subscriber now supports lightweight LiDAR-only mapping (no odometry / no IMU):
+
+```bash
+cd ~/AiAtonomousRc
+source .venv_lidar/bin/activate
+source /opt/ros/jazzy/setup.bash
+unset ROS_STATIC_PEERS FASTRTPS_DEFAULT_PROFILES_FILE ROS_LOCALHOST_ONLY
+export ROS_DOMAIN_ID=30
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+Lidar/pc/run_subscriber.sh --topic /lidar/scan --map --map-plot
+```
+
+Useful mapping options:
+
+```bash
+Lidar/pc/run_subscriber.sh --topic /lidar/scan --map --map-plot \
+  --map-resolution 0.05 --map-size-m 30 \
+  --scanmatch-max-rot-deg 10 --scanmatch-max-trans-m 0.35 \
+  --map-save-path /tmp/lidar_map.npy
+```
+
+`--map-save-path` stores:
+- probability grid as `.npy`
+- basic metadata in `<file>.meta.txt`
+
+## 5) Quick troubleshooting
 
 - `ModuleNotFoundError: yaml` on PC: install deps inside `.venv_lidar` with `pip install -r Lidar/pc/requirements.txt`.
 - `externally-managed-environment`: do not use global pip, use `.venv_lidar`.
