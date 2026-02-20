@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Utilities to map raw RPLidar scans into a fixed 360-sample array."""
 
 from __future__ import annotations
@@ -11,8 +12,6 @@ import numpy as np
 
 @dataclass
 class LidarScanBuffer:
-    """Keeps latest distance per angle and applies offset/FOV/timeout filters."""
-
     samples: int = 360
     heading_offset_deg: int = 0
     fov_filter_deg: int = 360
@@ -21,7 +20,6 @@ class LidarScanBuffer:
     def __post_init__(self) -> None:
         if self.samples <= 0:
             raise ValueError("samples must be > 0")
-
         self._distances_m = np.zeros(self.samples, dtype=np.float32)
         self._last_update_ms = np.zeros(self.samples, dtype=np.float64)
 
@@ -30,7 +28,6 @@ class LidarScanBuffer:
         scan: Iterable[Sequence[float]],
         current_ms: float | None = None,
     ) -> np.ndarray:
-        """Update internal buffers with a RPLidar scan and return filtered ranges."""
         if current_ms is None:
             current_ms = time.time() * 1000.0
 
@@ -51,7 +48,6 @@ class LidarScanBuffer:
         return self.get_filtered_scan(current_ms=current_ms)
 
     def get_filtered_scan(self, current_ms: float | None = None) -> np.ndarray:
-        """Return a filtered snapshot (copy) of the current 360 ranges."""
         if current_ms is None:
             current_ms = time.time() * 1000.0
 
@@ -72,7 +68,7 @@ class LidarScanBuffer:
         if 0 < self.fov_filter_deg < 360:
             half_fov = self.fov_filter_deg / 2.0
             angles = np.arange(self.samples, dtype=np.float32)
-            diffs = np.mod(angles - 0.0, 360.0)
+            diffs = np.mod(angles, 360.0)
             keep = (diffs <= half_fov) | (diffs >= 360.0 - half_fov)
             ranges[~keep] = 0.0
 

@@ -3,12 +3,9 @@
 
 from __future__ import annotations
 
-import argparse
 import math
-import sys
 import threading
 import time
-from pathlib import Path
 
 import numpy as np
 import rclpy
@@ -16,12 +13,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 
-_THIS_DIR = Path(__file__).resolve().parent
-_LIDAR_ROOT = _THIS_DIR.parent
-if str(_LIDAR_ROOT) not in sys.path:
-    sys.path.insert(0, str(_LIDAR_ROOT))
-
-from common import LidarScanBuffer
+from .lidar_scan_buffer import LidarScanBuffer
 
 try:
     from rplidar import RPLidar, RPLidarException
@@ -31,24 +23,35 @@ except Exception:
 
 
 class RPLidarPublisherNode(Node):
-    def __init__(self, args: argparse.Namespace) -> None:
+    def __init__(self) -> None:
         super().__init__("rpi_lidar_publisher")
 
         if RPLidar is None:
-            raise RuntimeError("No se pudo importar rplidar. Instala el paquete en la Raspberry.")
+            raise RuntimeError("No se pudo importar rplidar. Instala `rplidar-roboticia`.")
 
-        self._port = args.port
-        self._baudrate = args.baudrate
-        self._topic = args.topic
-        self._frame_id = args.frame_id
-        self._range_min = args.range_min
-        self._range_max = args.range_max
+        self.declare_parameter("port", "/dev/ttyUSB0")
+        self.declare_parameter("baudrate", 256000)
+        self.declare_parameter("topic", "/lidar/scan")
+        self.declare_parameter("frame_id", "laser")
+        # Keep defaults aligned with the original full_soft LiDAR configuration.
+        self.declare_parameter("heading_offset_deg", -89)
+        self.declare_parameter("fov_filter_deg", 180)
+        self.declare_parameter("point_timeout_ms", 1000)
+        self.declare_parameter("range_min", 0.05)
+        self.declare_parameter("range_max", 12.0)
+
+        self._port = str(self.get_parameter("port").value)
+        self._baudrate = int(self.get_parameter("baudrate").value)
+        self._topic = str(self.get_parameter("topic").value)
+        self._frame_id = str(self.get_parameter("frame_id").value)
+        self._range_min = float(self.get_parameter("range_min").value)
+        self._range_max = float(self.get_parameter("range_max").value)
 
         self._scan_buffer = LidarScanBuffer(
             samples=360,
-            heading_offset_deg=args.heading_offset_deg,
-            fov_filter_deg=args.fov_filter_deg,
-            point_timeout_ms=args.point_timeout_ms,
+            heading_offset_deg=int(self.get_parameter("heading_offset_deg").value),
+            fov_filter_deg=int(self.get_parameter("fov_filter_deg").value),
+            point_timeout_ms=int(self.get_parameter("point_timeout_ms").value),
         )
 
         self._publisher = self.create_publisher(LaserScan, self._topic, qos_profile_sensor_data)
@@ -155,25 +158,11 @@ class RPLidarPublisherNode(Node):
         self._disconnect_lidar()
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Nodo ROS2 publisher para RPLidar en Raspberry Pi")
-    parser.add_argument("--port", default="/dev/ttyUSB0", help="Puerto serial del LiDAR")
-    parser.add_argument("--baudrate", type=int, default=256000, help="Baudrate serial")
-    parser.add_argument("--topic", default="/lidar/scan", help="Topico LaserScan a publicar")
-    parser.add_argument("--frame-id", default="laser", help="frame_id del LaserScan")
-    parser.add_argument("--heading-offset-deg", type=int, default=-89, help="Offset angular en grados")
-    parser.add_argument("--fov-filter-deg", type=int, default=180, help="Campo de vision util")
-    parser.add_argument("--point-timeout-ms", type=int, default=1000, help="Timeout por angulo")
-    parser.add_argument("--range-min", type=float, default=0.05, help="Distancia minima valida (m)")
-    parser.add_argument("--range-max", type=float, default=12.0, help="Distancia maxima valida (m)")
-    return parser.parse_args()
-
-
 def main() -> None:
-    args = parse_args()
     rclpy.init(args=None)
 
-    node = RPLidarPublisherNode(args)
+    node = RPLidarPublisherNode()
+
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

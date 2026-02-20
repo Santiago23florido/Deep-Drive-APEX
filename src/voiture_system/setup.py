@@ -9,8 +9,21 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/launch', ['launch/bringup_sim.launch.py']),
-        ('share/' + package_name + '/config', ['config/controllers.yaml']),
+        (
+            'share/' + package_name + '/launch',
+            [
+                'launch/bringup_sim.launch.py',
+                'launch/bringup_real_slam_nav.launch.py',
+            ],
+        ),
+        (
+            'share/' + package_name + '/config',
+            [
+                'config/controllers.yaml',
+                'config/slam_toolbox_online_async.yaml',
+                'config/nav2_ackermann.yaml',
+            ],
+        ),
         ('share/' + package_name + '/tools', ['tools/test_pipeline.py']),
         ('share/' + package_name + '/urdf', ['urdf/ros2_control.xacro']),
     ],
@@ -24,6 +37,11 @@ setup(
         'console_scripts': [
             'high_level_controller_node = voiture_system.high_level_controller_node:main',
             'vehicle_sim_bridge_node = voiture_system.vehicle_sim_bridge_node:main',
+            'serial_state_node = voiture_system.serial_state_node:main',
+            'ackermann_drive_node = voiture_system.ackermann_drive_node:main',
+            'ackermann_odometry_node = voiture_system.ackermann_odometry_node:main',
+            'rplidar_publisher_node = voiture_system.rplidar_publisher_node:main',
+            'adaptive_track_controller_node = voiture_system.adaptive_track_controller_node:main',
         ],
     },
 )

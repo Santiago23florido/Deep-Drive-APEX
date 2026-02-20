@@ -176,9 +176,10 @@ Also available:
 Lidar/pc/run_subscriber.sh --topic /lidar/scan --full
 ```
 
-## 4) LiDAR-only mapping on PC (new)
+## 4) Mapping on PC using LiDAR + Ackermann odometry
 
-The PC subscriber now supports lightweight LiDAR-only mapping (no odometry / no IMU):
+The PC subscriber supports occupancy-grid mapping with pose from `/odom`
+(recommended for real car kinematics):
 
 ```bash
 cd ~/AiAtonomousRc
@@ -188,7 +189,8 @@ unset ROS_STATIC_PEERS FASTRTPS_DEFAULT_PROFILES_FILE ROS_LOCALHOST_ONLY
 export ROS_DOMAIN_ID=30
 export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-Lidar/pc/run_subscriber.sh --topic /lidar/scan --map --map-plot
+Lidar/pc/run_subscriber.sh --topic /lidar/scan --map --map-plot \
+  --map-pose-source odom --odom-topic /odom
 ```
 
 Useful mapping options:
@@ -196,8 +198,15 @@ Useful mapping options:
 ```bash
 Lidar/pc/run_subscriber.sh --topic /lidar/scan --map --map-plot \
   --map-resolution 0.05 --map-size-m 30 \
-  --scanmatch-max-rot-deg 10 --scanmatch-max-trans-m 0.35 \
+  --map-pose-source odom --odom-topic /odom \
   --map-save-path /tmp/lidar_map.npy
+```
+
+Optional fallback (if `/odom` is unavailable): use scan matching only
+
+```bash
+Lidar/pc/run_subscriber.sh --topic /lidar/scan --map --map-plot \
+  --map-pose-source scanmatch
 ```
 
 `--map-save-path` stores:
@@ -218,3 +227,99 @@ Publisher tuning parameters:
 - `--point-timeout-ms`
 - `--range-min`
 - `--range-max`
+
+Defaults are aligned with the original `full_soft` LiDAR behavior:
+- `--heading-offset-deg -89`
+- `--fov-filter-deg 180`
+- `--point-timeout-ms 1000`
+
+## 6) Raspberry real stack (Jazzy): LiDAR + ESC + Servo + Ackermann odom + SLAM + Nav2
+
+This repository now includes a real ROS2 stack in `src/voiture_system` that keeps the same
+hardware structure used in `full_soft`:
+
+- PWM overlay: `dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4`
+- ESC (motor) on PWM channel `0` (GPIO12)
+- Steering servo on PWM channel `1` (GPIO13)
+- ESC reverse sequence preserved (brake -> neutral -> reverse)
+
+### 6.1 One-time system packages on Raspberry
+
+```bash
+sudo apt update
+sudo apt install -y \
+  ros-jazzy-slam-toolbox \
+  ros-jazzy-navigation2 \
+  ros-jazzy-nav2-bringup \
+  ros-jazzy-nav2-regulated-pure-pursuit-controller \
+  python3-serial
+```
+
+Enable PWM overlay in `/boot/firmware/config.txt`:
+
+```ini
+dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4
+```
+
+Reboot after changing overlay.
+
+### 6.2 Build workspace
+
+```bash
+cd ~/AiAtonomousRc
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select voiture_system --symlink-install
+source install/setup.bash
+```
+
+### 6.3 Launch full real stack
+
+```bash
+ros2 launch voiture_system bringup_real_slam_nav.launch.py \
+  lidar_port:=/dev/ttyUSB0 lidar_baudrate:=256000 \
+  arduino_port:=/dev/ttyACM0 arduino_baudrate:=115200
+```
+
+SLAM-only mode (without Nav2 controller stack):
+
+```bash
+ros2 launch voiture_system bringup_real_slam_nav.launch.py use_nav2:=false
+```
+
+Autonomous track mode with a visible speed cap for tests:
+
+```bash
+ros2 launch voiture_system bringup_real_slam_nav.launch.py \
+  use_auto_track:=true use_nav2:=false \
+  speed_limit_pct:=30.0
+```
+
+`speed_limit_pct` is the easiest test knob:
+- `30` = very conservative
+- `50` = medium
+- `70+` = aggressive
+
+You can also change it live during tests (no relaunch required):
+
+```bash
+ros2 param set /ackermann_drive_node speed_limit_pct 30.0
+ros2 param set /adaptive_track_controller_node speed_limit_pct 30.0
+```
+
+Default Ackermann geometry configured in the launch:
+
+- `wheelbase_m = 0.30` (from 0.15 m COM->rear and symmetric wheelbase assumption)
+- `rear_axle_to_com_m = 0.15`
+- `front_half_track_m = 0.05` (front wheels ±5 cm from centerline)
+
+### 6.4 High-level position control
+
+The stack ignores the legacy movement algorithm and uses ROS2 standard components:
+
+- `slam_toolbox` for online mapping/localization (`map -> odom`)
+- `nav2` (planner + controller) for goal-based position control via `/cmd_vel`
+- `ackermann_drive_node` converts `/cmd_vel` to real ESC + steering PWM commands
+- `adaptive_track_controller_node` can generate `/cmd_vel` directly from LiDAR + map progress
+  with a single continuous algorithm (reactive at start, more anticipative as map quality improves)
+
+You can send goals from RViz2 (`Nav2 Goal`) once the stack is active.

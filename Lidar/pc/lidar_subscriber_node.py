@@ -12,6 +12,7 @@ from typing import Optional
 
 import numpy as np
 import rclpy
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
@@ -35,6 +36,12 @@ def _safe_value_by_angle(msg: LaserScan, ranges: np.ndarray, target_deg: float) 
 
 def _wrap_angle_rad(angle: float) -> float:
     return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def _yaw_from_quaternion(x: float, y: float, z: float, w: float) -> float:
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    return math.atan2(siny_cosp, cosy_cosp)
 
 
 def _downsample_points(points: np.ndarray, max_points: int) -> np.ndarray:
@@ -205,7 +212,7 @@ class OccupancyGridMap:
 class OccupancyMapPlotter:
     """Live occupancy map view."""
 
-    def __init__(self, grid_map: OccupancyGridMap, draw_every_s: float) -> None:
+    def __init__(self, grid_map: OccupancyGridMap, draw_every_s: float, title: str) -> None:
         self._draw_every_s = max(0.05, float(draw_every_s))
         self._last_draw = 0.0
 
@@ -237,7 +244,7 @@ class OccupancyMapPlotter:
         )
         (self._path_line,) = self._ax.plot([], [], color="tab:orange", linewidth=1.2, label="Estimated path")
         self._pose_dot = self._ax.scatter([0.0], [0.0], s=30, c="tab:red", label="Current pose")
-        self._ax.set_title("LiDAR-Only Occupancy Grid")
+        self._ax.set_title(title)
         self._ax.set_xlabel("x [m]")
         self._ax.set_ylabel("y [m]")
         self._ax.set_aspect("equal", adjustable="box")
@@ -276,10 +283,11 @@ class MappingState:
     yaw_deg: float
     rot_score: float
     trans_score: float
+    pose_source: str
 
 
 class LidarOnlyMapper:
-    """LiDAR-only mapper using lightweight scan matching + occupancy integration."""
+    """LiDAR mapper with selectable pose source (scan matching or external odom)."""
 
     def __init__(self, args: argparse.Namespace) -> None:
         self._grid = OccupancyGridMap(
@@ -292,6 +300,10 @@ class LidarOnlyMapper:
 
         self._prev_scan: Optional[np.ndarray] = None
         self._prev_points_for_match: Optional[np.ndarray] = None
+        self._pose_source = str(args.map_pose_source).strip().lower()
+        if self._pose_source not in {"odom", "scanmatch"}:
+            self._pose_source = "odom"
+        self._odom_pose: Optional[np.ndarray] = None
 
         self._scanmatch_max_rot_deg = max(0.5, float(args.scanmatch_max_rot_deg))
         self._scanmatch_max_trans_m = max(0.02, float(args.scanmatch_max_trans_m))
@@ -305,7 +317,19 @@ class LidarOnlyMapper:
         self._save_path = str(args.map_save_path).strip()
         self._plotter: Optional[OccupancyMapPlotter] = None
         if args.map_plot:
-            self._plotter = OccupancyMapPlotter(self._grid, draw_every_s=args.map_plot_every_s)
+            title = (
+                "LiDAR Occupancy Grid (Pose from /odom)"
+                if self._pose_source == "odom"
+                else "LiDAR Occupancy Grid (Scan Matching)"
+            )
+            self._plotter = OccupancyMapPlotter(self._grid, draw_every_s=args.map_plot_every_s, title=title)
+
+    @property
+    def pose_source(self) -> str:
+        return self._pose_source
+
+    def set_odom_pose(self, x_m: float, y_m: float, yaw_rad: float) -> None:
+        self._odom_pose = np.array([float(x_m), float(y_m), float(yaw_rad)], dtype=np.float32)
 
     def _range_valid_mask(self, msg: LaserScan, ranges: np.ndarray) -> np.ndarray:
         valid = np.isfinite(ranges)
@@ -501,7 +525,13 @@ class LidarOnlyMapper:
         rot_score = 0.0
         trans_score = 0.0
 
-        if self._prev_scan is not None and self._prev_points_for_match is not None:
+        if self._pose_source == "odom":
+            if self._odom_pose is None:
+                return None
+            self._pose[:] = self._odom_pose
+            rot_score = 1.0
+            trans_score = 1.0
+        elif self._prev_scan is not None and self._prev_points_for_match is not None:
             delta_theta, rot_score = self._estimate_rotation(
                 self._prev_scan,
                 current_scan,
@@ -546,6 +576,7 @@ class LidarOnlyMapper:
             yaw_deg=math.degrees(float(self._pose[2])),
             rot_score=rot_score,
             trans_score=trans_score,
+            pose_source=self._pose_source,
         )
 
     def shutdown(self) -> None:
@@ -597,9 +628,26 @@ class LidarSubscriberNode(Node):
         if enable_mapping:
             self._mapper = LidarOnlyMapper(args)
             self.get_logger().info("LiDAR-only mapper enabled.")
+            if self._mapper.pose_source == "odom":
+                self.create_subscription(Odometry, args.odom_topic, self._odom_cb, 20)
+                self.get_logger().info(f"Mapping pose source: /odom ({args.odom_topic})")
+            else:
+                self.get_logger().info("Mapping pose source: scan matching")
 
         self.create_subscription(LaserScan, self._topic, self._scan_cb, qos_profile_sensor_data)
         self.get_logger().info(f"Suscrito a {self._topic}")
+
+    def _odom_cb(self, msg: Odometry) -> None:
+        if self._mapper is None:
+            return
+        pose = msg.pose.pose
+        yaw = _yaw_from_quaternion(
+            float(pose.orientation.x),
+            float(pose.orientation.y),
+            float(pose.orientation.z),
+            float(pose.orientation.w),
+        )
+        self._mapper.set_odom_pose(float(pose.position.x), float(pose.position.y), yaw)
 
     def _scan_cb(self, msg: LaserScan) -> None:
         ranges = np.asarray(msg.ranges, dtype=np.float32)
@@ -653,11 +701,12 @@ class LidarSubscriberNode(Node):
 
         if map_state is not None:
             summary += (
-                " | pose=(%.2f, %.2f, %.1fdeg) | match(rot=%.2f trans=%.2f)"
+                " | pose=(%.2f, %.2f, %.1fdeg) src=%s | match(rot=%.2f trans=%.2f)"
                 % (
                     map_state.x_m,
                     map_state.y_m,
                     map_state.yaw_deg,
+                    map_state.pose_source,
                     map_state.rot_score,
                     map_state.trans_score,
                 )
@@ -710,7 +759,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--map",
         action="store_true",
-        help="Enable LiDAR-only occupancy-grid mapping on the PC",
+        help="Enable occupancy-grid mapping on the PC",
     )
     parser.add_argument(
         "--map-plot",
@@ -781,6 +830,17 @@ def parse_args() -> argparse.Namespace:
         "--map-save-path",
         default="",
         help="Optional output path for map probability grid as .npy",
+    )
+    parser.add_argument(
+        "--map-pose-source",
+        choices=["odom", "scanmatch"],
+        default="odom",
+        help="Pose source for mapping: odom (Ackermann kinematics) or scanmatch",
+    )
+    parser.add_argument(
+        "--odom-topic",
+        default="/odom",
+        help="Odometry topic used when --map-pose-source=odom",
     )
 
     return parser.parse_args()
