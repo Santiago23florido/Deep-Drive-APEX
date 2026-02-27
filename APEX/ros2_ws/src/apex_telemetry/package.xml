@@ -2,7 +2,7 @@
 <package format="3">
   <name>apex_telemetry</name>
   <version>0.1.0</version>
-  <description>APEX telemetry pipeline: Arduino Nano accelerometer serial reader and kinematics estimator.</description>
+  <description>APEX telemetry pipeline: Arduino Nano IMU serial reader and kinematics estimator.</description>
   <maintainer email="todo@example.com">APEX Team</maintainer>
   <license>MIT</license>
 

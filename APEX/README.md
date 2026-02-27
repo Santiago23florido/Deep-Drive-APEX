@@ -3,7 +3,7 @@
 APEX is a clean modular stack for Raspberry-based mapping.
 
 Current scope:
-- Arduino Nano 33 IoT accelerometer ingestion
+- Arduino Nano 33 IoT IMU ingestion (accelerometer + gyroscope)
 - LiDAR publishing (`/lidar/scan`)
 - SLAM on Raspberry with `slam_toolbox` (map reconstruction)
 - Remote visualization from PC
@@ -38,9 +38,9 @@ APEX/
 
 ## ROS Graph (Raspberry)
 
-- `nano_accel_serial_node`: serial -> `/apex/imu/acceleration/raw`
-- `kinematics_estimator_node`: `/apex/imu/acceleration/raw` -> kinematics topics
-- `kinematics_odometry_node`: kinematics topics -> `/odom` + TF `odom -> base_link`
+- `nano_accel_serial_node`: serial -> `/apex/imu/acceleration/raw` + `/apex/imu/angular_velocity/raw` + `/apex/imu/data_raw`
+- `kinematics_estimator_node`: IMU raw topics -> kinematics topics + heading/yaw-rate
+- `kinematics_odometry_node`: kinematics + heading/yaw-rate -> `/odom` + TF `odom -> base_link`
 - `rplidar_publisher_node`: `/dev/ttyUSB*` -> `/lidar/scan`
 - `slam_toolbox` (`online_async_launch.py`): `/lidar/scan` + TF -> `/map`, `/tf`
 - `static_transform_publisher`: TF `base_link -> laser`
@@ -54,7 +54,8 @@ Library:
 - `Arduino_LSM6DS3`
 
 Output format:
-- `ax,ay,az` in `m/s^2` at `115200`.
+- `ax,ay,az,gx,gy,gz`
+- acceleration in `m/s^2`, angular velocity in `rad/s` at `115200`.
 
 ## 2) Raspberry (Docker + SLAM)
 
@@ -151,5 +152,5 @@ ros2 run nav2_map_server map_saver_cli -f /work/ros2_ws/maps/apex_map
 ## Notes
 
 - With no wheel encoders and no motor model, LiDAR scan matching is the main mapping reference.
-- The accelerometer branch is still available for telemetry and auxiliary odometry.
+- The IMU branch (accel + gyro) is available for telemetry and auxiliary odometry.
 - If you run into LiDAR serial issues, verify no other process is using `/dev/ttyUSB*`.

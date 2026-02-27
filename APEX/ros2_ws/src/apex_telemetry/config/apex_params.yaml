@@ -6,34 +6,53 @@ nano_accel_serial_node:
     reconnect_delay_s: 1.0
     frame_id: "imu_link"
     topic: "/apex/imu/acceleration/raw"
+    gyro_topic: "/apex/imu/angular_velocity/raw"
+    imu_topic: "/apex/imu/data_raw"
+    publish_imu_topic: true
     log_every_n_invalid: 25
+    log_every_n_no_gyro: 100
 
 kinematics_estimator_node:
   ros__parameters:
     input_topic: "/apex/imu/acceleration/raw"
+    gyro_input_topic: "/apex/imu/angular_velocity/raw"
     acceleration_topic: "/apex/kinematics/acceleration"
     velocity_topic: "/apex/kinematics/velocity"
     position_topic: "/apex/kinematics/position"
+    angular_velocity_topic: "/apex/kinematics/angular_velocity"
+    heading_topic: "/apex/kinematics/heading"
     frame_id: "base_link"
     use_message_time: true
     max_dt_s: 0.1
     accel_low_pass_alpha: 0.35
+    gyro_low_pass_alpha: 0.45
     deadband_mps2: 0.20
+    gyro_deadband_rps: 0.01
+    integrate_accel_in_world_frame: true
+    use_gyro_yaw: true
     gravity_compensation_enabled: true
     gravity_axis: "z"
     accel_bias_x: 0.302
     accel_bias_y: 0.490
     accel_bias_z: -0.063
+    gyro_bias_x: 0.0
+    gyro_bias_y: 0.0
+    gyro_bias_z: 0.0
 
 kinematics_odometry_node:
   ros__parameters:
     position_topic: "/apex/kinematics/position"
     velocity_topic: "/apex/kinematics/velocity"
+    heading_topic: "/apex/kinematics/heading"
+    angular_velocity_topic: "/apex/kinematics/angular_velocity"
     odom_topic: "/odom"
     odom_frame_id: "odom"
     base_frame_id: "base_link"
     publish_rate_hz: 30.0
     publish_tf: true
+    use_heading_topic: true
+    heading_timeout_s: 0.5
+    integrate_yaw_from_rate_when_heading_missing: true
     use_velocity_heading: true
     min_speed_for_heading_mps: 0.05
 

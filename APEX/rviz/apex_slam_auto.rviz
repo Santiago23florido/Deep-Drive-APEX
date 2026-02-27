@@ -94,7 +94,12 @@ Visualization Manager:
       Size (Pixels): 3
       Size (m): 0.019999999552965164
       Style: Flat Squares
-      Topic: /lidar/scan
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /lidar/scan
       Unreliable: true
       Use Fixed Frame: true
       Use rainbow: true
@@ -114,7 +119,7 @@ Visualization Manager:
     - Angle Tolerance: 0.10000000149011612
       Class: rviz_default_plugins/Odometry
       Color: 255; 25; 0
-      Enabled: true
+      Enabled: false
       Keep: 200
       Length: 0.30000001192092896
       Name: Odometry
@@ -175,7 +180,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 18
+      Distance: 8
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
