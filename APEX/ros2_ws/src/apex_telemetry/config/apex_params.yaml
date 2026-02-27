@@ -1,0 +1,50 @@
+nano_accel_serial_node:
+  ros__parameters:
+    serial_port: "/dev/ttyACM0"
+    baudrate: 115200
+    serial_timeout_s: 0.5
+    reconnect_delay_s: 1.0
+    frame_id: "imu_link"
+    topic: "/apex/imu/acceleration/raw"
+    log_every_n_invalid: 25
+
+kinematics_estimator_node:
+  ros__parameters:
+    input_topic: "/apex/imu/acceleration/raw"
+    acceleration_topic: "/apex/kinematics/acceleration"
+    velocity_topic: "/apex/kinematics/velocity"
+    position_topic: "/apex/kinematics/position"
+    frame_id: "base_link"
+    use_message_time: true
+    max_dt_s: 0.1
+    accel_low_pass_alpha: 0.35
+    deadband_mps2: 0.20
+    gravity_compensation_enabled: true
+    gravity_axis: "z"
+    accel_bias_x: 0.302
+    accel_bias_y: 0.490
+    accel_bias_z: -0.063
+
+kinematics_odometry_node:
+  ros__parameters:
+    position_topic: "/apex/kinematics/position"
+    velocity_topic: "/apex/kinematics/velocity"
+    odom_topic: "/odom"
+    odom_frame_id: "odom"
+    base_frame_id: "base_link"
+    publish_rate_hz: 30.0
+    publish_tf: true
+    use_velocity_heading: true
+    min_speed_for_heading_mps: 0.05
+
+apex_rplidar_publisher:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baudrate: 115200
+    topic: "/lidar/scan"
+    frame_id: "laser"
+    heading_offset_deg: -89
+    fov_filter_deg: 180
+    point_timeout_ms: 1000
+    range_min: 0.05
+    range_max: 12.0

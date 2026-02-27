@@ -1,0 +1,24 @@
+services:
+  apex_pipeline:
+    container_name: apex_pipeline
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    devices:
+      - "${APEX_SERIAL_PORT:-/dev/ttyACM0}:${APEX_SERIAL_PORT:-/dev/ttyACM0}"
+      - "${APEX_LIDAR_PORT:-/dev/ttyUSB0}:${APEX_LIDAR_PORT:-/dev/ttyUSB0}"
+    environment:
+      ROS_DOMAIN_ID: "${ROS_DOMAIN_ID:-30}"
+      ROS_AUTOMATIC_DISCOVERY_RANGE: "${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
+      RMW_IMPLEMENTATION: "${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
+      APEX_SERIAL_PORT: "${APEX_SERIAL_PORT:-/dev/ttyACM0}"
+      APEX_BAUDRATE: "${APEX_BAUDRATE:-115200}"
+      APEX_LIDAR_PORT: "${APEX_LIDAR_PORT:-/dev/ttyUSB0}"
+      APEX_LIDAR_BAUDRATE: "${APEX_LIDAR_BAUDRATE:-115200}"
+      APEX_LAUNCH_FILE: "${APEX_LAUNCH_FILE:-apex_lidar_slam.launch.py}"
+    volumes:
+      - ../ros2_ws:/work/ros2_ws
+    working_dir: /work/ros2_ws
+    command: ["/bin/bash", "/work/ros2_ws/scripts/start_apex_pipeline.sh"]
