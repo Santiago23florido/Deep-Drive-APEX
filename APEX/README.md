@@ -7,8 +7,9 @@ Current scope:
 - LiDAR publishing (`/lidar/scan`)
 - SLAM on Raspberry with `slam_toolbox` (map reconstruction)
 - Remote visualization from PC
+- Optional autonomous reconnaissance lap for slow wall-aware mapping
 
-No motor control is included.
+Motor control for reconnaissance is optional and only enabled when explicitly requested.
 
 ## Architecture
 
@@ -88,6 +89,33 @@ APEX_SERIAL_PORT=/dev/ttyACM0 \
 APEX_LIDAR_PORT=/dev/ttyUSB0 \
 APEX_LIDAR_BAUDRATE=115200 \
 docker compose -f docker/docker-compose.yml up --build -d
+```
+
+## 2b) Raspberry (Automatic Reconnaissance Mapping)
+
+This mode starts the same SLAM stack and additionally launches a low-speed LiDAR-based reconnaissance controller that:
+- resets the current `slam_toolbox` map before the first movement command,
+- begins moving automatically,
+- follows open space while staying away from walls,
+- performs a simple reverse recovery if blocked,
+- stops after detecting a closed lap near the start pose,
+- optionally saves the map to `/work/ros2_ws/maps/apex_recon_map`.
+
+Host prerequisites:
+- PWM already configured on the Raspberry (`/sys/class/pwm` available).
+- Steering and motor channels matching the values in `apex_params.yaml`.
+
+Start reconnaissance mapping:
+
+```bash
+cd ~/AiAtonomousRc/APEX
+APEX_ENABLE_RECON_MAPPING=1 ./run_apex.sh -d
+```
+
+Follow logs:
+
+```bash
+docker logs -f apex_pipeline
 ```
 
 Check status:

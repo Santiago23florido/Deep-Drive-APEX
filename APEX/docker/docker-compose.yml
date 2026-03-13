@@ -5,6 +5,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    privileged: true
     network_mode: host
     devices:
       - "${APEX_SERIAL_PORT:-/dev/ttyACM0}:${APEX_SERIAL_PORT:-/dev/ttyACM0}"
@@ -18,7 +19,9 @@ services:
       APEX_LIDAR_PORT: "${APEX_LIDAR_PORT:-/dev/ttyUSB0}"
       APEX_LIDAR_BAUDRATE: "${APEX_LIDAR_BAUDRATE:-115200}"
       APEX_LAUNCH_FILE: "${APEX_LAUNCH_FILE:-apex_lidar_slam.launch.py}"
+      APEX_ENABLE_RECON_MAPPING: "${APEX_ENABLE_RECON_MAPPING:-0}"
     volumes:
       - ../ros2_ws:/work/ros2_ws
+      - /sys/class/pwm:/sys/class/pwm
     working_dir: /work/ros2_ws
     command: ["/bin/bash", "/work/ros2_ws/scripts/start_apex_pipeline.sh"]

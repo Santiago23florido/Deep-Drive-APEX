@@ -4,6 +4,7 @@ set -eo pipefail
 # Some ROS setup scripts reference this variable even when it is unset.
 # Keep it defined to avoid unbound-variable failures in strict shells.
 export AMENT_TRACE_SETUP_FILES="${AMENT_TRACE_SETUP_FILES:-}"
+export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
 source /opt/ros/jazzy/setup.bash
 
@@ -74,6 +75,45 @@ ros2 launch slam_toolbox online_async_launch.py \
   use_sim_time:=false \
   slam_params_file:="${SLAM_PARAMS_FILE}" &
 PIDS+=("$!")
+
+if [ "${APEX_ENABLE_RECON_MAPPING:-0}" = "1" ]; then
+  RECON_ARGS=(
+    --ros-args
+    --params-file "${PARAMS_FILE}"
+  )
+  if [ -n "${APEX_RECON_DIAGNOSTIC_MODE:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_mode:=${APEX_RECON_DIAGNOSTIC_MODE}")
+  fi
+  if [ -n "${APEX_RECON_FIXED_SPEED_PCT:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_fixed_speed_pct:=${APEX_RECON_FIXED_SPEED_PCT}")
+  fi
+  if [ -n "${APEX_RECON_STEP_DURATION_S:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_step_duration_s:=${APEX_RECON_STEP_DURATION_S}")
+  fi
+  if [ -n "${APEX_RECON_LOG_PATH:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_log_path:=${APEX_RECON_LOG_PATH}")
+  fi
+  if [ -n "${APEX_RECON_LOG_FLUSH_EVERY:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_file_flush_every_n_records:=${APEX_RECON_LOG_FLUSH_EVERY}")
+  fi
+  if [ -n "${APEX_RECON_LOG_OVERWRITE:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_overwrite_log_on_start:=${APEX_RECON_LOG_OVERWRITE}")
+  fi
+  if [ -n "${APEX_RECON_TIMEOUT_S:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_recon_timeout_s:=${APEX_RECON_TIMEOUT_S}")
+  fi
+  if [ -n "${APEX_RECON_MAX_RECOVERIES:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_max_recoveries:=${APEX_RECON_MAX_RECOVERIES}")
+  fi
+  if [ -n "${APEX_RECON_MIN_PROGRESS_M:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_min_progress_m:=${APEX_RECON_MIN_PROGRESS_M}")
+  fi
+  if [ -n "${APEX_RECON_LOG_LEVEL:-}" ]; then
+    RECON_ARGS+=(--log-level "${APEX_RECON_LOG_LEVEL}")
+  fi
+  python3 -m apex_telemetry.recon_mapping_node "${RECON_ARGS[@]}" &
+  PIDS+=("$!")
+fi
 
 wait -n
 cleanup
