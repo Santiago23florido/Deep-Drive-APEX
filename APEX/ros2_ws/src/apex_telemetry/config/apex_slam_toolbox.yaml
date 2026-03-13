@@ -10,11 +10,11 @@ slam_toolbox:
     # Stable defaults for embedded LiDAR mapping.
     throttle_scans: 1
     transform_publish_period: 0.02
-    map_update_interval: 1.0
+    map_update_interval: 0.5
     resolution: 0.05
     max_laser_range: 12.0
     # With gyro-informed odom we can process finer motion increments.
-    minimum_time_interval: 0.1
+    minimum_time_interval: 0.05
     transform_timeout: 0.2
     tf_buffer_duration: 30.0
     stack_size_to_use: 40000000

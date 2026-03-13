@@ -58,6 +58,7 @@ class RPLidarPublisherNode(Node):
         self.declare_parameter("heading_offset_deg", -89)
         self.declare_parameter("fov_filter_deg", 180)
         self.declare_parameter("point_timeout_ms", 1000)
+        self.declare_parameter("fill_missing_bins", False)
         self.declare_parameter("range_min", 0.05)
         self.declare_parameter("range_max", 12.0)
 
@@ -73,6 +74,7 @@ class RPLidarPublisherNode(Node):
             heading_offset_deg=int(self.get_parameter("heading_offset_deg").value),
             fov_filter_deg=int(self.get_parameter("fov_filter_deg").value),
             point_timeout_ms=int(self.get_parameter("point_timeout_ms").value),
+            fill_missing_bins=bool(self.get_parameter("fill_missing_bins").value),
         )
 
         self._publisher = self.create_publisher(LaserScan, self._topic, qos_profile_sensor_data)

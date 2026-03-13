@@ -16,6 +16,7 @@ class LidarScanBuffer:
     heading_offset_deg: int = 0
     fov_filter_deg: int = 360
     point_timeout_ms: int = 200
+    fill_missing_bins: bool = False
 
     def __post_init__(self) -> None:
         if self.samples <= 0:
@@ -56,10 +57,12 @@ class LidarScanBuffer:
         ranges = np.roll(self._distances_m, shift).copy()
         timestamps_ms = np.roll(self._last_update_ms, shift)
 
-        # Preserve legacy behavior: fill missing bins with previous valid sample.
-        for i in range(1, self.samples):
-            if ranges[i] == 0.0:
-                ranges[i] = ranges[i - 1]
+        # Optional legacy behavior. Disabled by default to avoid wall smearing
+        # when the platform moves quickly between scan updates.
+        if self.fill_missing_bins:
+            for i in range(1, self.samples):
+                if ranges[i] == 0.0:
+                    ranges[i] = ranges[i - 1]
 
         if self.point_timeout_ms > 0:
             expired = (timestamps_ms > 0.0) & ((current_ms - timestamps_ms) > self.point_timeout_ms)

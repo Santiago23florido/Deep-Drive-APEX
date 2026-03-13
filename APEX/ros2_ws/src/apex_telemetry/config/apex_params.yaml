@@ -23,7 +23,7 @@ kinematics_estimator_node:
     heading_topic: "/apex/kinematics/heading"
     frame_id: "base_link"
     use_message_time: true
-    max_dt_s: 0.1
+    max_dt_s: 0.05
     accel_low_pass_alpha: 0.35
     gyro_low_pass_alpha: 0.45
     deadband_mps2: 0.20
@@ -36,8 +36,8 @@ kinematics_estimator_node:
     accel_bias_y: 0.490
     accel_bias_z: -0.063
     gyro_bias_x: 0.0
-    gyro_bias_y: 0.0
-    gyro_bias_z: 0.0
+    gyro_bias_y: -0.093
+    gyro_bias_z: -0.050
 
 kinematics_odometry_node:
   ros__parameters:
@@ -48,7 +48,7 @@ kinematics_odometry_node:
     odom_topic: "/odom"
     odom_frame_id: "odom"
     base_frame_id: "base_link"
-    publish_rate_hz: 30.0
+    publish_rate_hz: 50.0
     publish_tf: true
     use_heading_topic: true
     heading_timeout_s: 0.5
@@ -63,7 +63,8 @@ apex_rplidar_publisher:
     topic: "/lidar/scan"
     frame_id: "laser"
     heading_offset_deg: -89
-    fov_filter_deg: 180
-    point_timeout_ms: 1000
+    fov_filter_deg: 360
+    point_timeout_ms: 120
+    fill_missing_bins: false
     range_min: 0.05
     range_max: 12.0

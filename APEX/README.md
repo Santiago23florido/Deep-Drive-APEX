@@ -149,6 +149,54 @@ ros2 run nav2_map_server map_saver_cli -f /work/ros2_ws/maps/apex_map
 '
 ```
 
+## Quick Reset and Restart (Raspberry + PC)
+
+Use this sequence when you want to discard the previous SLAM map and start a fresh mapping session.
+
+Important:
+- On the Raspberry host, do not run `source /opt/ros/jazzy/setup.bash`; ROS runs inside Docker.
+- The reset below deletes the last saved `apex_map.yaml` and `apex_map.pgm` if they exist.
+
+### Raspberry Terminal 1 (restart SLAM from scratch)
+
+```bash
+cd ~/Voiture-Autonome/code/APEX
+docker compose -f docker/docker-compose.yml down --remove-orphans
+rm -f ros2_ws/maps/apex_map.yaml ros2_ws/maps/apex_map.pgm
+APEX_SERIAL_PORT=/dev/ttyACM0 \
+APEX_LIDAR_PORT=/dev/ttyUSB0 \
+APEX_LIDAR_BAUDRATE=115200 \
+./run_apex.sh -d
+```
+
+### Raspberry Terminal 2 (optional: monitor container logs)
+
+```bash
+docker logs -f apex_pipeline
+```
+
+### PC Terminal 1 (restart RViz and display the fresh map)
+
+```bash
+cd ~/AiAtonomousRc/APEX
+pkill -f rviz2 || true
+source /opt/ros/jazzy/setup.bash
+unset ROS_STATIC_PEERS FASTRTPS_DEFAULT_PROFILES_FILE ROS_LOCALHOST_ONLY
+export ROS_DOMAIN_ID=30
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+./run_apex_rviz_pc.sh
+```
+
+### Raspberry Terminal 3 (optional: verify active topics)
+
+```bash
+docker exec -it apex_pipeline bash -lc '
+source /opt/ros/jazzy/setup.bash
+ros2 topic list | egrep "/lidar/scan|/map|/odom|/apex"
+'
+```
+
 ## Notes
 
 - With no wheel encoders and no motor model, LiDAR scan matching is the main mapping reference.
