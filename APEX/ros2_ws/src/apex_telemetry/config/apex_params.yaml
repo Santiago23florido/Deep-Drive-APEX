@@ -1,0 +1,142 @@
+nano_accel_serial_node:
+  ros__parameters:
+    serial_port: "/dev/ttyACM0"
+    baudrate: 115200
+    serial_timeout_s: 0.5
+    reconnect_delay_s: 1.0
+    frame_id: "imu_link"
+    topic: "/apex/imu/acceleration/raw"
+    gyro_topic: "/apex/imu/angular_velocity/raw"
+    imu_topic: "/apex/imu/data_raw"
+    publish_imu_topic: true
+    log_every_n_invalid: 25
+    log_every_n_no_gyro: 100
+
+kinematics_estimator_node:
+  ros__parameters:
+    input_topic: "/apex/imu/acceleration/raw"
+    gyro_input_topic: "/apex/imu/angular_velocity/raw"
+    acceleration_topic: "/apex/kinematics/acceleration"
+    velocity_topic: "/apex/kinematics/velocity"
+    position_topic: "/apex/kinematics/position"
+    angular_velocity_topic: "/apex/kinematics/angular_velocity"
+    heading_topic: "/apex/kinematics/heading"
+    frame_id: "base_link"
+    use_message_time: true
+    max_dt_s: 0.05
+    accel_low_pass_alpha: 0.35
+    gyro_low_pass_alpha: 0.45
+    deadband_mps2: 0.20
+    gyro_deadband_rps: 0.01
+    integrate_accel_in_world_frame: true
+    use_gyro_yaw: true
+    gravity_compensation_enabled: true
+    gravity_axis: "z"
+    accel_bias_x: 0.302
+    accel_bias_y: 0.490
+    accel_bias_z: -0.063
+    gyro_bias_x: 0.0
+    gyro_bias_y: -0.093
+    gyro_bias_z: -0.050
+
+kinematics_odometry_node:
+  ros__parameters:
+    position_topic: "/apex/kinematics/position"
+    velocity_topic: "/apex/kinematics/velocity"
+    heading_topic: "/apex/kinematics/heading"
+    angular_velocity_topic: "/apex/kinematics/angular_velocity"
+    odom_topic: "/odom"
+    odom_frame_id: "odom"
+    base_frame_id: "base_link"
+    publish_rate_hz: 50.0
+    publish_tf: true
+    use_heading_topic: true
+    heading_timeout_s: 0.5
+    integrate_yaw_from_rate_when_heading_missing: true
+    use_velocity_heading: true
+    min_speed_for_heading_mps: 0.05
+
+apex_rplidar_publisher:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baudrate: 115200
+    topic: "/lidar/scan"
+    frame_id: "laser"
+    heading_offset_deg: -89
+    fov_filter_deg: 360
+    point_timeout_ms: 120
+    fill_missing_bins: false
+    range_min: 0.05
+    range_max: 12.0
+
+apex_recon_mapping_node:
+  ros__parameters:
+    scan_topic: "/lidar/scan"
+    scan_timeout_s: 0.6
+    control_rate_hz: 10.0
+    map_frame: "map"
+    base_frame: "base_link"
+    heading_offset_deg: -89
+
+    steering_channel: 1
+    steering_frequency_hz: 50.0
+    steering_limit_deg: 18.0
+    steering_dc_min: 5.0
+    steering_dc_max: 8.6
+    steering_center_trim_dc: 0.0
+
+    motor_channel: 0
+    motor_frequency_hz: 50.0
+    motor_dc_min: 5.0
+    motor_dc_max: 10.0
+    motor_neutral_dc: 7.5
+    reverse_brake_dc: 6.9
+    reverse_brake_hold_s: 0.12
+    reverse_neutral_hold_s: 0.12
+    reverse_exit_hold_s: 0.15
+
+    explore_min_speed_pct: 18.0
+    explore_max_speed_pct: 24.0
+    recovery_reverse_speed_pct: 30.0
+    recovery_duration_s: 0.8
+    recovery_trigger_distance_m: 0.30
+    recovery_trigger_cycles: 4
+
+    stop_distance_m: 0.35
+    slow_distance_m: 0.90
+    front_window_deg: 12
+    side_window_deg: 70
+    fov_half_angle_deg: 90.0
+    steering_gain: 0.35
+    center_angle_penalty_per_deg: 0.012
+    wall_centering_gain_deg_per_m: 45.0
+    wall_centering_limit_deg: 18.0
+    wall_centering_base_weight: 0.90
+    turn_speed_reduction: 0.35
+    min_turn_speed_factor: 0.70
+    smoothing_window: 9
+    vehicle_half_width_m: 0.11
+    vehicle_front_overhang_m: 0.11
+    vehicle_rear_overhang_m: 0.31
+
+    enable_autostop_on_lap: true
+    lap_min_duration_s: 25.0
+    lap_min_path_length_m: 8.0
+    lap_depart_radius_m: 1.2
+    lap_return_radius_m: 0.6
+    save_map_on_completion: true
+    map_output_prefix: "/work/ros2_ws/maps/apex_recon_map"
+    reset_map_on_start: true
+    reset_service_name: "/slam_toolbox/reset"
+    clear_previous_saved_map_files: true
+
+    diagnostic_mode: "all"
+    diagnostic_fixed_speed_pct: 18.0
+    diagnostic_step_duration_s: 1.2
+    diagnostic_log_every_n_cycles: 1
+    diagnostic_log_path: "/work/ros2_ws/logs/recon_diagnostic.log"
+    diagnostic_file_flush_every_n_records: 5
+    diagnostic_overwrite_log_on_start: true
+    diagnostic_recon_timeout_s: 25.0
+    diagnostic_max_recoveries: 4
+    diagnostic_min_progress_m: 0.30

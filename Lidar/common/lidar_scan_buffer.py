@@ -59,6 +59,12 @@ class LidarScanBuffer:
         ranges = np.roll(self._distances_m, shift).copy()
         timestamps_ms = np.roll(self._last_update_ms, shift)
 
+        # Keep the same behavior used in full_soft:
+        # fill missing angular slots with the previous valid slot.
+        for i in range(1, self.samples):
+            if ranges[i] == 0.0:
+                ranges[i] = ranges[i - 1]
+
         if self.point_timeout_ms > 0:
             expired = (timestamps_ms > 0.0) & ((current_ms - timestamps_ms) > self.point_timeout_ms)
             ranges[expired] = 0.0
