@@ -98,6 +98,9 @@ class ReconMappingNode(Node):
         self._steering_center_trim_dc = float(
             self.get_parameter("steering_center_trim_dc").value
         )
+        self._steering_direction_sign = float(
+            self.get_parameter("steering_direction_sign").value
+        )
         self._steering_gain = float(self.get_parameter("steering_gain").value)
         self._wall_centering_gain_deg_per_m = float(
             self.get_parameter("wall_centering_gain_deg_per_m").value
@@ -105,6 +108,11 @@ class ReconMappingNode(Node):
         self._wall_centering_base_weight = float(
             self.get_parameter("wall_centering_base_weight").value
         )
+        self._wall_avoid_distance_m = float(self.get_parameter("wall_avoid_distance_m").value)
+        self._wall_avoid_gain_deg_per_m = float(
+            self.get_parameter("wall_avoid_gain_deg_per_m").value
+        )
+        self._wall_avoid_limit_deg = float(self.get_parameter("wall_avoid_limit_deg").value)
         self._stop_distance_m = float(self.get_parameter("stop_distance_m").value)
         self._slow_distance_m = float(self.get_parameter("slow_distance_m").value)
         self._front_window_deg = max(1, int(self.get_parameter("front_window_deg").value))
@@ -156,6 +164,16 @@ class ReconMappingNode(Node):
                 self.get_parameter("wall_centering_limit_deg").value
             ),
             wall_centering_base_weight=self._wall_centering_base_weight,
+            wall_avoid_distance_m=self._wall_avoid_distance_m,
+            wall_avoid_gain_deg_per_m=self._wall_avoid_gain_deg_per_m,
+            wall_avoid_limit_deg=self._wall_avoid_limit_deg,
+            gap_escape_heading_threshold_deg=float(
+                self.get_parameter("gap_escape_heading_threshold_deg").value
+            ),
+            gap_escape_release_distance_m=float(
+                self.get_parameter("gap_escape_release_distance_m").value
+            ),
+            gap_escape_weight=float(self.get_parameter("gap_escape_weight").value),
             turn_speed_reduction=float(self.get_parameter("turn_speed_reduction").value),
             min_turn_speed_factor=float(self.get_parameter("min_turn_speed_factor").value),
             vehicle_half_width_m=float(self.get_parameter("vehicle_half_width_m").value),
@@ -182,6 +200,7 @@ class ReconMappingNode(Node):
             dc_min=float(self.get_parameter("steering_dc_min").value),
             dc_max=float(self.get_parameter("steering_dc_max").value),
             center_trim_dc=self._steering_center_trim_dc,
+            direction_sign=self._steering_direction_sign,
             logger=self.get_logger(),
         )
 
@@ -259,6 +278,7 @@ class ReconMappingNode(Node):
         self.declare_parameter("steering_dc_min", 5.0)
         self.declare_parameter("steering_dc_max", 8.6)
         self.declare_parameter("steering_center_trim_dc", 0.0)
+        self.declare_parameter("steering_direction_sign", 1.0)
 
         self.declare_parameter("motor_channel", 0)
         self.declare_parameter("motor_frequency_hz", 50.0)
@@ -284,9 +304,15 @@ class ReconMappingNode(Node):
         self.declare_parameter("fov_half_angle_deg", 90.0)
         self.declare_parameter("steering_gain", 0.35)
         self.declare_parameter("center_angle_penalty_per_deg", 0.012)
-        self.declare_parameter("wall_centering_gain_deg_per_m", 45.0)
+        self.declare_parameter("wall_centering_gain_deg_per_m", 18.0)
         self.declare_parameter("wall_centering_limit_deg", 18.0)
-        self.declare_parameter("wall_centering_base_weight", 0.90)
+        self.declare_parameter("wall_centering_base_weight", 0.35)
+        self.declare_parameter("wall_avoid_distance_m", 0.45)
+        self.declare_parameter("wall_avoid_gain_deg_per_m", 25.0)
+        self.declare_parameter("wall_avoid_limit_deg", 20.0)
+        self.declare_parameter("gap_escape_heading_threshold_deg", 45.0)
+        self.declare_parameter("gap_escape_release_distance_m", 0.18)
+        self.declare_parameter("gap_escape_weight", 0.35)
         self.declare_parameter("turn_speed_reduction", 0.35)
         self.declare_parameter("min_turn_speed_factor", 0.70)
         self.declare_parameter("smoothing_window", 9)
@@ -305,8 +331,8 @@ class ReconMappingNode(Node):
         self.declare_parameter("reset_service_name", "/slam_toolbox/reset")
         self.declare_parameter("clear_previous_saved_map_files", True)
 
-        self.declare_parameter("diagnostic_mode", "all")
-        self.declare_parameter("diagnostic_fixed_speed_pct", 18.0)
+        self.declare_parameter("diagnostic_mode", "calibration")
+        self.declare_parameter("diagnostic_fixed_speed_pct", 10.0)
         self.declare_parameter("diagnostic_step_duration_s", 1.2)
         self.declare_parameter("diagnostic_log_every_n_cycles", 1)
         self.declare_parameter("diagnostic_log_path", "/work/ros2_ws/logs/recon_diagnostic.log")
@@ -340,14 +366,28 @@ class ReconMappingNode(Node):
         mode = self._diagnostic_mode
         if mode == "off":
             return ["recon_debug"]
-        if mode in {"steering_static", "straight_open_loop", "steering_sign_check", "recon_debug"}:
+        if mode == "calibration":
+            return ["steering_static", "straight_open_loop"]
+        if mode in {
+            "steering_static",
+            "straight_open_loop",
+            "steering_sign_check",
+            "nav_dryrun",
+            "recon_debug",
+        }:
             return [mode]
         if mode == "all":
-            return ["steering_static", "straight_open_loop", "steering_sign_check", "recon_debug"]
-        self.get_logger().warning("Unknown diagnostic_mode=%s, falling back to all" % mode)
-        self._diagnostic_mode = "all"
+            return [
+                "steering_static",
+                "straight_open_loop",
+                "steering_sign_check",
+                "nav_dryrun",
+                "recon_debug",
+            ]
+        self.get_logger().warning("Unknown diagnostic_mode=%s, falling back to calibration" % mode)
+        self._diagnostic_mode = "calibration"
         self._diagnostic_enabled = True
-        return ["steering_static", "straight_open_loop", "steering_sign_check", "recon_debug"]
+        return ["steering_static", "straight_open_loop"]
 
     def _steps_for_phase(self, phase_name: str) -> list[DiagnosticStep]:
         duration = self._diagnostic_step_duration_s
@@ -394,6 +434,7 @@ class ReconMappingNode(Node):
         self._blocked_cycles = 0
         self._recovery_deadline = None
         self._recovery_events = 0
+        self._mapping_started_at = None
         if self._active_phase_name == "recon_debug":
             self._reset_lap_tracking()
         self.get_logger().info("Starting diagnostic phase %s" % self._active_phase_name)
@@ -448,17 +489,19 @@ class ReconMappingNode(Node):
             self._apply_command(0.0, 0.0)
             return
 
-        if not self._ensure_startup_map_reset():
-            self._apply_command(0.0, 0.0)
-            return
-
         if self._active_phase_name is None:
             self._start_next_phase(now)
             if self._diagnostic_completed:
                 return
 
+        if self._active_phase_name != "nav_dryrun" and not self._ensure_startup_map_reset():
+            self._apply_command(0.0, 0.0)
+            return
+
         if self._active_phase_name == "recon_debug":
             self._run_recon_debug(now)
+        elif self._active_phase_name == "nav_dryrun":
+            self._run_nav_dryrun(now)
         else:
             self._run_scripted_phase(now)
 
@@ -473,7 +516,7 @@ class ReconMappingNode(Node):
             self._active_step_name = self._active_steps[0].name
 
         current_step = self._active_steps[self._active_step_index]
-        scan_command, front_min_m = self._build_scan_diagnostics()
+        scan_command, front_min_m, scan_age_s = self._build_scan_diagnostics()
         self._apply_command(current_step.speed_pct, current_step.steering_deg)
         pose_diag = self._build_pose_diag()
 
@@ -488,6 +531,7 @@ class ReconMappingNode(Node):
             nav_command=scan_command,
             front_min_m=front_min_m,
             pose_diag=pose_diag,
+            scan_age_s=scan_age_s,
         )
 
         if self._active_step_started_at is None:
@@ -514,6 +558,13 @@ class ReconMappingNode(Node):
             if age_s is not None and age_s > self._scan_timeout_s:
                 self.get_logger().warning("Stopping: LiDAR scan timeout %.2fs" % age_s)
             self._apply_command(0.0, 0.0)
+            self._phase_cycle += 1
+            self._maybe_emit_cycle_logs(
+                nav_command=None,
+                front_min_m=None,
+                pose_diag=self._build_pose_diag(),
+                scan_age_s=age_s,
+            )
             return
 
         if self._mapping_started_at is None:
@@ -529,7 +580,10 @@ class ReconMappingNode(Node):
 
         if self._recovery_deadline is not None and now < self._recovery_deadline:
             self._active_step_name = "recovery_reverse"
-            scan_command, front_min_m = self._build_scan_diagnostics(scan)
+            scan_command, front_min_m, scan_age_s = self._build_scan_diagnostics(
+                scan,
+                scan_age_s=age_s,
+            )
             self._apply_command(self._recovery_reverse_speed_pct, 0.0)
             pose_diag = self._build_pose_diag()
             self._phase_cycle += 1
@@ -543,6 +597,7 @@ class ReconMappingNode(Node):
                 nav_command=scan_command,
                 front_min_m=front_min_m,
                 pose_diag=pose_diag,
+                scan_age_s=scan_age_s,
             )
             return
 
@@ -591,6 +646,7 @@ class ReconMappingNode(Node):
                 nav_command=command,
                 front_min_m=self._compute_front_min(scan),
                 pose_diag=pose_diag,
+                scan_age_s=age_s,
             )
             return
 
@@ -609,6 +665,52 @@ class ReconMappingNode(Node):
             nav_command=command,
             front_min_m=self._compute_front_min(scan),
             pose_diag=pose_diag,
+            scan_age_s=age_s,
+        )
+
+    def _run_nav_dryrun(self, now: Time) -> None:
+        scan, age_s = self._get_fresh_scan()
+        self._active_step_name = "dryrun"
+
+        if self._mapping_started_at is None:
+            self._mapping_started_at = now
+            self.get_logger().info("Navigation dry-run started")
+        elif self._duration_since(self._mapping_started_at, now) >= self._diagnostic_recon_timeout_s:
+            self.get_logger().warning(
+                "Ending nav_dryrun after %.1fs"
+                % self._diagnostic_recon_timeout_s
+            )
+            self._end_current_phase("nav_dryrun_timeout", now)
+            return
+
+        if scan is None:
+            if age_s is not None and age_s > self._scan_timeout_s:
+                self.get_logger().warning("Dry-run: LiDAR scan timeout %.2fs" % age_s)
+            self._phase_cycle += 1
+            self._maybe_emit_cycle_logs(
+                nav_command=None,
+                front_min_m=None,
+                pose_diag=self._build_pose_diag(),
+                scan_age_s=age_s,
+            )
+            return
+
+        command = self._navigator.compute_command(scan)
+        self._last_command = command
+        pose_diag = self._build_pose_diag()
+
+        self._phase_cycle += 1
+        self._update_phase_stats(
+            applied_speed_pct=0.0,
+            applied_steering_deg=command.steering_pre_servo_deg,
+            nav_command=command,
+            pose_diag=pose_diag,
+        )
+        self._maybe_emit_cycle_logs(
+            nav_command=command,
+            front_min_m=self._compute_front_min(scan),
+            pose_diag=pose_diag,
+            scan_age_s=age_s,
         )
 
     def _apply_command(self, speed_pct: float, steering_deg: float) -> None:
@@ -618,14 +720,18 @@ class ReconMappingNode(Node):
     def _build_scan_diagnostics(
         self,
         scan_override: Optional[np.ndarray] = None,
-    ) -> tuple[Optional[ReconCommand], Optional[float]]:
+        *,
+        scan_age_s: Optional[float] = None,
+    ) -> tuple[Optional[ReconCommand], Optional[float], Optional[float]]:
         scan = scan_override
         if scan is None:
-            scan, _ = self._get_fresh_scan()
+            scan, scan_age_s = self._get_fresh_scan()
+        elif scan_age_s is None and self._latest_scan_stamp is not None:
+            scan_age_s = (self.get_clock().now() - self._latest_scan_stamp).nanoseconds * 1e-9
         if scan is None:
-            return None, None
+            return None, None, scan_age_s
         command = self._navigator.compute_command(scan)
-        return command, self._compute_front_min(scan)
+        return command, self._compute_front_min(scan), scan_age_s
 
     def _get_fresh_scan(self) -> tuple[Optional[np.ndarray], Optional[float]]:
         if self._latest_scan is None or self._latest_scan_stamp is None:
@@ -746,6 +852,7 @@ class ReconMappingNode(Node):
         nav_command: Optional[ReconCommand],
         front_min_m: Optional[float],
         pose_diag: dict[str, Optional[float]],
+        scan_age_s: Optional[float],
     ) -> None:
         if not self._diagnostic_enabled:
             return
@@ -760,9 +867,16 @@ class ReconMappingNode(Node):
                 "DIAG_SCAN",
                 {
                     "heading_offset_deg": self._heading_offset_deg,
+                    "scan_age_s": scan_age_s,
                     "front_clearance_m": None,
+                    "effective_front_clearance_m": None,
+                    "front_clearance_fallback_used": None,
+                    "front_left_clearance_m": None,
+                    "front_right_clearance_m": None,
                     "left_clearance_m": None,
                     "right_clearance_m": None,
+                    "left_min_m": None,
+                    "right_min_m": None,
                     "front_min_m": front_min_m,
                     "left_right_delta_m": None,
                 },
@@ -771,9 +885,13 @@ class ReconMappingNode(Node):
                 "DIAG_NAV",
                 {
                     "gap_heading_deg": None,
+                    "front_turn_heading_deg": None,
                     "centering_heading_deg": None,
+                    "avoidance_heading_deg": None,
                     "centering_weight": None,
+                    "active_heading_source": None,
                     "target_heading_deg": None,
+                    "steering_pre_servo_deg": None,
                     "steering_deg": None,
                     "speed_pct": None,
                 },
@@ -783,9 +901,16 @@ class ReconMappingNode(Node):
                 "DIAG_SCAN",
                 {
                     "heading_offset_deg": self._heading_offset_deg,
+                    "scan_age_s": scan_age_s,
                     "front_clearance_m": nav_command.front_clearance_m,
+                    "effective_front_clearance_m": nav_command.effective_front_clearance_m,
+                    "front_clearance_fallback_used": nav_command.front_clearance_fallback_used,
+                    "front_left_clearance_m": nav_command.front_left_clearance_m,
+                    "front_right_clearance_m": nav_command.front_right_clearance_m,
                     "left_clearance_m": nav_command.left_clearance_m,
                     "right_clearance_m": nav_command.right_clearance_m,
+                    "left_min_m": nav_command.left_min_m,
+                    "right_min_m": nav_command.right_min_m,
                     "front_min_m": front_min_m,
                     "left_right_delta_m": nav_command.left_right_delta_m,
                 },
@@ -794,9 +919,13 @@ class ReconMappingNode(Node):
                 "DIAG_NAV",
                 {
                     "gap_heading_deg": nav_command.gap_heading_deg,
+                    "front_turn_heading_deg": nav_command.front_turn_heading_deg,
                     "centering_heading_deg": nav_command.centering_heading_deg,
+                    "avoidance_heading_deg": nav_command.avoidance_heading_deg,
                     "centering_weight": nav_command.centering_weight,
+                    "active_heading_source": nav_command.active_heading_source,
                     "target_heading_deg": nav_command.target_heading_deg,
+                    "steering_pre_servo_deg": nav_command.steering_pre_servo_deg,
                     "steering_deg": nav_command.steering_deg,
                     "speed_pct": nav_command.speed_pct,
                 },
@@ -812,6 +941,7 @@ class ReconMappingNode(Node):
             {
                 "heading_offset_deg": self._heading_offset_deg,
                 "steering_center_trim_dc": self._steering_center_trim_dc,
+                "steering_direction_sign": self._steering_direction_sign,
                 "diagnostic_mode": self._diagnostic_mode,
                 "diagnostic_fixed_speed_pct": self._diagnostic_fixed_speed_pct,
                 "diagnostic_step_duration_s": self._diagnostic_step_duration_s,
@@ -827,6 +957,16 @@ class ReconMappingNode(Node):
                 "steering_gain": self._steering_gain,
                 "wall_centering_gain_deg_per_m": self._wall_centering_gain_deg_per_m,
                 "wall_centering_base_weight": self._wall_centering_base_weight,
+                "wall_avoid_distance_m": self._wall_avoid_distance_m,
+                "wall_avoid_gain_deg_per_m": self._wall_avoid_gain_deg_per_m,
+                "wall_avoid_limit_deg": self._wall_avoid_limit_deg,
+                "gap_escape_heading_threshold_deg": (
+                    self._navigator._gap_escape_heading_threshold_deg
+                ),
+                "gap_escape_release_distance_m": (
+                    self._navigator._gap_escape_release_distance_m
+                ),
+                "gap_escape_weight": self._navigator._gap_escape_weight,
                 "stop_distance_m": self._stop_distance_m,
                 "slow_distance_m": self._slow_distance_m,
             },

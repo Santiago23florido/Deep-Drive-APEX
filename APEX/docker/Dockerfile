@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-serial \
     python3-venv \
     ros-jazzy-nav2-map-server \
+    ros-jazzy-ros2bag \
+    ros-jazzy-rosbag2-storage-default-plugins \
+    ros-jazzy-rosbag2-storage-mcap \
     ros-jazzy-slam-toolbox \
     ros-dev-tools \
   && python3 -m venv --system-site-packages /opt/apex_venv \

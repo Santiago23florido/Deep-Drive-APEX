@@ -17,6 +17,7 @@ class SteeringServo:
         dc_min: float,
         dc_max: float,
         center_trim_dc: float,
+        direction_sign: float,
         logger,
     ) -> None:
         self._logger = logger
@@ -24,9 +25,12 @@ class SteeringServo:
         self._dc_min = float(dc_min)
         self._dc_max = float(dc_max)
         self._center_trim_dc = float(center_trim_dc)
+        self._direction_sign = -1.0 if float(direction_sign) < 0.0 else 1.0
         self._dc_center = 0.5 * (self._dc_min + self._dc_max) + self._center_trim_dc
         self._variation_per_deg = 0.5 * (self._dc_max - self._dc_min) / self._limit_deg
         self._requested_angle_deg = 0.0
+        self._pre_sign_angle_deg = 0.0
+        self._post_sign_angle_deg = 0.0
         self._clamped_angle_deg = 0.0
         self._last_duty_cycle_pct = self._dc_center
 
@@ -37,11 +41,14 @@ class SteeringServo:
     def set_angle_deg(self, angle_deg: float) -> None:
         self._requested_angle_deg = float(angle_deg)
         bounded = max(-self._limit_deg, min(self._limit_deg, self._requested_angle_deg))
-        duty_cycle = self._dc_center + bounded * self._variation_per_deg
+        signed_angle_deg = bounded * self._direction_sign
+        duty_cycle = self._dc_center + signed_angle_deg * self._variation_per_deg
         self._pwm.set_duty_cycle(duty_cycle)
-        self._clamped_angle_deg = bounded
+        self._pre_sign_angle_deg = bounded
+        self._post_sign_angle_deg = signed_angle_deg
+        self._clamped_angle_deg = signed_angle_deg
         self._last_duty_cycle_pct = duty_cycle
-        self._current_angle_deg = bounded
+        self._current_angle_deg = signed_angle_deg
 
     def center(self) -> None:
         self.set_angle_deg(0.0)
@@ -53,10 +60,13 @@ class SteeringServo:
     def get_state(self) -> dict[str, float]:
         return {
             "requested_deg": self._requested_angle_deg,
+            "pre_sign_deg": self._pre_sign_angle_deg,
+            "post_sign_deg": self._post_sign_angle_deg,
             "clamped_deg": self._clamped_angle_deg,
             "pwm_dc": self._last_duty_cycle_pct,
             "dc_center": self._dc_center,
             "center_trim_dc": self._center_trim_dc,
+            "steering_direction_sign": self._direction_sign,
             "steering_limit_deg": self._limit_deg,
         }
 

@@ -177,6 +177,145 @@ ros2 run nav2_map_server map_saver_cli -f /work/ros2_ws/maps/apex_map
 '
 ```
 
+## 5b) Directed Wall-Approach Debugging
+
+This workflow isolates three possible causes when the vehicle sees free space on one side but turns the other way:
+- navigation logic sign mismatch,
+- LiDAR heading offset mismatch,
+- steering servo sign mismatch.
+
+Every debug run can persist a bundle under `ros2_ws/debug_runs/<run_id>_<UTC timestamp>/` with:
+- `recon_diagnostic.log`
+- `docker_tail.log`
+- `run_metadata.json`
+- config snapshots
+- rosbag2 MCAP capture
+
+### Raspberry: Stage 1, servo static
+
+```bash
+cd ~/Voiture-Autonome/code/APEX
+APEX_ENABLE_RECON_MAPPING=1 \
+APEX_RECORD_DEBUG=1 \
+APEX_DEBUG_RUN_ID=01_servo_static \
+APEX_RECON_DIAGNOSTIC_MODE=steering_static \
+./run_apex.sh -d
+```
+
+### Raspberry: Stage 2, servo sign check
+
+```bash
+cd ~/Voiture-Autonome/code/APEX
+APEX_ENABLE_RECON_MAPPING=1 \
+APEX_RECORD_DEBUG=1 \
+APEX_DEBUG_RUN_ID=02_servo_sign_check \
+APEX_RECON_DIAGNOSTIC_MODE=steering_sign_check \
+APEX_RECON_FIXED_SPEED_PCT=10.0 \
+./run_apex.sh -d
+```
+
+If the physical steering direction is inverted, repeat the same run with:
+
+```bash
+APEX_STEERING_DIRECTION_SIGN=-1
+```
+
+### Raspberry: Stage 3, logic dry-run with space open on the right
+
+This computes the full navigation decision from the live LiDAR scan, but does not drive the vehicle.
+
+```bash
+cd ~/Voiture-Autonome/code/APEX
+APEX_ENABLE_RECON_MAPPING=1 \
+APEX_RECORD_DEBUG=1 \
+APEX_DEBUG_RUN_ID=03_nav_dryrun_right_open \
+APEX_RECON_DIAGNOSTIC_MODE=nav_dryrun \
+./run_apex.sh -d
+```
+
+### Raspberry: Stage 4, logic dry-run with space open on the left
+
+```bash
+cd ~/Voiture-Autonome/code/APEX
+APEX_ENABLE_RECON_MAPPING=1 \
+APEX_RECORD_DEBUG=1 \
+APEX_DEBUG_RUN_ID=04_nav_dryrun_left_open \
+APEX_RECON_DIAGNOSTIC_MODE=nav_dryrun \
+./run_apex.sh -d
+```
+
+### Raspberry: Stage 5, LiDAR orientation checks
+
+Run three static captures with the wall physically placed in front, on the right, and on the left. Use different `APEX_DEBUG_RUN_ID` values such as:
+- `05_orientation_front_wall`
+- `05_orientation_right_wall`
+- `05_orientation_left_wall`
+
+If the scan sectors are mirrored or rotated, adjust:
+
+```bash
+APEX_LIDAR_HEADING_OFFSET_DEG=<new_offset_deg>
+```
+
+### Raspberry: Stage 6+, slow wall approach
+
+```bash
+cd ~/Voiture-Autonome/code/APEX
+APEX_ENABLE_RECON_MAPPING=1 \
+APEX_RECORD_DEBUG=1 \
+APEX_DEBUG_RUN_ID=06_single_wall_right \
+APEX_RECON_DIAGNOSTIC_MODE=recon_debug \
+APEX_RECON_FIXED_SPEED_PCT=8.0 \
+./run_apex.sh -d
+```
+
+Mirror the same run for the left wall:
+
+```bash
+APEX_DEBUG_RUN_ID=07_single_wall_left
+```
+
+### PC: fetch one bundle from Raspberry
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/fetch_debug_run.sh ensta@raspberrypi.local latest
+```
+
+### PC: analyze one bundle
+
+```bash
+cd ~/AiAtonomousRc/APEX
+python3 ./tools/analyze_debug_run.py ./debug_runs/<run_id>
+```
+
+Artifacts are written under:
+
+```bash
+./debug_runs/<run_id>/analysis/
+```
+
+Key files:
+- `summary.md`
+- `decision_timeline.csv`
+- `flags.json`
+- `plots/headings.svg`
+- `plots/clearances.svg`
+
+### PC: replay navigation from the recorded bag
+
+```bash
+cd ~/AiAtonomousRc/APEX
+python3 ./tools/replay_nav_from_bag.py ./debug_runs/<run_id>
+```
+
+### PC: replay the run in RViz
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/review_debug_run.sh ./debug_runs/<run_id>
+```
+
 ## Quick Reset and Restart (Raspberry + PC)
 
 Use this sequence when you want to discard the previous SLAM map and start a fresh mapping session.
