@@ -9,6 +9,8 @@ from .hardware_pwm import HardwarePWM
 
 
 class SteeringServo:
+    _LEGACY_CENTER_OFFSET_DC = -0.33
+
     def __init__(
         self,
         channel: int,
@@ -24,8 +26,18 @@ class SteeringServo:
         self._dc_min = float(dc_min)
         self._dc_max = float(dc_max)
         self._center_trim_dc = float(center_trim_dc)
-        self._dc_center = 0.5 * (self._dc_min + self._dc_max) + self._center_trim_dc
-        self._variation_per_deg = 0.5 * (self._dc_max - self._dc_min) / self._limit_deg
+        requested_center = (
+            0.5 * (self._dc_min + self._dc_max)
+            + self._center_trim_dc
+            + self._LEGACY_CENTER_OFFSET_DC
+        )
+        self._dc_center = max(self._dc_min, min(self._dc_max, requested_center))
+        self._negative_variation_per_deg = (
+            (self._dc_center - self._dc_min) / self._limit_deg
+        )
+        self._positive_variation_per_deg = (
+            (self._dc_max - self._dc_center) / self._limit_deg
+        )
         self._requested_angle_deg = 0.0
         self._clamped_angle_deg = 0.0
         self._last_duty_cycle_pct = self._dc_center
@@ -37,7 +49,10 @@ class SteeringServo:
     def set_angle_deg(self, angle_deg: float) -> None:
         self._requested_angle_deg = float(angle_deg)
         bounded = max(-self._limit_deg, min(self._limit_deg, self._requested_angle_deg))
-        duty_cycle = self._dc_center + bounded * self._variation_per_deg
+        if bounded >= 0.0:
+            duty_cycle = self._dc_center + bounded * self._positive_variation_per_deg
+        else:
+            duty_cycle = self._dc_center + bounded * self._negative_variation_per_deg
         self._pwm.set_duty_cycle(duty_cycle)
         self._clamped_angle_deg = bounded
         self._last_duty_cycle_pct = duty_cycle
@@ -57,6 +72,7 @@ class SteeringServo:
             "pwm_dc": self._last_duty_cycle_pct,
             "dc_center": self._dc_center,
             "center_trim_dc": self._center_trim_dc,
+            "legacy_center_offset_dc": self._LEGACY_CENTER_OFFSET_DC,
             "steering_limit_deg": self._limit_deg,
         }
 
