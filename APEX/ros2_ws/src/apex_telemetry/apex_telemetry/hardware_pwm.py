@@ -69,11 +69,6 @@ class HardwarePWM:
 
     def stop(self) -> None:
         try:
-            self.set_duty_cycle(0.0)
-        except Exception:
-            pass
-
-        try:
             self._write_int(os.path.join(self._pwm_dir, "enable"), 0)
         except Exception:
             pass

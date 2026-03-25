@@ -132,6 +132,7 @@ class MaverickESCMotor:
     def stop(self) -> None:
         try:
             self._pwm.set_duty_cycle(self._neutral_dc)
+            time.sleep(max(0.05, self._reverse_exit_hold_s))
         except Exception:
             pass
         self._in_reverse_mode = False

@@ -406,6 +406,17 @@ def write_summary(
                 f"- `wall_centering_base_weight`: `{config.get('wall_centering_base_weight')}`",
                 f"- `wall_avoid_distance_m`: `{config.get('wall_avoid_distance_m')}`",
                 f"- `wall_avoid_gain_deg_per_m`: `{config.get('wall_avoid_gain_deg_per_m')}`",
+                f"- `corridor_balance_ratio_threshold`: `{config.get('corridor_balance_ratio_threshold')}`",
+                f"- `corridor_front_turn_weight`: `{config.get('corridor_front_turn_weight')}`",
+                f"- `corridor_wall_start_deg`: `{config.get('corridor_wall_start_deg')}`",
+                f"- `corridor_wall_end_deg`: `{config.get('corridor_wall_end_deg')}`",
+                f"- `wall_follow_target_distance_m`: `{config.get('wall_follow_target_distance_m')}`",
+                f"- `wall_follow_gain_deg_per_m`: `{config.get('wall_follow_gain_deg_per_m')}`",
+                f"- `wall_follow_release_balance_ratio`: `{config.get('wall_follow_release_balance_ratio')}`",
+                f"- `startup_consensus_min_heading_deg`: `{config.get('startup_consensus_min_heading_deg')}`",
+                f"- `startup_valid_cycles_required`: `{config.get('startup_valid_cycles_required')}`",
+                f"- `startup_gap_lockout_cycles`: `{config.get('startup_gap_lockout_cycles')}`",
+                f"- `startup_latch_cycles`: `{config.get('startup_latch_cycles')}`",
             ]
         )
 
@@ -451,6 +462,10 @@ def main() -> None:
         rows,
         [
             ("gap_heading_deg", "#1f77b4"),
+            ("front_turn_heading_deg", "#8c564b"),
+            ("corridor_axis_heading_deg", "#bcbd22"),
+            ("corridor_center_heading_deg", "#17becf"),
+            ("wall_follow_heading_deg", "#7f7f7f"),
             ("centering_heading_deg", "#ff7f0e"),
             ("avoidance_heading_deg", "#d62728"),
             ("target_heading_deg", "#2ca02c"),

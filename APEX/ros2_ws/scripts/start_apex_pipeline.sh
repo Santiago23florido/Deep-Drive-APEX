@@ -164,6 +164,13 @@ cleanup() {
     if [ -n "${APEX_ROSBAG_PID}" ] && [ "${pid}" = "${APEX_ROSBAG_PID}" ]; then
       continue
     fi
+    kill -INT "$pid" 2>/dev/null || true
+  done
+  sleep 1
+  for pid in "${PIDS[@]:-}"; do
+    if [ -n "${APEX_ROSBAG_PID}" ] && [ "${pid}" = "${APEX_ROSBAG_PID}" ]; then
+      continue
+    fi
     kill "$pid" 2>/dev/null || true
   done
   wait || true
@@ -277,10 +284,14 @@ ros2 run tf2_ros static_transform_publisher \
   --child-frame-id "${APEX_LIDAR_FRAME:-laser}" &
 PIDS+=("$!")
 
-ros2 launch slam_toolbox online_async_launch.py \
-  use_sim_time:=false \
-  slam_params_file:="${SLAM_PARAMS_FILE}" &
-PIDS+=("$!")
+if [ "${APEX_ENABLE_SLAM_TOOLBOX:-1}" = "1" ]; then
+  ros2 launch slam_toolbox online_async_launch.py \
+    use_sim_time:=false \
+    slam_params_file:="${SLAM_PARAMS_FILE}" &
+  PIDS+=("$!")
+else
+  echo "[APEX] slam_toolbox disabled for this run"
+fi
 
 start_debug_bag_recording
 
@@ -289,8 +300,18 @@ if [ "${APEX_ENABLE_RECON_MAPPING:-0}" = "1" ]; then
     --ros-args
     --params-file "${PARAMS_FILE}"
   )
+  if [ "${APEX_ENABLE_SLAM_TOOLBOX:-1}" != "1" ]; then
+    RECON_ARGS+=(-p "reset_map_on_start:=false")
+    RECON_ARGS+=(-p "save_map_on_completion:=false")
+  fi
   if [ -n "${APEX_RECON_DIAGNOSTIC_MODE:-}" ]; then
     RECON_ARGS+=(-p "diagnostic_mode:=${APEX_RECON_DIAGNOSTIC_MODE}")
+  fi
+  if [ -n "${APEX_RESET_MAP_ON_START:-}" ]; then
+    RECON_ARGS+=(-p "reset_map_on_start:=${APEX_RESET_MAP_ON_START}")
+  fi
+  if [ -n "${APEX_SAVE_MAP_ON_COMPLETION:-}" ]; then
+    RECON_ARGS+=(-p "save_map_on_completion:=${APEX_SAVE_MAP_ON_COMPLETION}")
   fi
   if [ -n "${APEX_STEERING_CENTER_TRIM_DC:-}" ]; then
     RECON_ARGS+=(-p "steering_center_trim_dc:=$(normalize_double_env "${APEX_STEERING_CENTER_TRIM_DC}")")
@@ -336,6 +357,72 @@ if [ "${APEX_ENABLE_RECON_MAPPING:-0}" = "1" ]; then
   fi
   if [ -n "${APEX_GAP_ESCAPE_WEIGHT:-}" ]; then
     RECON_ARGS+=(-p "gap_escape_weight:=$(normalize_double_env "${APEX_GAP_ESCAPE_WEIGHT}")")
+  fi
+  if [ -n "${APEX_CORRIDOR_BALANCE_RATIO_THRESHOLD:-}" ]; then
+    RECON_ARGS+=(-p "corridor_balance_ratio_threshold:=$(normalize_double_env "${APEX_CORRIDOR_BALANCE_RATIO_THRESHOLD}")")
+  fi
+  if [ -n "${APEX_CORRIDOR_FRONT_MIN_CLEARANCE_M:-}" ]; then
+    RECON_ARGS+=(-p "corridor_front_min_clearance_m:=$(normalize_double_env "${APEX_CORRIDOR_FRONT_MIN_CLEARANCE_M}")")
+  fi
+  if [ -n "${APEX_CORRIDOR_SIDE_MIN_CLEARANCE_M:-}" ]; then
+    RECON_ARGS+=(-p "corridor_side_min_clearance_m:=$(normalize_double_env "${APEX_CORRIDOR_SIDE_MIN_CLEARANCE_M}")")
+  fi
+  if [ -n "${APEX_CORRIDOR_FRONT_TURN_WEIGHT:-}" ]; then
+    RECON_ARGS+=(-p "corridor_front_turn_weight:=$(normalize_double_env "${APEX_CORRIDOR_FRONT_TURN_WEIGHT}")")
+  fi
+  if [ -n "${APEX_CORRIDOR_OVERRIDE_MARGIN_DEG:-}" ]; then
+    RECON_ARGS+=(-p "corridor_override_margin_deg:=$(normalize_double_env "${APEX_CORRIDOR_OVERRIDE_MARGIN_DEG}")")
+  fi
+  if [ -n "${APEX_CORRIDOR_MIN_HEADING_DEG:-}" ]; then
+    RECON_ARGS+=(-p "corridor_min_heading_deg:=$(normalize_double_env "${APEX_CORRIDOR_MIN_HEADING_DEG}")")
+  fi
+  if [ -n "${APEX_CORRIDOR_WALL_START_DEG:-}" ]; then
+    RECON_ARGS+=(-p "corridor_wall_start_deg:=${APEX_CORRIDOR_WALL_START_DEG}")
+  fi
+  if [ -n "${APEX_CORRIDOR_WALL_END_DEG:-}" ]; then
+    RECON_ARGS+=(-p "corridor_wall_end_deg:=${APEX_CORRIDOR_WALL_END_DEG}")
+  fi
+  if [ -n "${APEX_CORRIDOR_WALL_MIN_POINTS:-}" ]; then
+    RECON_ARGS+=(-p "corridor_wall_min_points:=${APEX_CORRIDOR_WALL_MIN_POINTS}")
+  fi
+  if [ -n "${APEX_WALL_FOLLOW_TARGET_DISTANCE_M:-}" ]; then
+    RECON_ARGS+=(-p "wall_follow_target_distance_m:=$(normalize_double_env "${APEX_WALL_FOLLOW_TARGET_DISTANCE_M}")")
+  fi
+  if [ -n "${APEX_WALL_FOLLOW_GAIN_DEG_PER_M:-}" ]; then
+    RECON_ARGS+=(-p "wall_follow_gain_deg_per_m:=$(normalize_double_env "${APEX_WALL_FOLLOW_GAIN_DEG_PER_M}")")
+  fi
+  if [ -n "${APEX_WALL_FOLLOW_LIMIT_DEG:-}" ]; then
+    RECON_ARGS+=(-p "wall_follow_limit_deg:=$(normalize_double_env "${APEX_WALL_FOLLOW_LIMIT_DEG}")")
+  fi
+  if [ -n "${APEX_WALL_FOLLOW_ACTIVATION_HEADING_DEG:-}" ]; then
+    RECON_ARGS+=(-p "wall_follow_activation_heading_deg:=$(normalize_double_env "${APEX_WALL_FOLLOW_ACTIVATION_HEADING_DEG}")")
+  fi
+  if [ -n "${APEX_WALL_FOLLOW_RELEASE_BALANCE_RATIO:-}" ]; then
+    RECON_ARGS+=(-p "wall_follow_release_balance_ratio:=$(normalize_double_env "${APEX_WALL_FOLLOW_RELEASE_BALANCE_RATIO}")")
+  fi
+  if [ -n "${APEX_WALL_FOLLOW_MIN_CYCLES:-}" ]; then
+    RECON_ARGS+=(-p "wall_follow_min_cycles:=${APEX_WALL_FOLLOW_MIN_CYCLES}")
+  fi
+  if [ -n "${APEX_WALL_FOLLOW_MAX_CLEARANCE_M:-}" ]; then
+    RECON_ARGS+=(-p "wall_follow_max_clearance_m:=$(normalize_double_env "${APEX_WALL_FOLLOW_MAX_CLEARANCE_M}")")
+  fi
+  if [ -n "${APEX_WALL_FOLLOW_FRONT_TURN_WEIGHT:-}" ]; then
+    RECON_ARGS+=(-p "wall_follow_front_turn_weight:=$(normalize_double_env "${APEX_WALL_FOLLOW_FRONT_TURN_WEIGHT}")")
+  fi
+  if [ -n "${APEX_STARTUP_CONSENSUS_MIN_HEADING_DEG:-}" ]; then
+    RECON_ARGS+=(-p "startup_consensus_min_heading_deg:=$(normalize_double_env "${APEX_STARTUP_CONSENSUS_MIN_HEADING_DEG}")")
+  fi
+  if [ -n "${APEX_STARTUP_VALID_CYCLES_REQUIRED:-}" ]; then
+    RECON_ARGS+=(-p "startup_valid_cycles_required:=${APEX_STARTUP_VALID_CYCLES_REQUIRED}")
+  fi
+  if [ -n "${APEX_STARTUP_GAP_LOCKOUT_CYCLES:-}" ]; then
+    RECON_ARGS+=(-p "startup_gap_lockout_cycles:=${APEX_STARTUP_GAP_LOCKOUT_CYCLES}")
+  fi
+  if [ -n "${APEX_STARTUP_LATCH_CYCLES:-}" ]; then
+    RECON_ARGS+=(-p "startup_latch_cycles:=${APEX_STARTUP_LATCH_CYCLES}")
+  fi
+  if [ -n "${APEX_AMBIGUITY_PROBE_SPEED_PCT:-}" ]; then
+    RECON_ARGS+=(-p "ambiguity_probe_speed_pct:=$(normalize_double_env "${APEX_AMBIGUITY_PROBE_SPEED_PCT}")")
   fi
   if [ -n "${APEX_TURN_SPEED_REDUCTION:-}" ]; then
     RECON_ARGS+=(-p "turn_speed_reduction:=$(normalize_double_env "${APEX_TURN_SPEED_REDUCTION}")")

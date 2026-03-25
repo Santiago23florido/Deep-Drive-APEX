@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import json
 import math
 import os
+import signal
 import subprocess
 import threading
 from importlib import import_module
@@ -174,6 +175,72 @@ class ReconMappingNode(Node):
                 self.get_parameter("gap_escape_release_distance_m").value
             ),
             gap_escape_weight=float(self.get_parameter("gap_escape_weight").value),
+            corridor_balance_ratio_threshold=float(
+                self.get_parameter("corridor_balance_ratio_threshold").value
+            ),
+            corridor_front_min_clearance_m=float(
+                self.get_parameter("corridor_front_min_clearance_m").value
+            ),
+            corridor_side_min_clearance_m=float(
+                self.get_parameter("corridor_side_min_clearance_m").value
+            ),
+            corridor_front_turn_weight=float(
+                self.get_parameter("corridor_front_turn_weight").value
+            ),
+            corridor_override_margin_deg=float(
+                self.get_parameter("corridor_override_margin_deg").value
+            ),
+            corridor_min_heading_deg=float(
+                self.get_parameter("corridor_min_heading_deg").value
+            ),
+            corridor_wall_start_deg=int(
+                self.get_parameter("corridor_wall_start_deg").value
+            ),
+            corridor_wall_end_deg=int(
+                self.get_parameter("corridor_wall_end_deg").value
+            ),
+            corridor_wall_min_points=int(
+                self.get_parameter("corridor_wall_min_points").value
+            ),
+            wall_follow_target_distance_m=float(
+                self.get_parameter("wall_follow_target_distance_m").value
+            ),
+            wall_follow_gain_deg_per_m=float(
+                self.get_parameter("wall_follow_gain_deg_per_m").value
+            ),
+            wall_follow_limit_deg=float(
+                self.get_parameter("wall_follow_limit_deg").value
+            ),
+            wall_follow_activation_heading_deg=float(
+                self.get_parameter("wall_follow_activation_heading_deg").value
+            ),
+            wall_follow_release_balance_ratio=float(
+                self.get_parameter("wall_follow_release_balance_ratio").value
+            ),
+            wall_follow_min_cycles=int(
+                self.get_parameter("wall_follow_min_cycles").value
+            ),
+            wall_follow_max_clearance_m=float(
+                self.get_parameter("wall_follow_max_clearance_m").value
+            ),
+            wall_follow_front_turn_weight=float(
+                self.get_parameter("wall_follow_front_turn_weight").value
+            ),
+            startup_consensus_min_heading_deg=float(
+                self.get_parameter("startup_consensus_min_heading_deg").value
+            ),
+            startup_valid_cycles_required=int(
+                self.get_parameter("startup_valid_cycles_required").value
+            ),
+            startup_gap_lockout_cycles=int(
+                self.get_parameter("startup_gap_lockout_cycles").value
+            ),
+            startup_latch_cycles=int(
+                self.get_parameter("startup_latch_cycles").value
+            ),
+            ambiguity_probe_speed_pct=float(
+                self.get_parameter("ambiguity_probe_speed_pct").value
+            ),
             turn_speed_reduction=float(self.get_parameter("turn_speed_reduction").value),
             min_turn_speed_factor=float(self.get_parameter("min_turn_speed_factor").value),
             vehicle_half_width_m=float(self.get_parameter("vehicle_half_width_m").value),
@@ -212,6 +279,9 @@ class ReconMappingNode(Node):
         self._last_command: Optional[ReconCommand] = None
         self._blocked_cycles = 0
         self._recovery_deadline = None
+        self._recovery_mode = "reverse"
+        self._curve_recovery_duration_s = min(self._recovery_duration_s, 0.35)
+        self._curve_recovery_speed_pct = max(20.0, self._navigator._min_speed_pct)
         self._mapping_started_at = None
         self._start_pose_xy = None
         self._last_pose_xy = None
@@ -313,6 +383,28 @@ class ReconMappingNode(Node):
         self.declare_parameter("gap_escape_heading_threshold_deg", 45.0)
         self.declare_parameter("gap_escape_release_distance_m", 0.18)
         self.declare_parameter("gap_escape_weight", 0.35)
+        self.declare_parameter("corridor_balance_ratio_threshold", 0.20)
+        self.declare_parameter("corridor_front_min_clearance_m", 0.08)
+        self.declare_parameter("corridor_side_min_clearance_m", 0.05)
+        self.declare_parameter("corridor_front_turn_weight", 0.70)
+        self.declare_parameter("corridor_override_margin_deg", 4.0)
+        self.declare_parameter("corridor_min_heading_deg", 2.0)
+        self.declare_parameter("corridor_wall_start_deg", 25)
+        self.declare_parameter("corridor_wall_end_deg", 85)
+        self.declare_parameter("corridor_wall_min_points", 6)
+        self.declare_parameter("wall_follow_target_distance_m", 0.24)
+        self.declare_parameter("wall_follow_gain_deg_per_m", 55.0)
+        self.declare_parameter("wall_follow_limit_deg", 22.0)
+        self.declare_parameter("wall_follow_activation_heading_deg", 10.0)
+        self.declare_parameter("wall_follow_release_balance_ratio", 0.72)
+        self.declare_parameter("wall_follow_min_cycles", 10)
+        self.declare_parameter("wall_follow_max_clearance_m", 1.25)
+        self.declare_parameter("wall_follow_front_turn_weight", 0.35)
+        self.declare_parameter("startup_consensus_min_heading_deg", 2.0)
+        self.declare_parameter("startup_valid_cycles_required", 3)
+        self.declare_parameter("startup_gap_lockout_cycles", 8)
+        self.declare_parameter("startup_latch_cycles", 18)
+        self.declare_parameter("ambiguity_probe_speed_pct", 15.0)
         self.declare_parameter("turn_speed_reduction", 0.35)
         self.declare_parameter("min_turn_speed_factor", 0.70)
         self.declare_parameter("smoothing_window", 9)
@@ -430,9 +522,11 @@ class ReconMappingNode(Node):
             phase_name=self._active_phase_name,
             phase_started_at=now,
         )
+        self._navigator.reset_runtime_state()
         self._phase_start_pose = self._lookup_pose()
         self._blocked_cycles = 0
         self._recovery_deadline = None
+        self._recovery_mode = "reverse"
         self._recovery_events = 0
         self._mapping_started_at = None
         if self._active_phase_name == "recon_debug":
@@ -579,17 +673,25 @@ class ReconMappingNode(Node):
             return
 
         if self._recovery_deadline is not None and now < self._recovery_deadline:
-            self._active_step_name = "recovery_reverse"
             scan_command, front_min_m, scan_age_s = self._build_scan_diagnostics(
                 scan,
                 scan_age_s=age_s,
             )
-            self._apply_command(self._recovery_reverse_speed_pct, 0.0)
+            if self._recovery_mode == "curve_crawl":
+                self._active_step_name = "recovery_curve_crawl"
+                applied_speed_pct, applied_steering_deg = self._build_curve_recovery_command(
+                    scan_command
+                )
+            else:
+                self._active_step_name = "recovery_reverse"
+                applied_speed_pct = self._recovery_reverse_speed_pct
+                applied_steering_deg = 0.0
+            self._apply_command(applied_speed_pct, applied_steering_deg)
             pose_diag = self._build_pose_diag()
             self._phase_cycle += 1
             self._update_phase_stats(
-                applied_speed_pct=self._recovery_reverse_speed_pct,
-                applied_steering_deg=0.0,
+                applied_speed_pct=applied_speed_pct,
+                applied_steering_deg=applied_steering_deg,
                 nav_command=scan_command,
                 pose_diag=pose_diag,
             )
@@ -602,11 +704,12 @@ class ReconMappingNode(Node):
             return
 
         self._recovery_deadline = None
+        self._recovery_mode = "reverse"
         self._active_step_name = "autonomous"
         command = self._navigator.compute_command(scan)
         self._last_command = command
 
-        if 0.0 < command.front_clearance_m <= self._recovery_trigger_distance_m:
+        if 0.0 < command.effective_front_clearance_m <= self._recovery_trigger_distance_m:
             self._blocked_cycles += 1
         else:
             self._blocked_cycles = 0
@@ -614,11 +717,27 @@ class ReconMappingNode(Node):
         if self._blocked_cycles >= self._recovery_trigger_cycles:
             self._blocked_cycles = 0
             self._recovery_events += 1
-            self._recovery_deadline = now + Duration(seconds=self._recovery_duration_s)
-            self.get_logger().warning(
-                "Front blocked (%.2fm). Starting recovery reverse for %.2fs"
-                % (command.front_clearance_m, self._recovery_duration_s)
+            self._recovery_mode = self._select_recovery_mode(command)
+            recovery_duration_s = (
+                self._curve_recovery_duration_s
+                if self._recovery_mode == "curve_crawl"
+                else self._recovery_duration_s
             )
+            self._recovery_deadline = now + Duration(seconds=recovery_duration_s)
+            if self._recovery_mode == "curve_crawl":
+                self.get_logger().warning(
+                    "Front blocked in curve (%.2fm, source=%s). Starting forward curve recovery for %.2fs"
+                    % (
+                        command.effective_front_clearance_m,
+                        command.active_heading_source,
+                        recovery_duration_s,
+                    )
+                )
+            else:
+                self.get_logger().warning(
+                    "Front blocked (%.2fm). Starting recovery reverse for %.2fs"
+                    % (command.effective_front_clearance_m, recovery_duration_s)
+                )
             progress_m = 0.0
             if self._phase_stats is not None:
                 progress_m = self._phase_stats.max_distance_from_phase_start_m
@@ -632,13 +751,21 @@ class ReconMappingNode(Node):
                 )
                 self._end_current_phase("stuck_recovery_loop", now)
                 return
-            self._active_step_name = "recovery_reverse"
-            self._apply_command(self._recovery_reverse_speed_pct, 0.0)
+            if self._recovery_mode == "curve_crawl":
+                self._active_step_name = "recovery_curve_crawl"
+                applied_speed_pct, applied_steering_deg = self._build_curve_recovery_command(
+                    command
+                )
+            else:
+                self._active_step_name = "recovery_reverse"
+                applied_speed_pct = self._recovery_reverse_speed_pct
+                applied_steering_deg = 0.0
+            self._apply_command(applied_speed_pct, applied_steering_deg)
             pose_diag = self._build_pose_diag()
             self._phase_cycle += 1
             self._update_phase_stats(
-                applied_speed_pct=self._recovery_reverse_speed_pct,
-                applied_steering_deg=0.0,
+                applied_speed_pct=applied_speed_pct,
+                applied_steering_deg=applied_steering_deg,
                 nav_command=command,
                 pose_diag=pose_diag,
             )
@@ -712,6 +839,64 @@ class ReconMappingNode(Node):
             pose_diag=pose_diag,
             scan_age_s=age_s,
         )
+
+    def _select_recovery_mode(self, command: ReconCommand) -> str:
+        if self._is_curve_recovery_context(command):
+            return "curve_crawl"
+        return "reverse"
+
+    def _is_curve_recovery_context(self, command: ReconCommand) -> bool:
+        if command.wall_follow_active:
+            return True
+
+        if command.active_heading_source in {
+            "curve_entry_guard",
+            "corridor_center",
+            "front_turn",
+            "reference_blend",
+            "reference_centerline",
+            "reference_curve_commit",
+            "reference_free_space",
+            "turn_commit",
+            "wall_follow",
+            "startup_latch",
+        }:
+            return True
+
+        support_heading_deg = max(
+            abs(command.front_turn_heading_deg),
+            abs(command.corridor_center_heading_deg),
+            abs(command.target_heading_deg),
+        )
+        return support_heading_deg >= 8.0
+
+    def _build_curve_recovery_command(
+        self, command: Optional[ReconCommand]
+    ) -> tuple[float, float]:
+        if command is None:
+            return 0.0, 0.0
+
+        speed_pct = max(self._curve_recovery_speed_pct, float(command.speed_pct))
+        steering_deg = float(command.steering_deg)
+        if abs(steering_deg) >= 2.0:
+            return speed_pct, steering_deg
+
+        fallback_heading_deg = 0.0
+        for candidate in (
+            command.target_heading_deg,
+            command.wall_follow_heading_deg,
+            command.front_turn_heading_deg,
+            command.corridor_center_heading_deg,
+        ):
+            if abs(candidate) > abs(fallback_heading_deg):
+                fallback_heading_deg = float(candidate)
+
+        if abs(fallback_heading_deg) < 1e-6:
+            return speed_pct, 0.0
+
+        fallback_limit_deg = min(12.0, max(6.0, abs(fallback_heading_deg)))
+        steering_deg = math.copysign(fallback_limit_deg, fallback_heading_deg)
+        return speed_pct, steering_deg
 
     def _apply_command(self, speed_pct: float, steering_deg: float) -> None:
         self._steer.set_angle_deg(steering_deg)
@@ -873,6 +1058,8 @@ class ReconMappingNode(Node):
                     "front_clearance_fallback_used": None,
                     "front_left_clearance_m": None,
                     "front_right_clearance_m": None,
+                    "corridor_balance_ratio": None,
+                    "corridor_available": None,
                     "left_clearance_m": None,
                     "right_clearance_m": None,
                     "left_min_m": None,
@@ -886,6 +1073,18 @@ class ReconMappingNode(Node):
                 {
                     "gap_heading_deg": None,
                     "front_turn_heading_deg": None,
+                    "corridor_axis_heading_deg": None,
+                    "corridor_center_heading_deg": None,
+                    "wall_follow_heading_deg": None,
+                    "wall_follow_active": None,
+                    "wall_follow_anchor_side": None,
+                    "startup_candidate_heading_deg": None,
+                    "startup_candidate_source": None,
+                    "startup_hold_active": None,
+                    "startup_latched_sign": None,
+                    "startup_latch_cycles_remaining": None,
+                    "left_wall_heading_deg": None,
+                    "right_wall_heading_deg": None,
                     "centering_heading_deg": None,
                     "avoidance_heading_deg": None,
                     "centering_weight": None,
@@ -907,6 +1106,8 @@ class ReconMappingNode(Node):
                     "front_clearance_fallback_used": nav_command.front_clearance_fallback_used,
                     "front_left_clearance_m": nav_command.front_left_clearance_m,
                     "front_right_clearance_m": nav_command.front_right_clearance_m,
+                    "corridor_balance_ratio": nav_command.corridor_balance_ratio,
+                    "corridor_available": nav_command.corridor_available,
                     "left_clearance_m": nav_command.left_clearance_m,
                     "right_clearance_m": nav_command.right_clearance_m,
                     "left_min_m": nav_command.left_min_m,
@@ -920,6 +1121,18 @@ class ReconMappingNode(Node):
                 {
                     "gap_heading_deg": nav_command.gap_heading_deg,
                     "front_turn_heading_deg": nav_command.front_turn_heading_deg,
+                    "corridor_axis_heading_deg": nav_command.corridor_axis_heading_deg,
+                    "corridor_center_heading_deg": nav_command.corridor_center_heading_deg,
+                    "wall_follow_heading_deg": nav_command.wall_follow_heading_deg,
+                    "wall_follow_active": nav_command.wall_follow_active,
+                    "wall_follow_anchor_side": nav_command.wall_follow_anchor_side,
+                    "startup_candidate_heading_deg": nav_command.startup_candidate_heading_deg,
+                    "startup_candidate_source": nav_command.startup_candidate_source,
+                    "startup_hold_active": nav_command.startup_hold_active,
+                    "startup_latched_sign": nav_command.startup_latched_sign,
+                    "startup_latch_cycles_remaining": nav_command.startup_latch_cycles_remaining,
+                    "left_wall_heading_deg": nav_command.left_wall_heading_deg,
+                    "right_wall_heading_deg": nav_command.right_wall_heading_deg,
                     "centering_heading_deg": nav_command.centering_heading_deg,
                     "avoidance_heading_deg": nav_command.avoidance_heading_deg,
                     "centering_weight": nav_command.centering_weight,
@@ -967,6 +1180,46 @@ class ReconMappingNode(Node):
                     self._navigator._gap_escape_release_distance_m
                 ),
                 "gap_escape_weight": self._navigator._gap_escape_weight,
+                "corridor_balance_ratio_threshold": (
+                    self._navigator._corridor_balance_ratio_threshold
+                ),
+                "corridor_front_min_clearance_m": (
+                    self._navigator._corridor_front_min_clearance_m
+                ),
+                "corridor_side_min_clearance_m": (
+                    self._navigator._corridor_side_min_clearance_m
+                ),
+                "corridor_front_turn_weight": self._navigator._corridor_front_turn_weight,
+                "corridor_override_margin_deg": (
+                    self._navigator._corridor_override_margin_deg
+                ),
+                "corridor_min_heading_deg": self._navigator._corridor_min_heading_deg,
+                "corridor_wall_start_deg": self._navigator._corridor_wall_start_deg,
+                "corridor_wall_end_deg": self._navigator._corridor_wall_end_deg,
+                "corridor_wall_min_points": self._navigator._corridor_wall_min_points,
+                "wall_follow_target_distance_m": self._navigator._wall_follow_target_distance_m,
+                "wall_follow_gain_deg_per_m": self._navigator._wall_follow_gain_deg_per_m,
+                "wall_follow_limit_deg": self._navigator._wall_follow_limit_deg,
+                "wall_follow_activation_heading_deg": (
+                    self._navigator._wall_follow_activation_heading_deg
+                ),
+                "wall_follow_release_balance_ratio": (
+                    self._navigator._wall_follow_release_balance_ratio
+                ),
+                "wall_follow_min_cycles": self._navigator._wall_follow_min_cycles,
+                "wall_follow_max_clearance_m": self._navigator._wall_follow_max_clearance_m,
+                "wall_follow_front_turn_weight": (
+                    self._navigator._wall_follow_front_turn_weight
+                ),
+                "startup_consensus_min_heading_deg": (
+                    self._navigator._startup_consensus_min_heading_deg
+                ),
+                "startup_valid_cycles_required": (
+                    self._navigator._startup_valid_cycles_required
+                ),
+                "startup_gap_lockout_cycles": self._navigator._startup_gap_lockout_cycles,
+                "startup_latch_cycles": self._navigator._startup_latch_cycles,
+                "ambiguity_probe_speed_pct": self._navigator._ambiguity_probe_speed_pct,
                 "stop_distance_m": self._stop_distance_m,
                 "slow_distance_m": self._slow_distance_m,
             },
@@ -1235,14 +1488,38 @@ class ReconMappingNode(Node):
 def main() -> None:
     rclpy.init()
     node = ReconMappingNode()
+    shutdown_requested = False
+
+    def _handle_shutdown_signal(signum, _frame) -> None:
+        nonlocal shutdown_requested
+        if shutdown_requested:
+            return
+        shutdown_requested = True
+        try:
+            node.get_logger().warning(
+                "Received signal %d, stopping actuators and shutting down" % int(signum)
+            )
+        except Exception:
+            pass
+        try:
+            node.shutdown()
+        except Exception:
+            pass
+        if rclpy.ok():
+            rclpy.shutdown()
+
+    signal.signal(signal.SIGTERM, _handle_shutdown_signal)
+    signal.signal(signal.SIGINT, _handle_shutdown_signal)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        node.shutdown()
+        if not shutdown_requested:
+            node.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

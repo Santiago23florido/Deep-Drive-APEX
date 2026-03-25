@@ -96,7 +96,7 @@ apex_recon_mapping_node:
     reverse_neutral_hold_s: 0.12
     reverse_exit_hold_s: 0.15
 
-    explore_min_speed_pct: 18.0
+    explore_min_speed_pct: 20.0
     explore_max_speed_pct: 24.0
     recovery_reverse_speed_pct: 30.0
     recovery_duration_s: 0.8
@@ -119,6 +119,28 @@ apex_recon_mapping_node:
     gap_escape_heading_threshold_deg: 45.0
     gap_escape_release_distance_m: 0.18
     gap_escape_weight: 0.35
+    corridor_balance_ratio_threshold: 0.20
+    corridor_front_min_clearance_m: 0.08
+    corridor_side_min_clearance_m: 0.05
+    corridor_front_turn_weight: 0.70
+    corridor_override_margin_deg: 4.0
+    corridor_min_heading_deg: 2.0
+    corridor_wall_start_deg: 25
+    corridor_wall_end_deg: 85
+    corridor_wall_min_points: 6
+    wall_follow_target_distance_m: 0.24
+    wall_follow_gain_deg_per_m: 55.0
+    wall_follow_limit_deg: 22.0
+    wall_follow_activation_heading_deg: 10.0
+    wall_follow_release_balance_ratio: 0.72
+    wall_follow_min_cycles: 10
+    wall_follow_max_clearance_m: 1.25
+    wall_follow_front_turn_weight: 0.35
+    startup_consensus_min_heading_deg: 2.0
+    startup_valid_cycles_required: 3
+    startup_gap_lockout_cycles: 8
+    startup_latch_cycles: 18
+    ambiguity_probe_speed_pct: 20.0
     turn_speed_reduction: 0.35
     min_turn_speed_factor: 0.70
     smoothing_window: 9
@@ -138,7 +160,7 @@ apex_recon_mapping_node:
     clear_previous_saved_map_files: true
 
     diagnostic_mode: "calibration"
-    diagnostic_fixed_speed_pct: 10.0
+    diagnostic_fixed_speed_pct: 20.0
     diagnostic_step_duration_s: 1.2
     diagnostic_log_every_n_cycles: 1
     diagnostic_log_path: "/work/ros2_ws/logs/recon_diagnostic.log"
