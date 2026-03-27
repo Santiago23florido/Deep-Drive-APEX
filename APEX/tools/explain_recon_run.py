@@ -18,6 +18,7 @@ SOURCE_COLORS = {
     "gap_escape": "#d62728",
     "avoidance": "#1f77b4",
     "corridor_center": "#17becf",
+    "trajectory_planner": "#bcbd22",
     "None": "#7f7f7f",
 }
 
@@ -50,7 +51,11 @@ def load_timeline(bundle_dir: Path) -> list[dict[str, str]]:
 
 
 def autonomous_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    return [row for row in rows if row.get("step") == "autonomous"]
+    return [
+        row
+        for row in rows
+        if row.get("step") in {"autonomous", "dryrun"}
+    ]
 
 
 def find_first_opposite_sign_cycle(nav_rows: list[dict[str, str]]) -> int | None:

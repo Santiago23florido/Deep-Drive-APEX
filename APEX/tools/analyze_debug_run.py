@@ -9,6 +9,7 @@ import json
 import math
 import re
 from pathlib import Path
+from statistics import mean
 from typing import Iterable
 
 
@@ -272,6 +273,80 @@ def analyze_flags(rows: list[dict], config: dict, run_metadata: dict) -> dict:
         ):
             straight_through_curve_rows.append(row)
 
+    trajectory_rows = [
+        row
+        for row in nav_rows
+        if row.get("trajectory_phase") not in {None, "", "None"}
+    ]
+    trajectory_curve_rows = [
+        row
+        for row in trajectory_rows
+        if row.get("trajectory_phase") in {"curve_entry", "curve_follow", "curve_exit"}
+    ]
+    trajectory_follow_rows = [
+        row for row in trajectory_rows if row.get("trajectory_phase") == "curve_follow"
+    ]
+    trajectory_slew_limit = (
+        safe_float(config.get("trajectory_curvature_slew_per_cycle")) or 0.22
+    )
+    trajectory_min_confidence = safe_float(config.get("trajectory_min_confidence")) or 0.28
+
+    mid_curve_flip = False
+    previous_follow_sign = 0
+    opposite_sign_streak = 0
+    for row in trajectory_follow_rows:
+        curvature_sign = sign(safe_float(row.get("signed_curvature")), threshold=1e-3)
+        if curvature_sign == 0:
+            continue
+        if previous_follow_sign == 0:
+            previous_follow_sign = curvature_sign
+            continue
+        if curvature_sign != previous_follow_sign:
+            opposite_sign_streak += 1
+            if opposite_sign_streak >= 2:
+                mid_curve_flip = True
+                break
+        else:
+            opposite_sign_streak = 0
+
+    trajectory_slew_excess_rows = []
+    previous_curvature = None
+    for row in trajectory_rows:
+        curvature = safe_float(row.get("signed_curvature"))
+        if curvature is None:
+            continue
+        if (
+            previous_curvature is not None
+            and abs(curvature - previous_curvature) > (trajectory_slew_limit * 1.15)
+        ):
+            trajectory_slew_excess_rows.append(row)
+        previous_curvature = curvature
+
+    low_confidence_curve_rows = [
+        row
+        for row in trajectory_curve_rows
+        if (safe_float(row.get("track_confidence")) or 0.0) < trajectory_min_confidence
+    ]
+
+    straight_align_rows = [
+        row
+        for row in trajectory_rows
+        if row.get("trajectory_phase") == "straight_align"
+        and safe_float(row.get("pose_lateral_drift_m")) is not None
+    ]
+    straight_convergence_failure = False
+    if len(straight_align_rows) >= 6:
+        sample_size = min(5, max(3, len(straight_align_rows) // 4))
+        first_drift = mean(
+            abs(safe_float(row.get("pose_lateral_drift_m")) or 0.0)
+            for row in straight_align_rows[:sample_size]
+        )
+        last_drift = mean(
+            abs(safe_float(row.get("pose_lateral_drift_m")) or 0.0)
+            for row in straight_align_rows[-sample_size:]
+        )
+        straight_convergence_failure = first_drift >= 0.08 and last_drift > max(0.05, first_drift * 0.80)
+
     servo_sign_mismatch = False
     servo_phase_rows = [
         row for row in rows
@@ -302,6 +377,10 @@ def analyze_flags(rows: list[dict], config: dict, run_metadata: dict) -> dict:
         "curve_canceled_by_near_wall": len(curve_canceled_by_near_wall_rows) >= 1,
         "steering_below_curve_floor": len(steering_below_curve_floor_rows) >= 1,
         "straight_through_curve": len(straight_through_curve_rows) >= 2,
+        "mid_curve_flip": mid_curve_flip,
+        "trajectory_slew_excess": len(trajectory_slew_excess_rows) >= 1,
+        "trajectory_low_confidence": len(low_confidence_curve_rows) >= 3,
+        "straight_convergence_failure": straight_convergence_failure,
         "counts": {
             "timeline_rows": len(rows),
             "nav_rows": len(nav_rows),
@@ -314,6 +393,11 @@ def analyze_flags(rows: list[dict], config: dict, run_metadata: dict) -> dict:
             "curve_canceled_by_near_wall_rows": len(curve_canceled_by_near_wall_rows),
             "steering_below_curve_floor_rows": len(steering_below_curve_floor_rows),
             "straight_through_curve_rows": len(straight_through_curve_rows),
+            "trajectory_rows": len(trajectory_rows),
+            "trajectory_curve_rows": len(trajectory_curve_rows),
+            "low_confidence_curve_rows": len(low_confidence_curve_rows),
+            "trajectory_slew_excess_rows": len(trajectory_slew_excess_rows),
+            "straight_align_rows": len(straight_align_rows),
         },
     }
 
@@ -434,6 +518,10 @@ def write_summary(
         "curve_canceled_by_near_wall",
         "steering_below_curve_floor",
         "straight_through_curve",
+        "mid_curve_flip",
+        "trajectory_slew_excess",
+        "trajectory_low_confidence",
+        "straight_convergence_failure",
     ):
         lines.append(f"- `{key}`: `{flags.get(key)}`")
 
@@ -469,6 +557,15 @@ def write_summary(
                 f"- `startup_valid_cycles_required`: `{config.get('startup_valid_cycles_required')}`",
                 f"- `startup_gap_lockout_cycles`: `{config.get('startup_gap_lockout_cycles')}`",
                 f"- `startup_latch_cycles`: `{config.get('startup_latch_cycles')}`",
+                f"- `trajectory_horizon_m`: `{config.get('trajectory_horizon_m')}`",
+                f"- `trajectory_lookahead_min_m`: `{config.get('trajectory_lookahead_min_m')}`",
+                f"- `trajectory_lookahead_max_m`: `{config.get('trajectory_lookahead_max_m')}`",
+                f"- `trajectory_curvature_slew_per_cycle`: `{config.get('trajectory_curvature_slew_per_cycle')}`",
+                f"- `trajectory_track_memory_alpha`: `{config.get('trajectory_track_memory_alpha')}`",
+                f"- `trajectory_exit_heading_threshold_deg`: `{config.get('trajectory_exit_heading_threshold_deg')}`",
+                f"- `trajectory_curve_speed_gain`: `{config.get('trajectory_curve_speed_gain')}`",
+                f"- `trajectory_state_aux_weight`: `{config.get('trajectory_state_aux_weight')}`",
+                f"- `trajectory_min_confidence`: `{config.get('trajectory_min_confidence')}`",
             ]
         )
 

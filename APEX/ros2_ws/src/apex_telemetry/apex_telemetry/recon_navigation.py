@@ -77,6 +77,66 @@ class ReconCommand:
     geometry_agreement_score: float
     curve_confirm_distance_m: float
     curve_confirm_yaw_deg: float
+    trajectory_phase: str
+    lookahead_x_m: float
+    lookahead_y_m: float
+    signed_curvature: float
+    radius_m: float
+    target_speed_pct: float
+    track_confidence: float
+    state_speed_mps: float
+    state_yaw_rate: float
+    slip_proxy: float
+    trajectory_flip_blocked: bool
+
+
+@dataclass(frozen=True)
+class ReconStateEstimate:
+    x_m: float = 0.0
+    y_m: float = 0.0
+    yaw_deg: float = 0.0
+    yaw_rate_rps: float = 0.0
+    speed_mps: float = 0.0
+    accel_mps2: float = 0.0
+    lateral_drift_m: float = 0.0
+    slip_proxy: float = 0.0
+    pose_source: str = "none"
+    distance_from_phase_start_m: float = 0.0
+    yaw_change_deg: float = 0.0
+    valid: bool = False
+
+
+@dataclass(frozen=True)
+class ReconTrackModel:
+    center_near_x_m: float
+    center_near_y_m: float
+    center_mid_x_m: float
+    center_mid_y_m: float
+    center_far_x_m: float
+    center_far_y_m: float
+    target_line_start: tuple[float, float]
+    target_line_end: tuple[float, float]
+    width_m: float
+    heading_deg: float
+    signed_curvature: float
+    confidence: float
+    left_wall_available: bool
+    right_wall_available: bool
+
+
+@dataclass(frozen=True)
+class ReconTrajectory:
+    target_line_start: tuple[float, float]
+    target_line_end: tuple[float, float]
+    lookahead_x_m: float
+    lookahead_y_m: float
+    heading_deg: float
+    signed_curvature: float
+    radius_m: float
+    target_speed_pct: float
+    phase: str
+    confidence: float
+    flip_blocked: bool
 
 
 def _normalize_angle_deg(angle_deg: float) -> float:
@@ -201,6 +261,19 @@ class ReconNavigator:
         vehicle_half_width_m: float,
         vehicle_front_overhang_m: float,
         vehicle_rear_overhang_m: float,
+        trajectory_horizon_m: float = 0.95,
+        trajectory_lookahead_min_m: float = 0.35,
+        trajectory_lookahead_max_m: float = 0.85,
+        trajectory_curvature_slew_per_cycle: float = 0.22,
+        trajectory_track_memory_alpha: float = 0.55,
+        trajectory_exit_heading_threshold_deg: float = 2.0,
+        trajectory_curve_speed_gain: float = 1.2,
+        trajectory_state_aux_weight: float = 0.30,
+        trajectory_min_confidence: float = 0.28,
+        trajectory_flip_hold_cycles: int = 8,
+        trajectory_entry_heading_threshold_deg: float = 4.0,
+        trajectory_min_radius_m: float = 1.35,
+        trajectory_curve_heading_limit_deg: float = 18.0,
     ) -> None:
         self._steering_limit_deg = max(1.0, float(steering_limit_deg))
         self._steering_gain = float(steering_gain)
@@ -408,6 +481,50 @@ class ReconNavigator:
             dtype=np.float32,
         )
         self._reference_steer_factor[:, 1] *= self._steering_limit_deg
+        self._trajectory_horizon_m = max(0.45, float(trajectory_horizon_m))
+        self._trajectory_lookahead_min_m = max(
+            0.15,
+            min(float(trajectory_lookahead_min_m), self._trajectory_horizon_m),
+        )
+        self._trajectory_lookahead_max_m = max(
+            self._trajectory_lookahead_min_m,
+            min(float(trajectory_lookahead_max_m), self._trajectory_horizon_m),
+        )
+        self._trajectory_curvature_slew_per_cycle = max(
+            0.01, float(trajectory_curvature_slew_per_cycle)
+        )
+        self._trajectory_track_memory_alpha = _clamp(
+            float(trajectory_track_memory_alpha),
+            0.0,
+            0.95,
+        )
+        self._trajectory_exit_heading_threshold_deg = max(
+            0.5, float(trajectory_exit_heading_threshold_deg)
+        )
+        self._trajectory_curve_speed_gain = max(
+            0.05, float(trajectory_curve_speed_gain)
+        )
+        self._trajectory_state_aux_weight = _clamp(
+            float(trajectory_state_aux_weight),
+            0.0,
+            1.0,
+        )
+        self._trajectory_min_confidence = _clamp(
+            float(trajectory_min_confidence),
+            0.05,
+            1.0,
+        )
+        self._trajectory_flip_hold_cycles = max(1, int(trajectory_flip_hold_cycles))
+        self._trajectory_entry_heading_threshold_deg = max(
+            self._trajectory_exit_heading_threshold_deg + 0.5,
+            float(trajectory_entry_heading_threshold_deg),
+        )
+        self._trajectory_min_radius_m = max(0.50, float(trajectory_min_radius_m))
+        self._trajectory_curve_heading_limit_deg = _clamp(
+            float(trajectory_curve_heading_limit_deg),
+            self._trajectory_entry_heading_threshold_deg,
+            self._steering_limit_deg,
+        )
         self._hitbox = _calculate_hitbox_polar(
             half_width_m=float(vehicle_half_width_m),
             front_overhang_m=float(vehicle_front_overhang_m),
@@ -475,16 +592,22 @@ class ReconNavigator:
         self._adaptive_last_pose_distance_m = None
         self._adaptive_last_pose_yaw_delta_deg = 0.0
         self._adaptive_last_nav_mode = "startup_adapt"
+        self._track_model: ReconTrackModel | None = None
+        self._trajectory_phase = "idle"
+        self._trajectory_phase_cycles = 0
+        self._trajectory_signed_curvature = 0.0
+        self._trajectory_heading_deg = 0.0
+        self._fullsoft_last_curve_steering_deg = 0.0
+        self._fullsoft_curve_hold_sign = 0
+        self._fullsoft_curve_hold_heading_deg = 0.0
 
     def compute_command(
         self,
         scan_ranges_m: np.ndarray,
         *,
-        pose_yaw_deg: float | None = None,
-        pose_yaw_change_deg: float | None = None,
-        pose_distance_from_phase_start_m: float | None = None,
-        pose_lateral_drift_m: float | None = None,
+        state_estimate: ReconStateEstimate | None = None,
     ) -> ReconCommand:
+        state_estimate = state_estimate or ReconStateEstimate()
         ranges = np.asarray(scan_ranges_m, dtype=np.float32).copy()
         if ranges.size == 0:
             return self._build_empty_command()
@@ -573,8 +696,10 @@ class ReconNavigator:
         )
 
         yaw_delta_deg, distance_delta_m = self._update_adaptive_pose_feedback(
-            pose_yaw_deg=pose_yaw_deg,
-            pose_distance_from_phase_start_m=pose_distance_from_phase_start_m,
+            pose_yaw_deg=state_estimate.yaw_deg if state_estimate.valid else None,
+            pose_distance_from_phase_start_m=(
+                state_estimate.distance_from_phase_start_m if state_estimate.valid else None
+            ),
         )
 
         if self._simple_corridor_tracking_mode:
@@ -650,9 +775,17 @@ class ReconNavigator:
                 right_wall_points=right_wall_points,
                 avoidance_heading_deg=avoidance_heading_deg,
                 avoidance_active=avoidance_active,
-                pose_yaw_change_deg=pose_yaw_change_deg,
-                pose_distance_from_phase_start_m=pose_distance_from_phase_start_m,
-                pose_lateral_drift_m=pose_lateral_drift_m,
+                pose_yaw_change_deg=(
+                    state_estimate.yaw_change_deg if state_estimate.valid else None
+                ),
+                pose_distance_from_phase_start_m=(
+                    state_estimate.distance_from_phase_start_m
+                    if state_estimate.valid
+                    else None
+                ),
+                pose_lateral_drift_m=(
+                    state_estimate.lateral_drift_m if state_estimate.valid else None
+                ),
                 yaw_delta_deg=yaw_delta_deg,
                 distance_delta_m=distance_delta_m,
             )
@@ -762,6 +895,11 @@ class ReconNavigator:
             wall_follow_anchor_side = self._wall_follow_anchor_side or "none"
             if not wall_follow_active:
                 wall_follow_heading_deg = 0.0
+            nav_mode = "legacy"
+            corridor_confidence = 0.0
+            curve_confidence = 0.0
+            committed_turn_sign = self._turn_commit_sign
+            curve_confirm_distance_m = 0.0
             steering_gain = self._compute_adaptive_steering_gain(
                 active_heading_source=active_heading_source,
                 nav_mode=nav_mode,
@@ -777,12 +915,8 @@ class ReconNavigator:
                 -self._steering_limit_deg,
                 min(self._steering_limit_deg, target_heading_deg * steering_gain),
             )
-            nav_mode = "legacy"
-            corridor_confidence = 0.0
-            curve_confidence = 0.0
             corridor_curvature_sign = 0
             corridor_curvature_confidence = 0.0
-            committed_turn_sign = self._turn_commit_sign
             free_space_candidate_heading_deg = gap_heading_deg if gap_available else 0.0
             sign_veto_reason = "none"
             near_wall_mode = "none"
@@ -798,7 +932,6 @@ class ReconNavigator:
             curve_gate_open = False
             curve_gate_reason = "legacy"
             geometry_agreement_score = 0.0
-            curve_confirm_distance_m = 0.0
             curve_confirm_yaw_deg = 0.0
             gate_curve_sign = 0
             curve_capture_active = False
@@ -808,10 +941,119 @@ class ReconNavigator:
             curve_speed_cap_pct = 0.0
             curve_release_reason = "none"
             same_sign_trim_active = False
+        track_model = self._build_track_model(
+            left_wall_points_xy=left_wall_points_xy,
+            right_wall_points_xy=right_wall_points_xy,
+            left_clearance_m=left_clearance_m,
+            right_clearance_m=right_clearance_m,
+            corridor_balance_ratio=corridor_balance_ratio,
+            corridor_available=corridor_available,
+            support_target_heading_deg=target_heading_deg,
+            support_heading_source=active_heading_source,
+            front_turn_heading_deg=front_turn_heading_deg,
+            corridor_axis_heading_deg=corridor_axis_heading_deg,
+            corridor_center_heading_deg=corridor_center_heading_deg,
+            centering_heading_deg=centering_heading_deg,
+        )
+        trajectory = self._plan_continuous_trajectory(
+            track_model=track_model,
+            state_estimate=state_estimate,
+            effective_front_clearance_m=effective_front_clearance_m,
+            support_target_heading_deg=target_heading_deg,
+            support_heading_source=active_heading_source,
+            corridor_axis_heading_deg=corridor_axis_heading_deg,
+            corridor_center_heading_deg=corridor_center_heading_deg,
+            front_turn_heading_deg=front_turn_heading_deg,
+            preview_heading_deg=simple_preview_heading_deg if simple_preview_available else 0.0,
+            centering_heading_deg=centering_heading_deg,
+            left_min_m=left_min_m,
+            right_min_m=right_min_m,
+        )
+        trajectory_sign = signbit(trajectory.heading_deg)
+        if trajectory_sign == 0:
+            trajectory_sign = signbit(trajectory.signed_curvature)
+        track_sign = 0
+        if track_model is not None:
+            track_sign = signbit(track_model.heading_deg)
+            if track_sign == 0:
+                track_sign = signbit(track_model.signed_curvature)
+        support_curve_sign = signbit(corridor_center_heading_deg)
+        if support_curve_sign == 0 and simple_preview_available:
+            support_curve_sign = signbit(simple_preview_heading_deg)
+        if support_curve_sign == 0:
+            support_curve_sign = signbit(front_turn_heading_deg)
+        near_wall_asymmetry = (
+            left_min_m > 0.0
+            and right_min_m > 0.0
+            and min(left_min_m, right_min_m)
+            < max(self._stop_distance_m + 0.08, 0.72 * self._wall_avoid_distance_m)
+            and abs(left_min_m - right_min_m) >= 0.18
+        )
+        curve_takeover_ready = (
+            track_model is not None
+            and trajectory.phase in {"curve_entry", "curve_follow", "curve_exit"}
+            and abs(trajectory.heading_deg)
+            >= max(2.5, 0.75 * self._trajectory_entry_heading_threshold_deg)
+            and trajectory.confidence >= max(0.18, 0.65 * self._trajectory_min_confidence)
+            and not near_wall_asymmetry
+            and trajectory_sign != 0
+            and (track_sign == 0 or track_sign == trajectory_sign)
+            and (
+                support_curve_sign == 0
+                or support_curve_sign == trajectory_sign
+                or abs(corridor_center_heading_deg) < 2.0
+            )
+        )
+        trajectory_align_safe = trajectory.phase != "straight_align" or not near_wall_asymmetry
+        using_trajectory = (
+            (
+                trajectory.confidence >= self._trajectory_min_confidence
+                and trajectory_align_safe
+            )
+            or curve_takeover_ready
+        )
+        if using_trajectory:
+            target_heading_deg = trajectory.heading_deg
+            steering_pre_servo_deg = self._follow_trajectory(trajectory)
+            active_heading_source = "trajectory_planner"
+            nav_mode = trajectory.phase
+            corridor_confidence = max(corridor_confidence, trajectory.confidence)
+            curve_confidence = max(curve_confidence, trajectory.confidence)
+            if trajectory.phase in {"curve_entry", "curve_follow", "curve_exit"}:
+                committed_turn_sign = signbit(trajectory.signed_curvature) or committed_turn_sign
+        (
+            fullsoft_curve_heading_deg,
+            fullsoft_curve_steering_deg,
+            fullsoft_curve_source,
+            fullsoft_curve_active,
+        ) = self._compute_fullsoft_curve_override(
+            nav_mode=nav_mode,
+            target_heading_deg=target_heading_deg,
+            committed_turn_sign=committed_turn_sign,
+            gate_curve_sign=gate_curve_sign,
+            curve_confidence=curve_confidence,
+            corridor_confidence=corridor_confidence,
+            free_space_candidate_heading_deg=free_space_candidate_heading_deg,
+            preview_heading_deg=simple_preview_heading_deg,
+            preview_available=simple_preview_available,
+            corridor_center_heading_deg=corridor_center_heading_deg,
+            front_turn_heading_deg=front_turn_heading_deg,
+            front_left_clearance_m=front_left_clearance_m,
+            front_right_clearance_m=front_right_clearance_m,
+            left_min_m=left_min_m,
+            right_min_m=right_min_m,
+            state_estimate=state_estimate,
+        )
+        if fullsoft_curve_active and active_heading_source != "collision_escape":
+            target_heading_deg = fullsoft_curve_heading_deg
+            steering_pre_servo_deg = fullsoft_curve_steering_deg
+            active_heading_source = fullsoft_curve_source
         motion_front_clearance_m = self._compute_motion_front_clearance_m(
             effective_front_clearance_m=effective_front_clearance_m,
             front_left_clearance_m=front_left_clearance_m,
             front_right_clearance_m=front_right_clearance_m,
+            left_min_m=left_min_m,
+            right_min_m=right_min_m,
             target_heading_deg=target_heading_deg,
             active_heading_source=active_heading_source,
             nav_mode=nav_mode,
@@ -819,10 +1061,13 @@ class ReconNavigator:
             corridor_center_heading_deg=corridor_center_heading_deg,
             wall_follow_active=wall_follow_active,
             corridor_confidence=corridor_confidence,
+            curve_confidence=curve_confidence,
+            same_sign_trim_active=same_sign_trim_active,
         )
         if (
             curve_steering_floor_deg > 0.0
             and nav_mode in {"curve_capture", "curve_entry", "curve_follow"}
+            and active_heading_source != "fullsoft_curve"
         ):
             steering_sign = signbit(steering_pre_servo_deg)
             if steering_sign == 0:
@@ -844,23 +1089,67 @@ class ReconNavigator:
                     steering_floor_deg,
                     self._steering_limit_deg,
                 )
+        turn_side_min_m = 0.0
+        command_turn_sign = signbit(target_heading_deg)
+        if command_turn_sign == 0:
+            command_turn_sign = committed_turn_sign
+        if command_turn_sign > 0:
+            turn_side_min_m = left_min_m
+            opposite_side_min_m = right_min_m
+        elif command_turn_sign < 0:
+            turn_side_min_m = right_min_m
+            opposite_side_min_m = left_min_m
+        else:
+            opposite_side_min_m = 0.0
+        if active_heading_source == "fullsoft_curve":
+            self._fullsoft_last_curve_steering_deg = float(steering_pre_servo_deg)
+        else:
+            steering_pre_servo_deg = self._apply_fullsoft_curve_steering_profile(
+                steering_deg=steering_pre_servo_deg,
+                target_heading_deg=target_heading_deg,
+                nav_mode=nav_mode,
+                turn_side_min_m=turn_side_min_m,
+                opposite_side_min_m=opposite_side_min_m,
+                curve_confidence=curve_confidence,
+                corridor_confidence=corridor_confidence,
+                curve_steering_floor_deg=curve_steering_floor_deg,
+                state_estimate=state_estimate,
+                same_sign_trim_active=same_sign_trim_active,
+            )
         speed_pct = self._compute_speed_pct(
             motion_front_clearance_m,
             steering_pre_servo_deg,
             target_heading_deg,
             nav_mode=nav_mode,
-            pose_distance_from_phase_start_m=pose_distance_from_phase_start_m,
+            pose_distance_from_phase_start_m=(
+                state_estimate.distance_from_phase_start_m if state_estimate.valid else None
+            ),
             committed_turn_sign=committed_turn_sign,
             curve_confirm_distance_m=curve_confirm_distance_m,
         )
+        effective_target_speed_pct = trajectory.target_speed_pct
+        if (
+            nav_mode in {"curve_capture", "curve_entry", "curve_follow", "curve_exit"}
+            and motion_front_clearance_m > self._stop_distance_m
+        ):
+            effective_target_speed_pct = self._compute_trajectory_target_speed_pct(
+                effective_front_clearance_m=motion_front_clearance_m,
+                signed_curvature=trajectory.signed_curvature,
+                phase=trajectory.phase,
+                confidence=trajectory.confidence,
+                state_estimate=state_estimate,
+            )
         if (
             curve_speed_cap_pct > 0.0
             and nav_mode in {"curve_capture", "curve_entry", "curve_follow", "curve_exit"}
-            and (pose_distance_from_phase_start_m or 0.0) >= self._adaptive_curve_motion_release_distance_m
+            and (state_estimate.distance_from_phase_start_m or 0.0)
+            >= self._adaptive_curve_motion_release_distance_m
         ):
             speed_pct = min(speed_pct, curve_speed_cap_pct)
         if active_heading_source == "ambiguity_probe":
             speed_pct = min(speed_pct, self._compute_probe_speed_limit_pct())
+        if using_trajectory:
+            speed_pct = min(speed_pct, effective_target_speed_pct)
         return ReconCommand(
             speed_pct=speed_pct,
             steering_deg=steering_pre_servo_deg,
@@ -928,6 +1217,17 @@ class ReconNavigator:
             geometry_agreement_score=geometry_agreement_score,
             curve_confirm_distance_m=curve_confirm_distance_m,
             curve_confirm_yaw_deg=curve_confirm_yaw_deg,
+            trajectory_phase=trajectory.phase,
+            lookahead_x_m=trajectory.lookahead_x_m,
+            lookahead_y_m=trajectory.lookahead_y_m,
+            signed_curvature=trajectory.signed_curvature,
+            radius_m=trajectory.radius_m,
+            target_speed_pct=effective_target_speed_pct,
+            track_confidence=trajectory.confidence,
+            state_speed_mps=state_estimate.speed_mps,
+            state_yaw_rate=state_estimate.yaw_rate_rps,
+            slip_proxy=state_estimate.slip_proxy,
+            trajectory_flip_blocked=trajectory.flip_blocked,
         )
 
     def _build_empty_command(self) -> ReconCommand:
@@ -998,6 +1298,17 @@ class ReconNavigator:
             geometry_agreement_score=0.0,
             curve_confirm_distance_m=0.0,
             curve_confirm_yaw_deg=0.0,
+            trajectory_phase="idle",
+            lookahead_x_m=0.0,
+            lookahead_y_m=0.0,
+            signed_curvature=0.0,
+            radius_m=0.0,
+            target_speed_pct=0.0,
+            track_confidence=0.0,
+            state_speed_mps=0.0,
+            state_yaw_rate=0.0,
+            slip_proxy=0.0,
+            trajectory_flip_blocked=False,
         )
 
     def _shrink_scan(self, ranges: np.ndarray) -> np.ndarray:
@@ -2347,6 +2658,68 @@ class ReconNavigator:
 
         return float(_clamp(speed_cap_pct, 0.0, self._max_speed_pct))
 
+    def _trajectory_opposite_turn_takeover_ready(
+        self,
+        *,
+        previous_sign: int,
+        candidate_sign: int,
+        support_heading_deg: float,
+        track_heading_deg: float,
+        signed_curvature: float,
+        confidence: float,
+        left_min_m: float,
+        right_min_m: float,
+    ) -> bool:
+        if previous_sign == 0 or candidate_sign == 0 or previous_sign == candidate_sign:
+            return False
+        if confidence < (0.72 * self._trajectory_min_confidence):
+            return False
+
+        support_count = 0
+        if (
+            signbit(support_heading_deg) == candidate_sign
+            and abs(support_heading_deg) >= (self._trajectory_entry_heading_threshold_deg + 1.0)
+        ):
+            support_count += 1
+        if (
+            signbit(track_heading_deg) == candidate_sign
+            and abs(track_heading_deg) >= (self._trajectory_entry_heading_threshold_deg + 1.0)
+        ):
+            support_count += 1
+        if signbit(signed_curvature) == candidate_sign and abs(signed_curvature) >= 0.08:
+            support_count += 1
+        if support_count < 2:
+            return False
+
+        if candidate_sign > 0:
+            inside_min_m = left_min_m
+            outside_min_m = right_min_m
+        else:
+            inside_min_m = right_min_m
+            outside_min_m = left_min_m
+        if inside_min_m <= 0.0 or outside_min_m <= 0.0:
+            return False
+
+        width_candidates = []
+        if self._track_model is not None and self._track_model.width_m > 0.0:
+            width_candidates.append(self._track_model.width_m)
+        if left_min_m > 0.0 and right_min_m > 0.0:
+            width_candidates.append(left_min_m + right_min_m)
+        width_scale_m = (
+            float(np.median(np.asarray(width_candidates, dtype=np.float32)))
+            if width_candidates
+            else (inside_min_m + outside_min_m)
+        )
+        width_scale_m = _clamp(width_scale_m, 0.28, 2.50)
+        inside_ratio = inside_min_m / max(width_scale_m, 0.05)
+        openness_advantage_ratio = (outside_min_m - inside_min_m) / max(width_scale_m, 0.05)
+        openness_ratio = outside_min_m / max(inside_min_m, 0.05)
+        return bool(
+            inside_ratio < 0.56
+            and openness_advantage_ratio > 0.10
+            and openness_ratio > 1.18
+        )
+
     def _compute_premature_curve_veto(
         self,
         *,
@@ -3118,6 +3491,57 @@ class ReconNavigator:
             return "near_wall_recovery"
         return "straight_follow"
 
+    def _curve_takeover_ready(
+        self,
+        *,
+        candidate_sign: int,
+        preview_heading_deg: float,
+        preview_available: bool,
+        front_turn_heading_deg: float,
+        corridor_center_heading_deg: float,
+        corridor_axis_heading_deg: float,
+        corridor_confidence: float,
+        geometry_agreement_score: float,
+        curve_confidence: float,
+    ) -> bool:
+        if candidate_sign == 0 or corridor_confidence < 0.22:
+            return False
+
+        support_score = 0.0
+        if (
+            preview_available
+            and signbit(preview_heading_deg) == candidate_sign
+            and abs(preview_heading_deg)
+            >= max(6.0, 0.75 * self._reference_curve_confirm_heading_deg)
+        ):
+            support_score += 0.85
+        if (
+            signbit(front_turn_heading_deg) == candidate_sign
+            and abs(front_turn_heading_deg) >= 4.0
+        ):
+            support_score += 0.60
+        if (
+            signbit(corridor_center_heading_deg) == candidate_sign
+            and abs(corridor_center_heading_deg)
+            >= max(4.0, self._adaptive_curve_geometry_min_heading_deg - 0.5)
+        ):
+            support_score += 0.55
+        if (
+            signbit(corridor_axis_heading_deg) == candidate_sign
+            and abs(corridor_axis_heading_deg)
+            >= max(5.0, self._adaptive_curve_geometry_min_heading_deg)
+        ):
+            support_score += 0.50
+
+        if support_score < 1.15:
+            return False
+        if geometry_agreement_score >= max(
+            0.16,
+            0.80 * self._adaptive_curve_gate_min_agreement_score,
+        ):
+            return True
+        return bool(curve_confidence >= 0.24 and support_score >= 1.55)
+
     def _compute_straight_follow_heading_deg(
         self,
         *,
@@ -3756,6 +4180,9 @@ class ReconNavigator:
         right_min_m: float,
         avoidance_heading_deg: float,
         avoidance_active: bool,
+        preview_heading_deg: float,
+        corridor_center_heading_deg: float,
+        free_space_candidate_heading_deg: float,
         pre_curve_bias_veto: bool,
     ) -> tuple[float, str, str, str, bool]:
         near_wall_mode = "none"
@@ -3892,19 +4319,20 @@ class ReconNavigator:
             and turn_side_min_m < self._adaptive_near_wall_distance_m
         ):
             same_sign_trim_active = True
-            trim_scale = _clamp(
-                turn_side_min_m / max(self._adaptive_near_wall_distance_m, 0.05),
-                0.45,
-                1.0,
+            limited_heading_deg = self._compute_fullsoft_near_wall_heading_deg(
+                target_heading_deg=target_heading_deg,
+                turn_sign=protected_turn_sign,
+                nav_mode=nav_mode,
+                turn_side_min_m=turn_side_min_m,
+                opposite_side_min_m=opposite_side_min_m,
+                curve_confidence=curve_confidence,
+                corridor_confidence=corridor_confidence,
+                preview_heading_deg=preview_heading_deg,
+                corridor_center_heading_deg=corridor_center_heading_deg,
+                free_space_candidate_heading_deg=free_space_candidate_heading_deg,
             )
-            keep_heading_deg = max(1.5, curve_steering_floor_deg * (0.65 * trim_scale))
             if imminent_side_risk:
-                keep_heading_deg = max(1.5, keep_heading_deg * 0.75)
-            limited_heading_deg = protected_turn_sign * _clamp(
-                abs(target_heading_deg),
-                keep_heading_deg,
-                max(abs(target_heading_deg), keep_heading_deg),
-            )
+                limited_heading_deg = protected_turn_sign * min(abs(limited_heading_deg), 4.0)
             near_wall_mode = "trim"
             return (
                 float(limited_heading_deg),
@@ -4468,6 +4896,42 @@ class ReconNavigator:
             curve_severity_score=curve_severity_score,
             inside_front_clearance_m=inside_front_clearance_m,
         )
+        u_turn_hold_sign, u_turn_hold_active = self._u_turn_curve_hold_needed(
+            nav_mode=nav_mode,
+            committed_turn_sign=committed_turn_sign,
+            curve_capture_sign=curve_capture_sign,
+            gate_curve_sign=gate_curve_sign,
+            curve_confidence=curve_confidence,
+            corridor_confidence=corridor_confidence,
+            front_turn_heading_deg=front_turn_heading_deg,
+            corridor_center_heading_deg=corridor_center_heading_deg,
+            left_min_m=left_min_m,
+            right_min_m=right_min_m,
+        )
+        if u_turn_hold_active:
+            nav_mode = "curve_follow"
+            committed_turn_sign = u_turn_hold_sign
+            gate_curve_sign = u_turn_hold_sign
+            curve_capture_active = True
+            curve_capture_sign = u_turn_hold_sign
+            curve_capture_reason = "u_continue_hold"
+            curve_gate_open = True
+            curve_gate_reason = "u_continue_hold"
+            curve_intent_sign = u_turn_hold_sign
+            curve_intent_score = max(
+                curve_intent_score,
+                self._adaptive_curve_intent_entry_score,
+            )
+            curve_evidence_strength = max(
+                curve_evidence_strength,
+                self._adaptive_curve_hold_min_evidence,
+            )
+            curve_decay_active = False
+            self._adaptive_committed_turn_sign = u_turn_hold_sign
+            self._adaptive_curve_intent_sign = u_turn_hold_sign
+            self._adaptive_curve_intent_score = float(curve_intent_score)
+            self._adaptive_curve_evidence_strength = float(curve_evidence_strength)
+            self._adaptive_curve_decay_active = False
         preview_midpoint_guard_active = (
             nav_mode == "curve_capture"
             and curve_capture_reason in {"preview_dominant_alignment", "preview_dominant_hold"}
@@ -4573,6 +5037,9 @@ class ReconNavigator:
                 right_min_m=right_min_m,
                 avoidance_heading_deg=avoidance_heading_deg,
                 avoidance_active=avoidance_active,
+                preview_heading_deg=preview_heading_deg,
+                corridor_center_heading_deg=corridor_center_heading_deg,
+                free_space_candidate_heading_deg=free_space_candidate_heading_deg,
                 pre_curve_bias_veto=pre_curve_bias_veto,
             )
         )
@@ -4580,6 +5047,99 @@ class ReconNavigator:
             sign_veto_reason = wall_safety_reason
         if pre_curve_bias_veto and sign_veto_reason == "none":
             sign_veto_reason = "pre_curve_bias_veto"
+
+        preview_takeover_sign = signbit(preview_heading_deg)
+        preview_takeover_ready = self._curve_takeover_ready(
+            candidate_sign=preview_takeover_sign,
+            preview_heading_deg=preview_heading_deg,
+            preview_available=preview_available,
+            front_turn_heading_deg=front_turn_heading_deg,
+            corridor_center_heading_deg=corridor_center_heading_deg,
+            corridor_axis_heading_deg=corridor_axis_heading_deg,
+            corridor_confidence=corridor_confidence,
+            geometry_agreement_score=geometry_agreement_score,
+            curve_confidence=curve_confidence,
+        )
+        if (
+            preview_takeover_sign != 0
+            and preview_takeover_ready
+            and active_heading_source != "collision_escape"
+        ):
+            target_sign = signbit(target_heading_deg)
+            opposite_exit_takeover = bool(
+                committed_turn_sign != 0
+                and preview_takeover_sign != committed_turn_sign
+                and nav_mode in {"curve_exit", "curve_follow"}
+                and abs(preview_heading_deg) >= max(7.0, abs(target_heading_deg) + 1.5)
+            )
+            biased_entry_takeover = bool(
+                committed_turn_sign == 0
+                and not curve_capture_active
+                and (
+                    target_sign == 0
+                    or target_sign != preview_takeover_sign
+                    or abs(target_heading_deg) < max(2.5, 0.35 * abs(preview_heading_deg))
+                )
+            )
+            if opposite_exit_takeover or biased_entry_takeover:
+                takeover_heading_deg = preview_takeover_sign * _clamp(
+                    max(
+                        3.0,
+                        abs(target_heading_deg),
+                        0.55 * abs(preview_heading_deg),
+                        abs(front_turn_heading_deg),
+                        abs(corridor_center_heading_deg),
+                    ),
+                    3.0,
+                    10.0 if opposite_exit_takeover else 8.5,
+                )
+                if opposite_exit_takeover:
+                    self._reset_adaptive_curve_confirmation()
+                    committed_turn_sign = 0
+                    curve_confirm_distance_m = 0.0
+                    curve_confirm_yaw_deg = 0.0
+                nav_mode = (
+                    "curve_entry"
+                    if (
+                        curve_confirmed
+                        or geometry_agreement_score >= self._adaptive_curve_gate_min_agreement_score
+                    )
+                    else "curve_capture"
+                )
+                target_heading_deg = takeover_heading_deg
+                active_heading_source = "preview_curve_takeover"
+                sign_veto_reason = "preview_curve_takeover"
+                wall_safety_reason = "none"
+                near_wall_mode = "none"
+                same_sign_trim_active = False
+                gate_curve_sign = preview_takeover_sign
+                curve_gate_open = True
+                curve_gate_reason = "preview_takeover"
+                curve_capture_active = True
+                curve_capture_sign = preview_takeover_sign
+                curve_capture_reason = "preview_takeover"
+                curve_intent_sign = preview_takeover_sign
+                curve_intent_score = max(
+                    curve_intent_score,
+                    self._adaptive_curve_intent_entry_score,
+                )
+                curve_evidence_strength = max(
+                    curve_evidence_strength,
+                    max(geometry_agreement_score, 0.22),
+                )
+                curve_decay_active = False
+                self._adaptive_curve_intent_sign = preview_takeover_sign
+                self._adaptive_curve_intent_score = float(curve_intent_score)
+                self._adaptive_curve_evidence_strength = float(curve_evidence_strength)
+                self._adaptive_curve_decay_active = False
+                self._adaptive_curve_hold_sign = preview_takeover_sign
+                self._adaptive_curve_hold_cycles_remaining = max(
+                    2,
+                    self._adaptive_curve_hold_cycles // 2,
+                )
+                self._adaptive_curve_hold_release_streak = 0
+                self._fullsoft_curve_hold_sign = preview_takeover_sign
+                self._fullsoft_curve_hold_heading_deg = float(takeover_heading_deg)
 
         if (
             wall_safety_reason == "near_wall_limit"
@@ -5159,10 +5719,333 @@ class ReconNavigator:
 
         return target_heading_deg, active_heading_source
 
+    def _u_turn_curve_hold_needed(
+        self,
+        *,
+        nav_mode: str,
+        committed_turn_sign: int,
+        curve_capture_sign: int,
+        gate_curve_sign: int,
+        curve_confidence: float,
+        corridor_confidence: float,
+        front_turn_heading_deg: float,
+        corridor_center_heading_deg: float,
+        left_min_m: float,
+        right_min_m: float,
+    ) -> tuple[int, bool]:
+        hold_sign = self._fullsoft_curve_hold_sign
+        if hold_sign == 0:
+            hold_sign = committed_turn_sign
+        if hold_sign == 0:
+            hold_sign = curve_capture_sign if curve_capture_sign != 0 else gate_curve_sign
+        if hold_sign == 0:
+            return 0, False
+
+        if hold_sign > 0:
+            inside_min_m = left_min_m
+            outside_min_m = right_min_m
+        else:
+            inside_min_m = right_min_m
+            outside_min_m = left_min_m
+        if inside_min_m <= 0.0 or outside_min_m <= 0.0:
+            return hold_sign, False
+
+        width_candidates = []
+        if self._track_model is not None and self._track_model.width_m > 0.0:
+            width_candidates.append(self._track_model.width_m)
+        if self._adaptive_corridor_width_m > 0.0:
+            width_candidates.append(self._adaptive_corridor_width_m)
+        if left_min_m > 0.0 and right_min_m > 0.0:
+            width_candidates.append(left_min_m + right_min_m)
+        width_scale_m = float(np.median(np.asarray(width_candidates, dtype=np.float32))) if width_candidates else (inside_min_m + outside_min_m)
+        width_scale_m = _clamp(width_scale_m, 0.28, 2.50)
+        inside_ratio = inside_min_m / max(width_scale_m, 0.05)
+        openness_advantage_ratio = (outside_min_m - inside_min_m) / max(width_scale_m, 0.05)
+        openness_ratio = outside_min_m / max(inside_min_m, 0.05)
+        support_active = (
+            nav_mode in {"curve_capture", "curve_entry", "curve_follow", "curve_exit"}
+            or signbit(front_turn_heading_deg) == hold_sign
+            or signbit(corridor_center_heading_deg) == hold_sign
+            or curve_confidence >= 0.16
+            or corridor_confidence >= 0.22
+        )
+        hold_active = bool(
+            support_active
+            and inside_ratio < 0.34
+            and openness_advantage_ratio > 0.18
+            and openness_ratio > 1.55
+        )
+        return hold_sign, hold_active
+
     def _compute_reference_steering_deg(self, target_heading_deg: float) -> float:
         magnitude_deg = min(self._reference_target_angle_limit_deg, abs(target_heading_deg))
         steering_deg = self._lerp_table(magnitude_deg, self._reference_steer_factor)
         return float(math.copysign(steering_deg, target_heading_deg))
+
+    def _compute_fullsoft_curve_override(
+        self,
+        *,
+        nav_mode: str,
+        target_heading_deg: float,
+        committed_turn_sign: int,
+        gate_curve_sign: int,
+        curve_confidence: float,
+        corridor_confidence: float,
+        free_space_candidate_heading_deg: float,
+        preview_heading_deg: float,
+        preview_available: bool,
+        corridor_center_heading_deg: float,
+        front_turn_heading_deg: float,
+        front_left_clearance_m: float,
+        front_right_clearance_m: float,
+        left_min_m: float,
+        right_min_m: float,
+        state_estimate: ReconStateEstimate,
+    ) -> tuple[float, float, str, bool]:
+        curve_modes = {"curve_capture", "curve_entry", "curve_follow", "curve_exit"}
+        if nav_mode not in curve_modes:
+            self._fullsoft_curve_hold_sign = 0
+            self._fullsoft_curve_hold_heading_deg = 0.0
+            return target_heading_deg, 0.0, "", False
+
+        candidate_sign = committed_turn_sign
+        if candidate_sign == 0:
+            candidate_sign = gate_curve_sign
+        if candidate_sign == 0:
+            candidate_sign = signbit(target_heading_deg)
+        if candidate_sign == 0:
+            self._fullsoft_curve_hold_sign = 0
+            self._fullsoft_curve_hold_heading_deg = 0.0
+            return target_heading_deg, 0.0, "", False
+
+        takeover_ready = self._curve_takeover_ready(
+            candidate_sign=gate_curve_sign,
+            preview_heading_deg=preview_heading_deg,
+            preview_available=preview_available,
+            front_turn_heading_deg=front_turn_heading_deg,
+            corridor_center_heading_deg=corridor_center_heading_deg,
+            corridor_axis_heading_deg=0.0,
+            corridor_confidence=corridor_confidence,
+            geometry_agreement_score=max(curve_confidence, 0.0),
+            curve_confidence=curve_confidence,
+        )
+
+        if (
+            self._fullsoft_curve_hold_sign != 0
+            and gate_curve_sign != 0
+            and gate_curve_sign != self._fullsoft_curve_hold_sign
+            and takeover_ready
+        ):
+            self._fullsoft_curve_hold_sign = gate_curve_sign
+            self._fullsoft_curve_hold_heading_deg = gate_curve_sign * max(
+                4.0,
+                min(abs(preview_heading_deg), 10.0),
+            )
+
+        if self._fullsoft_curve_hold_sign == 0:
+            self._fullsoft_curve_hold_sign = candidate_sign
+        elif nav_mode == "curve_follow":
+            candidate_sign = self._fullsoft_curve_hold_sign
+        elif candidate_sign != self._fullsoft_curve_hold_sign:
+            opposite_switch_allowed = (
+                abs(target_heading_deg) >= 10.0
+                and curve_confidence >= 0.55
+                and corridor_confidence >= 0.40
+            )
+            if opposite_switch_allowed:
+                self._fullsoft_curve_hold_sign = candidate_sign
+            else:
+                candidate_sign = self._fullsoft_curve_hold_sign
+
+        if candidate_sign > 0:
+            inside_front_clearance_m = front_left_clearance_m
+            outside_front_clearance_m = front_right_clearance_m
+            inside_min_m = left_min_m
+            outside_min_m = right_min_m
+        else:
+            inside_front_clearance_m = front_right_clearance_m
+            outside_front_clearance_m = front_left_clearance_m
+            inside_min_m = right_min_m
+            outside_min_m = left_min_m
+
+        weighted_heading_deg = 0.0
+        total_weight = 0.0
+        for heading_deg, weight, limit_deg in (
+            (free_space_candidate_heading_deg, 0.52, 24.0),
+            (preview_heading_deg if preview_available else 0.0, 0.24, 18.0),
+            (corridor_center_heading_deg, 0.16, 14.0),
+            (front_turn_heading_deg, 0.08, 12.0),
+        ):
+            if signbit(heading_deg) != candidate_sign:
+                continue
+            weighted_heading_deg += weight * min(abs(heading_deg), limit_deg)
+            total_weight += weight
+
+        if total_weight > 1e-6:
+            support_heading_deg = weighted_heading_deg / total_weight
+        else:
+            support_heading_deg = max(abs(target_heading_deg), abs(self._fullsoft_curve_hold_heading_deg))
+
+        side_ratio = 1.0
+        if inside_min_m > 0.0:
+            side_ratio = _clamp(
+                inside_min_m / max(self._adaptive_near_wall_distance_m, 0.05),
+                0.35,
+                1.0,
+            )
+        openness_advantage_m = 0.0
+        if inside_min_m > 0.0 and outside_min_m > 0.0:
+            openness_advantage_m = outside_min_m - inside_min_m
+        openness_strength = _clamp(openness_advantage_m / 0.70, 0.0, 1.0)
+        width_candidates = []
+        if self._track_model is not None and self._track_model.width_m > 0.0:
+            width_candidates.append(self._track_model.width_m)
+        if self._adaptive_corridor_width_m > 0.0:
+            width_candidates.append(self._adaptive_corridor_width_m)
+        if left_min_m > 0.0 and right_min_m > 0.0:
+            width_candidates.append(left_min_m + right_min_m)
+        width_scale_m = float(np.median(np.asarray(width_candidates, dtype=np.float32))) if width_candidates else (inside_min_m + outside_min_m)
+        width_scale_m = _clamp(width_scale_m, 0.28, 2.50)
+        inside_ratio = inside_min_m / max(width_scale_m, 0.05) if inside_min_m > 0.0 else 1.0
+        inside_closeness = _clamp((0.42 - inside_ratio) / 0.24, 0.0, 1.0)
+        openness_strength = _clamp(
+            ((outside_min_m - inside_min_m) / max(width_scale_m, 0.05)) / 0.45,
+            0.0,
+            1.0,
+        )
+        deep_curve_strength = openness_strength * inside_closeness
+        completion_boost = 0.0
+        if state_estimate.speed_mps > 0.20 and deep_curve_strength > 0.08:
+            slip_factor = 0.45
+            if abs(state_estimate.slip_proxy) > 12.0:
+                slip_factor = _clamp(
+                    (abs(state_estimate.slip_proxy) - 12.0) / 22.0,
+                    0.45,
+                    1.0,
+                )
+            completion_boost = deep_curve_strength * slip_factor
+        understeer_boost = 0.0
+        if (
+            state_estimate.speed_mps > 0.18
+            and deep_curve_strength > 0.08
+            and width_scale_m > 0.0
+        ):
+            support_strength = _clamp(abs(support_heading_deg) / 18.0, 0.35, 1.0)
+            expected_yaw_rate_rps = (
+                state_estimate.speed_mps
+                / max(0.40, width_scale_m * (1.0 - (0.20 * deep_curve_strength)))
+            ) * support_strength
+            actual_yaw_rate_rps = abs(state_estimate.yaw_rate_rps)
+            if actual_yaw_rate_rps < (0.82 * expected_yaw_rate_rps):
+                understeer_ratio = _clamp(
+                    (expected_yaw_rate_rps - actual_yaw_rate_rps)
+                    / max(expected_yaw_rate_rps, 1e-6),
+                    0.0,
+                    1.0,
+                )
+                understeer_boost = deep_curve_strength * understeer_ratio
+        strong_understeer = understeer_boost >= 0.22
+
+        heading_scale = (
+            0.52
+            + (0.16 * side_ratio)
+            + (0.10 * openness_strength)
+            + (0.18 * inside_closeness * openness_strength)
+            + (0.26 * completion_boost)
+            + (0.22 * understeer_boost)
+        )
+        if nav_mode == "curve_capture":
+            heading_scale *= 0.90
+        heading_mag_deg = support_heading_deg * heading_scale
+
+        heading_floor_deg = 5.0 if nav_mode == "curve_capture" else 6.0
+        heading_floor_deg += 2.0 * openness_strength
+        heading_floor_deg += 2.5 * inside_closeness * openness_strength
+        heading_floor_deg += 3.0 * completion_boost
+        heading_floor_deg += 2.0 * understeer_boost
+        heading_cap_deg = (
+            12.0
+            + (5.0 * openness_strength)
+            + (2.0 * side_ratio)
+            + (4.0 * inside_closeness * openness_strength)
+            + (5.0 * completion_boost)
+            + (3.0 * understeer_boost)
+        )
+        if inside_front_clearance_m > 0.0 and inside_front_clearance_m < self._slow_distance_m:
+            front_ratio = _clamp(
+                (inside_front_clearance_m - self._stop_distance_m)
+                / max(self._slow_distance_m - self._stop_distance_m, 0.05),
+                0.45,
+                1.0,
+            )
+            heading_cap_deg *= 0.80 + (0.20 * front_ratio)
+        heading_cap_deg = _clamp(heading_cap_deg, heading_floor_deg, 18.0)
+        heading_mag_deg = _clamp(heading_mag_deg, heading_floor_deg, heading_cap_deg)
+
+        if (
+            inside_min_m > 0.0
+            and inside_min_m < (self._stop_distance_m + 0.02)
+            and (
+                outside_min_m <= 0.0
+                or outside_min_m < (inside_min_m + 0.14)
+            )
+        ):
+            heading_mag_deg = min(heading_mag_deg, 5.0)
+        elif (
+            inside_front_clearance_m > 0.0
+            and inside_front_clearance_m < (self._stop_distance_m + 0.04)
+            and (
+                outside_front_clearance_m <= 0.0
+                or outside_front_clearance_m < (inside_front_clearance_m + 0.16)
+            )
+        ):
+            heading_mag_deg = min(heading_mag_deg, 6.0)
+
+        fullsoft_heading_deg = candidate_sign * heading_mag_deg
+        if (
+            self._fullsoft_curve_hold_heading_deg != 0.0
+            and signbit(self._fullsoft_curve_hold_heading_deg) == candidate_sign
+        ):
+            fullsoft_heading_deg = (
+                0.30 * self._fullsoft_curve_hold_heading_deg
+                + 0.70 * fullsoft_heading_deg
+            )
+        self._fullsoft_curve_hold_sign = candidate_sign
+        self._fullsoft_curve_hold_heading_deg = float(fullsoft_heading_deg)
+
+        steering_deg = self._compute_reference_steering_deg(fullsoft_heading_deg)
+        steering_sensitivity = 0.84
+        if nav_mode == "curve_capture":
+            steering_sensitivity *= 0.92
+        if state_estimate.speed_mps > 0.45:
+            steering_sensitivity *= 1.0 / (1.0 + (state_estimate.speed_mps - 0.45) * 0.40)
+        if completion_boost > 0.0 or understeer_boost > 0.0:
+            steering_sensitivity *= 1.0 + (0.18 * completion_boost) + (0.16 * understeer_boost)
+        elif abs(state_estimate.slip_proxy) > 10.0:
+            steering_sensitivity *= math.exp(-0.010 * (abs(state_estimate.slip_proxy) - 10.0))
+        steering_sensitivity = _clamp(steering_sensitivity, 0.62, 0.98)
+        steering_deg *= steering_sensitivity
+        steering_deg = _clamp(steering_deg, -self._steering_limit_deg, self._steering_limit_deg)
+        if nav_mode in {"curve_entry", "curve_follow", "curve_exit"}:
+            steering_floor_deg = _clamp(
+                (0.42 * abs(fullsoft_heading_deg))
+                + (2.4 * completion_boost)
+                + (1.8 * understeer_boost),
+                4.0,
+                self._steering_limit_deg,
+            )
+            steering_deg = candidate_sign * _clamp(
+                abs(steering_deg),
+                steering_floor_deg,
+                self._steering_limit_deg,
+            )
+            if strong_understeer:
+                steering_deg = candidate_sign * max(
+                    abs(steering_deg),
+                    0.92 * self._steering_limit_deg,
+                )
+
+        return float(fullsoft_heading_deg), float(steering_deg), "fullsoft_curve", True
 
     def _lerp_table(self, value: float, factor: np.ndarray) -> float:
         indices = np.nonzero(value < factor[:, 0])[0]
@@ -5207,6 +6090,914 @@ class ReconNavigator:
             float(np.min(forward)),
             float(np.max(forward)),
         )
+
+    @staticmethod
+    def _blend_scalar(previous_value: float, current_value: float, previous_weight: float) -> float:
+        previous_weight = _clamp(previous_weight, 0.0, 1.0)
+        return float(
+            (previous_weight * float(previous_value))
+            + ((1.0 - previous_weight) * float(current_value))
+        )
+
+    @staticmethod
+    def _point_from_line_fit(
+        fit: tuple[float, float, float, float] | None,
+        x_m: float,
+    ) -> float | None:
+        if fit is None:
+            return None
+        slope, intercept, _x_min_m, _x_max_m = fit
+        return float((slope * x_m) + intercept)
+
+    def _estimate_track_width_m(
+        self,
+        *,
+        left_fit: tuple[float, float, float, float] | None,
+        right_fit: tuple[float, float, float, float] | None,
+        left_clearance_m: float,
+        right_clearance_m: float,
+    ) -> float:
+        width_candidates: list[float] = []
+        if left_fit is not None and right_fit is not None:
+            sample_x_min_m = max(0.18, left_fit[2], right_fit[2])
+            sample_x_max_m = min(self._trajectory_horizon_m, left_fit[3], right_fit[3])
+            if sample_x_max_m - sample_x_min_m >= 0.10:
+                sample_xs = np.linspace(sample_x_min_m, sample_x_max_m, num=3)
+                for sample_x_m in sample_xs:
+                    left_y_m = self._point_from_line_fit(left_fit, float(sample_x_m))
+                    right_y_m = self._point_from_line_fit(right_fit, float(sample_x_m))
+                    if left_y_m is None or right_y_m is None or left_y_m <= right_y_m:
+                        continue
+                    width_candidates.append(left_y_m - right_y_m)
+
+        if left_clearance_m > 0.0 and right_clearance_m > 0.0:
+            width_candidates.append(left_clearance_m + right_clearance_m)
+        if self._track_model is not None and self._track_model.width_m > 0.0:
+            width_candidates.append(self._track_model.width_m)
+
+        if not width_candidates:
+            width_m = max(0.38, 2.0 * self._wall_follow_target_distance_m)
+        else:
+            width_m = float(np.median(np.asarray(width_candidates, dtype=np.float32)))
+        return _clamp(width_m, 0.28, 2.50)
+
+    def _compute_track_center_point(
+        self,
+        *,
+        x_m: float,
+        left_fit: tuple[float, float, float, float] | None,
+        right_fit: tuple[float, float, float, float] | None,
+        width_m: float,
+        support_heading_deg: float,
+    ) -> float | None:
+        left_y_m = self._point_from_line_fit(left_fit, x_m)
+        right_y_m = self._point_from_line_fit(right_fit, x_m)
+
+        if left_y_m is not None and right_y_m is not None:
+            if left_y_m <= right_y_m:
+                return None
+            center_y_m = 0.5 * (left_y_m + right_y_m)
+            support_y_m = math.tan(math.radians(support_heading_deg)) * x_m
+            if signbit(center_y_m) == 0 or signbit(center_y_m) == signbit(support_y_m):
+                center_y_m = (0.85 * center_y_m) + (0.15 * support_y_m)
+            return float(center_y_m)
+
+        lane_half_width_m = 0.5 * width_m
+        support_y_m = math.tan(math.radians(support_heading_deg)) * x_m
+        if left_y_m is not None:
+            center_y_m = left_y_m - lane_half_width_m
+            return float((0.70 * center_y_m) + (0.30 * support_y_m))
+        if right_y_m is not None:
+            center_y_m = right_y_m + lane_half_width_m
+            return float((0.70 * center_y_m) + (0.30 * support_y_m))
+        return None
+
+    @staticmethod
+    def _curvature_from_three_points(
+        point_a: tuple[float, float],
+        point_b: tuple[float, float],
+        point_c: tuple[float, float],
+    ) -> float:
+        ax, ay = point_a
+        bx, by = point_b
+        cx, cy = point_c
+        ab = math.hypot(bx - ax, by - ay)
+        bc = math.hypot(cx - bx, cy - by)
+        ac = math.hypot(cx - ax, cy - ay)
+        if min(ab, bc, ac) <= 1e-6:
+            return 0.0
+        cross = ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax))
+        return float((2.0 * cross) / max(ab * bc * ac, 1e-6))
+
+    @staticmethod
+    def _pure_pursuit_curvature(x_m: float, y_m: float) -> float:
+        denominator = max((x_m * x_m) + (y_m * y_m), 1e-6)
+        return float((2.0 * y_m) / denominator)
+
+    def _evaluate_track_model_y(self, track_model: ReconTrackModel, x_m: float) -> float:
+        xs = np.asarray(
+            [
+                track_model.center_near_x_m,
+                track_model.center_mid_x_m,
+                track_model.center_far_x_m,
+            ],
+            dtype=np.float32,
+        )
+        ys = np.asarray(
+            [
+                track_model.center_near_y_m,
+                track_model.center_mid_y_m,
+                track_model.center_far_y_m,
+            ],
+            dtype=np.float32,
+        )
+        if np.ptp(xs) < 1e-6:
+            return float(track_model.center_far_y_m)
+        coeffs = np.polyfit(xs, ys, 2)
+        return float(np.polyval(coeffs, float(x_m)))
+
+    def _build_track_model(
+        self,
+        *,
+        left_wall_points_xy: list[tuple[float, float]],
+        right_wall_points_xy: list[tuple[float, float]],
+        left_clearance_m: float,
+        right_clearance_m: float,
+        corridor_balance_ratio: float,
+        corridor_available: bool,
+        support_target_heading_deg: float,
+        support_heading_source: str,
+        front_turn_heading_deg: float,
+        corridor_axis_heading_deg: float,
+        corridor_center_heading_deg: float,
+        centering_heading_deg: float,
+    ) -> ReconTrackModel | None:
+        left_fit = self._fit_wall_line(left_wall_points_xy)
+        right_fit = self._fit_wall_line(right_wall_points_xy)
+
+        support_heading_deg = support_target_heading_deg
+        for candidate_heading_deg in (
+            corridor_center_heading_deg,
+            front_turn_heading_deg,
+            corridor_axis_heading_deg,
+            centering_heading_deg,
+        ):
+            if abs(candidate_heading_deg) > abs(support_heading_deg):
+                support_heading_deg = candidate_heading_deg
+
+        if left_fit is None and right_fit is None:
+            if self._track_model is None:
+                return None
+            previous_sign = signbit(self._track_model.heading_deg)
+            if previous_sign == 0:
+                previous_sign = signbit(self._track_model.signed_curvature)
+            support_sign = signbit(support_heading_deg)
+            carry_decay = 0.72
+            if previous_sign != 0 and support_sign == previous_sign:
+                carry_decay = 0.80
+                if corridor_available and corridor_balance_ratio >= max(
+                    0.12,
+                    0.60 * self._corridor_balance_ratio_threshold,
+                ):
+                    carry_decay = 0.86
+            carried_model = ReconTrackModel(
+                center_near_x_m=self._track_model.center_near_x_m,
+                center_near_y_m=self._track_model.center_near_y_m,
+                center_mid_x_m=self._track_model.center_mid_x_m,
+                center_mid_y_m=self._track_model.center_mid_y_m,
+                center_far_x_m=self._track_model.center_far_x_m,
+                center_far_y_m=self._track_model.center_far_y_m,
+                target_line_start=self._track_model.target_line_start,
+                target_line_end=self._track_model.target_line_end,
+                width_m=self._track_model.width_m,
+                heading_deg=self._track_model.heading_deg,
+                signed_curvature=self._track_model.signed_curvature,
+                confidence=self._track_model.confidence * carry_decay,
+                left_wall_available=False,
+                right_wall_available=False,
+            )
+            self._track_model = carried_model if carried_model.confidence >= 0.10 else None
+            return self._track_model
+
+        width_m = self._estimate_track_width_m(
+            left_fit=left_fit,
+            right_fit=right_fit,
+            left_clearance_m=left_clearance_m,
+            right_clearance_m=right_clearance_m,
+        )
+        sample_x_min_m = 0.18
+        sample_x_max_candidates = [self._trajectory_horizon_m]
+        if left_fit is not None:
+            sample_x_min_m = max(sample_x_min_m, left_fit[2])
+            sample_x_max_candidates.append(left_fit[3])
+        if right_fit is not None:
+            sample_x_min_m = max(sample_x_min_m, right_fit[2])
+            sample_x_max_candidates.append(right_fit[3])
+        sample_x_max_m = min(sample_x_max_candidates)
+        if sample_x_max_m - sample_x_min_m < 0.18:
+            sample_x_min_m = 0.18
+            sample_x_max_m = max(0.45, min(self._trajectory_horizon_m, sample_x_max_m))
+        if sample_x_max_m - sample_x_min_m < 0.12:
+            return self._track_model
+
+        center_near_x_m = max(0.18, min(0.32, sample_x_max_m - 0.18))
+        center_far_x_m = max(center_near_x_m + 0.14, sample_x_max_m)
+        center_far_x_m = min(center_far_x_m, self._trajectory_horizon_m)
+        center_mid_x_m = 0.5 * (center_near_x_m + center_far_x_m)
+        if center_far_x_m <= center_mid_x_m or center_mid_x_m <= center_near_x_m:
+            center_mid_x_m = center_near_x_m + 0.5 * max(0.12, center_far_x_m - center_near_x_m)
+
+        center_near_y_m = self._compute_track_center_point(
+            x_m=center_near_x_m,
+            left_fit=left_fit,
+            right_fit=right_fit,
+            width_m=width_m,
+            support_heading_deg=support_heading_deg,
+        )
+        center_mid_y_m = self._compute_track_center_point(
+            x_m=center_mid_x_m,
+            left_fit=left_fit,
+            right_fit=right_fit,
+            width_m=width_m,
+            support_heading_deg=support_heading_deg,
+        )
+        center_far_y_m = self._compute_track_center_point(
+            x_m=center_far_x_m,
+            left_fit=left_fit,
+            right_fit=right_fit,
+            width_m=width_m,
+            support_heading_deg=support_heading_deg,
+        )
+        if center_near_y_m is None or center_mid_y_m is None or center_far_y_m is None:
+            return self._track_model
+
+        previous_weight = 0.0
+        if self._track_model is not None:
+            previous_weight = self._trajectory_track_memory_alpha
+            if left_fit is not None and right_fit is not None:
+                previous_weight *= 0.55
+            else:
+                previous_weight *= 0.85
+
+            center_near_y_m = self._blend_scalar(
+                self._track_model.center_near_y_m,
+                center_near_y_m,
+                previous_weight,
+            )
+            center_mid_y_m = self._blend_scalar(
+                self._track_model.center_mid_y_m,
+                center_mid_y_m,
+                previous_weight,
+            )
+            center_far_y_m = self._blend_scalar(
+                self._track_model.center_far_y_m,
+                center_far_y_m,
+                previous_weight,
+            )
+            width_m = self._blend_scalar(self._track_model.width_m, width_m, previous_weight)
+
+        heading_deg = math.degrees(
+            math.atan2(
+                center_far_y_m - center_near_y_m,
+                max(1e-3, center_far_x_m - center_near_x_m),
+            )
+        )
+        signed_curvature = self._curvature_from_three_points(
+            (center_near_x_m, center_near_y_m),
+            (center_mid_x_m, center_mid_y_m),
+            (center_far_x_m, center_far_y_m),
+        )
+        if abs(signed_curvature) < 1e-4:
+            signed_curvature = self._pure_pursuit_curvature(center_far_x_m, center_far_y_m)
+
+        confidence = 0.0
+        if left_fit is not None and right_fit is not None:
+            confidence = 0.55 + (0.20 * _clamp(corridor_balance_ratio, 0.0, 1.0))
+            if corridor_available:
+                confidence += 0.15
+        else:
+            confidence = 0.34 + (0.12 * _clamp(corridor_balance_ratio, 0.0, 1.0))
+        if support_heading_source in {"corridor_center", "trajectory_planner"}:
+            confidence += 0.05
+        if signbit(support_heading_deg) != 0 and signbit(support_heading_deg) == signbit(heading_deg):
+            confidence += 0.05
+        confidence = _clamp(confidence, 0.0, 1.0)
+
+        track_model = ReconTrackModel(
+            center_near_x_m=float(center_near_x_m),
+            center_near_y_m=float(center_near_y_m),
+            center_mid_x_m=float(center_mid_x_m),
+            center_mid_y_m=float(center_mid_y_m),
+            center_far_x_m=float(center_far_x_m),
+            center_far_y_m=float(center_far_y_m),
+            target_line_start=(float(center_near_x_m), float(center_near_y_m)),
+            target_line_end=(float(center_far_x_m), float(center_far_y_m)),
+            width_m=float(width_m),
+            heading_deg=float(heading_deg),
+            signed_curvature=float(signed_curvature),
+            confidence=float(confidence),
+            left_wall_available=left_fit is not None,
+            right_wall_available=right_fit is not None,
+        )
+        self._track_model = track_model
+        return track_model
+
+    def _compute_trajectory_lookahead_m(
+        self,
+        *,
+        signed_curvature: float,
+        track_confidence: float,
+        state_estimate: ReconStateEstimate,
+    ) -> float:
+        curvature_factor = _clamp(abs(signed_curvature) / 1.2, 0.0, 1.0)
+        lookahead_m = self._trajectory_lookahead_max_m - (
+            curvature_factor
+            * (self._trajectory_lookahead_max_m - self._trajectory_lookahead_min_m)
+        )
+        if state_estimate.speed_mps > 0.0:
+            speed_extension_m = min(
+                0.18,
+                0.12 * state_estimate.speed_mps,
+            )
+            lookahead_m += speed_extension_m
+        if abs(state_estimate.slip_proxy) > 4.0:
+            lookahead_m += min(0.18, 0.004 * abs(state_estimate.slip_proxy))
+        lookahead_m += 0.05 * (track_confidence - 0.5)
+        dynamic_lookahead_cap_m = self._trajectory_lookahead_max_m + min(
+            0.18,
+            (0.06 * max(state_estimate.speed_mps, 0.0))
+            + (0.003 * max(abs(state_estimate.slip_proxy) - 6.0, 0.0)),
+        )
+        return _clamp(
+            lookahead_m,
+            self._trajectory_lookahead_min_m,
+            dynamic_lookahead_cap_m,
+        )
+
+    def _resolve_trajectory_phase(
+        self,
+        *,
+        heading_deg: float,
+        signed_curvature: float,
+        confidence: float,
+        support_heading_deg: float,
+        track_heading_deg: float,
+        single_wall_recentering: bool,
+        previous_sign: int,
+        current_sign: int,
+        opposite_turn_takeover_ready: bool,
+    ) -> str:
+        heading_mag_deg = abs(heading_deg)
+        support_heading_mag_deg = max(abs(support_heading_deg), abs(track_heading_deg))
+        phase_heading_mag_deg = max(heading_mag_deg, support_heading_mag_deg)
+        curvature_mag = abs(signed_curvature)
+        previous_phase = self._trajectory_phase
+
+        if single_wall_recentering:
+            return "straight_align"
+
+        if previous_phase in {"curve_entry", "curve_follow", "curve_exit"}:
+            if (
+                previous_sign != 0
+                and current_sign != 0
+                and previous_sign != current_sign
+            ):
+                if opposite_turn_takeover_ready:
+                    return "curve_entry"
+                if previous_phase == "curve_exit":
+                    return "curve_exit"
+                return "curve_follow"
+            if (
+                phase_heading_mag_deg
+                <= self._trajectory_exit_heading_threshold_deg
+                and curvature_mag <= 0.05
+            ):
+                return "curve_exit" if self._trajectory_phase_cycles < 2 else "straight_align"
+            if previous_phase == "curve_entry":
+                if (
+                    self._trajectory_phase_cycles >= 2
+                    or (
+                        curvature_mag >= 0.08
+                        and phase_heading_mag_deg >= self._trajectory_entry_heading_threshold_deg
+                    )
+                ):
+                    return "curve_follow"
+                return "curve_entry"
+            if previous_phase == "curve_exit":
+                if phase_heading_mag_deg >= self._trajectory_entry_heading_threshold_deg:
+                    return "curve_entry"
+                return "curve_exit"
+            return "curve_follow"
+
+        if (
+            phase_heading_mag_deg >= self._trajectory_entry_heading_threshold_deg
+            and confidence >= (0.75 * self._trajectory_min_confidence)
+        ):
+            return "curve_entry"
+        return "straight_align"
+
+    def _compute_trajectory_target_speed_pct(
+        self,
+        *,
+        effective_front_clearance_m: float,
+        signed_curvature: float,
+        phase: str,
+        confidence: float,
+        state_estimate: ReconStateEstimate,
+    ) -> float:
+        if effective_front_clearance_m <= 0.0 or effective_front_clearance_m <= self._stop_distance_m:
+            return 0.0
+
+        speed_pct = self._max_speed_pct * math.exp(
+            -self._trajectory_curve_speed_gain * abs(signed_curvature)
+        )
+        speed_pct *= 0.60 + (0.40 * _clamp(confidence, 0.0, 1.0))
+        speed_pct *= math.exp(-0.04 * abs(state_estimate.slip_proxy))
+
+        if phase in {"curve_entry", "curve_follow", "curve_exit"}:
+            curve_floor_pct = max(
+                0.0,
+                self._min_speed_pct * max(0.55, self._min_turn_speed_factor),
+            )
+            speed_pct = max(curve_floor_pct, speed_pct)
+
+        if effective_front_clearance_m < self._slow_distance_m:
+            distance_factor = (
+                (effective_front_clearance_m - self._stop_distance_m)
+                / max(self._slow_distance_m - self._stop_distance_m, 1e-6)
+            )
+            speed_pct *= _clamp(distance_factor, 0.0, 1.0)
+
+        speed_pct = _clamp(speed_pct, 0.0, self._max_speed_pct)
+        if speed_pct > 0.0:
+            speed_pct = max(self._min_speed_pct, speed_pct)
+        return float(speed_pct)
+
+    def _plan_continuous_trajectory(
+        self,
+        *,
+        track_model: ReconTrackModel | None,
+        state_estimate: ReconStateEstimate,
+        effective_front_clearance_m: float,
+        support_target_heading_deg: float,
+        support_heading_source: str,
+        corridor_axis_heading_deg: float,
+        corridor_center_heading_deg: float,
+        front_turn_heading_deg: float,
+        preview_heading_deg: float,
+        centering_heading_deg: float,
+        left_min_m: float,
+        right_min_m: float,
+    ) -> ReconTrajectory:
+        track_confidence = track_model.confidence if track_model is not None else 0.0
+        lookahead_x_m = self._compute_trajectory_lookahead_m(
+            signed_curvature=track_model.signed_curvature if track_model is not None else 0.0,
+            track_confidence=track_confidence,
+            state_estimate=state_estimate,
+        )
+        if track_model is not None:
+            track_lookahead_y_m = self._evaluate_track_model_y(track_model, lookahead_x_m)
+        else:
+            track_lookahead_y_m = math.tan(math.radians(support_target_heading_deg)) * lookahead_x_m
+
+        support_heading_deg = support_target_heading_deg
+        for candidate_heading_deg in (
+            corridor_center_heading_deg,
+            front_turn_heading_deg,
+            preview_heading_deg,
+            corridor_axis_heading_deg,
+        ):
+            if abs(candidate_heading_deg) > abs(support_heading_deg):
+                support_heading_deg = candidate_heading_deg
+        support_y_m = math.tan(math.radians(support_heading_deg)) * lookahead_x_m
+
+        if track_model is not None:
+            if signbit(track_lookahead_y_m) == 0 or signbit(track_lookahead_y_m) == signbit(support_y_m):
+                track_lookahead_y_m = (0.82 * track_lookahead_y_m) + (0.18 * support_y_m)
+        else:
+            track_lookahead_y_m = support_y_m
+
+        desired_curvature = self._pure_pursuit_curvature(lookahead_x_m, track_lookahead_y_m)
+        if (
+            state_estimate.valid
+            and abs(state_estimate.yaw_rate_rps) > 0.01
+            and signbit(math.degrees(state_estimate.yaw_rate_rps)) != 0
+        ):
+            state_aux_weight = self._trajectory_state_aux_weight
+            if abs(state_estimate.slip_proxy) > 6.0:
+                state_aux_weight *= math.exp(-0.06 * (abs(state_estimate.slip_proxy) - 6.0))
+            state_curvature_hint = signbit(math.degrees(state_estimate.yaw_rate_rps)) * abs(
+                self._trajectory_signed_curvature
+            )
+            desired_curvature = self._blend_scalar(
+                desired_curvature,
+                state_curvature_hint,
+                state_aux_weight * 0.25,
+            )
+
+        if self._trajectory_phase != "idle":
+            desired_curvature = _clamp(
+                desired_curvature,
+                self._trajectory_signed_curvature - self._trajectory_curvature_slew_per_cycle,
+                self._trajectory_signed_curvature + self._trajectory_curvature_slew_per_cycle,
+            )
+
+        desired_sign = signbit(desired_curvature)
+        if desired_sign == 0:
+            desired_sign = signbit(track_lookahead_y_m)
+        if desired_sign == 0:
+            desired_sign = signbit(support_y_m)
+
+        single_wall_recentering = False
+        near_wall_escape_threshold_m = _clamp(0.30 * self._wall_avoid_distance_m, 0.10, 0.14)
+        near_wall_escape_margin_m = max(0.20, 2.0 * near_wall_escape_threshold_m)
+        if (
+            0.0 < left_min_m <= near_wall_escape_threshold_m
+            and desired_sign < 0
+            and (right_min_m <= 0.0 or right_min_m >= (left_min_m + near_wall_escape_margin_m))
+        ):
+            single_wall_recentering = True
+        elif (
+            0.0 < right_min_m <= near_wall_escape_threshold_m
+            and desired_sign > 0
+            and (left_min_m <= 0.0 or left_min_m >= (right_min_m + near_wall_escape_margin_m))
+        ):
+            single_wall_recentering = True
+
+        flip_blocked = False
+        previous_sign = signbit(self._trajectory_signed_curvature)
+        current_sign = signbit(desired_curvature)
+        opposite_turn_takeover_ready = self._trajectory_opposite_turn_takeover_ready(
+            previous_sign=previous_sign,
+            candidate_sign=current_sign,
+            support_heading_deg=support_heading_deg,
+            track_heading_deg=track_model.heading_deg if track_model is not None else 0.0,
+            signed_curvature=desired_curvature,
+            confidence=track_confidence,
+            left_min_m=left_min_m,
+            right_min_m=right_min_m,
+        )
+        exit_ready = (
+            abs(track_lookahead_y_m) <= (0.5 * self._trajectory_exit_heading_threshold_deg * math.pi / 180.0)
+            and effective_front_clearance_m >= max(self._stop_distance_m + 0.12, 0.75 * self._slow_distance_m)
+        )
+        if (
+            self._trajectory_phase in {"curve_entry", "curve_follow"}
+            and previous_sign != 0
+            and current_sign != 0
+            and previous_sign != current_sign
+            and not opposite_turn_takeover_ready
+            and not exit_ready
+        ):
+            desired_curvature = previous_sign * max(
+                abs(self._trajectory_signed_curvature) * 0.85,
+                abs(desired_curvature) * 0.35,
+                0.02,
+            )
+            flip_blocked = True
+
+        curvature_lookahead_y_m = 0.5 * desired_curvature * (lookahead_x_m * lookahead_x_m)
+        lookahead_y_m = track_lookahead_y_m
+        if track_model is not None:
+            lookahead_y_m = (0.72 * track_lookahead_y_m) + (0.28 * curvature_lookahead_y_m)
+        else:
+            lookahead_y_m = curvature_lookahead_y_m
+        heading_deg = math.degrees(math.atan2(lookahead_y_m, max(lookahead_x_m, 1e-6)))
+        desired_curvature = self._pure_pursuit_curvature(lookahead_x_m, lookahead_y_m)
+
+        if single_wall_recentering:
+            recenter_limit_deg = _clamp(
+                max(4.0, 0.55 * abs(centering_heading_deg)),
+                4.0,
+                10.0,
+            )
+            limited_heading_deg = math.copysign(
+                min(abs(heading_deg), recenter_limit_deg),
+                heading_deg,
+            )
+            if abs(limited_heading_deg - heading_deg) > 1e-6:
+                lookahead_y_m = math.tan(math.radians(limited_heading_deg)) * max(
+                    lookahead_x_m,
+                    1e-6,
+                )
+                heading_deg = float(limited_heading_deg)
+                desired_curvature = self._pure_pursuit_curvature(
+                    lookahead_x_m,
+                    lookahead_y_m,
+                )
+        else:
+            dynamic_min_radius_m = self._trajectory_min_radius_m
+            dynamic_min_radius_m += min(0.35, 0.22 * max(state_estimate.speed_mps, 0.0))
+            dynamic_min_radius_m += min(
+                0.30,
+                0.004 * max(abs(state_estimate.slip_proxy) - 8.0, 0.0),
+            )
+            max_allowed_curvature = 1.0 / max(dynamic_min_radius_m, 1e-6)
+            if abs(desired_curvature) > max_allowed_curvature:
+                limited_curvature = math.copysign(max_allowed_curvature, desired_curvature)
+                lookahead_y_m = math.copysign(
+                    min(
+                        abs(lookahead_y_m),
+                        abs(0.5 * limited_curvature * (lookahead_x_m * lookahead_x_m)),
+                    ),
+                    lookahead_y_m,
+                )
+                heading_deg = math.degrees(math.atan2(lookahead_y_m, max(lookahead_x_m, 1e-6)))
+                desired_curvature = self._pure_pursuit_curvature(lookahead_x_m, lookahead_y_m)
+
+            dynamic_heading_limit_deg = self._trajectory_curve_heading_limit_deg
+            dynamic_heading_limit_deg -= min(2.0, 0.7 * max(state_estimate.speed_mps - 0.8, 0.0))
+            dynamic_heading_limit_deg -= min(
+                2.0,
+                0.05 * max(abs(state_estimate.slip_proxy) - 12.0, 0.0),
+            )
+            dynamic_heading_limit_deg = _clamp(
+                dynamic_heading_limit_deg,
+                self._trajectory_entry_heading_threshold_deg,
+                self._trajectory_curve_heading_limit_deg,
+            )
+            if abs(heading_deg) > dynamic_heading_limit_deg:
+                limited_heading_deg = math.copysign(dynamic_heading_limit_deg, heading_deg)
+                lookahead_y_m = math.tan(math.radians(limited_heading_deg)) * max(
+                    lookahead_x_m,
+                    1e-6,
+                )
+                heading_deg = float(limited_heading_deg)
+                desired_curvature = self._pure_pursuit_curvature(lookahead_x_m, lookahead_y_m)
+
+        confidence = track_confidence
+        if support_heading_source == "trajectory_planner":
+            confidence = max(confidence, self._trajectory_min_confidence)
+        if abs(state_estimate.slip_proxy) > 8.0:
+            confidence *= math.exp(-0.03 * abs(state_estimate.slip_proxy))
+        confidence = _clamp(confidence, 0.0, 1.0)
+
+        phase = self._resolve_trajectory_phase(
+            heading_deg=heading_deg,
+            signed_curvature=desired_curvature,
+            confidence=confidence,
+            support_heading_deg=support_heading_deg,
+            track_heading_deg=track_model.heading_deg if track_model is not None else 0.0,
+            single_wall_recentering=single_wall_recentering,
+            previous_sign=previous_sign,
+            current_sign=signbit(desired_curvature),
+            opposite_turn_takeover_ready=opposite_turn_takeover_ready,
+        )
+        if phase == self._trajectory_phase:
+            self._trajectory_phase_cycles += 1
+        else:
+            self._trajectory_phase_cycles = 1
+        self._trajectory_phase = phase
+        self._trajectory_signed_curvature = float(desired_curvature)
+        self._trajectory_heading_deg = float(heading_deg)
+
+        radius_m = 0.0
+        if abs(desired_curvature) > 1e-6:
+            radius_m = float(1.0 / abs(desired_curvature))
+        target_speed_pct = self._compute_trajectory_target_speed_pct(
+            effective_front_clearance_m=effective_front_clearance_m,
+            signed_curvature=desired_curvature,
+            phase=phase,
+            confidence=confidence,
+            state_estimate=state_estimate,
+        )
+
+        if track_model is not None:
+            target_line_start = track_model.target_line_start
+            target_line_end = track_model.target_line_end
+        else:
+            target_line_start = (0.0, 0.0)
+            target_line_end = (lookahead_x_m, lookahead_y_m)
+
+        return ReconTrajectory(
+            target_line_start=target_line_start,
+            target_line_end=target_line_end,
+            lookahead_x_m=float(lookahead_x_m),
+            lookahead_y_m=float(lookahead_y_m),
+            heading_deg=float(heading_deg),
+            signed_curvature=float(desired_curvature),
+            radius_m=radius_m,
+            target_speed_pct=float(target_speed_pct),
+            phase=phase,
+            confidence=float(confidence),
+            flip_blocked=flip_blocked,
+        )
+
+    def _follow_trajectory(self, trajectory: ReconTrajectory) -> float:
+        reference_steering_deg = self._compute_reference_steering_deg(trajectory.heading_deg)
+        curvature_support_deg = math.degrees(
+            math.atan(trajectory.signed_curvature * max(trajectory.lookahead_x_m, 0.05))
+        )
+        steering_deg = (0.78 * reference_steering_deg) + (0.22 * curvature_support_deg)
+        return _clamp(steering_deg, -self._steering_limit_deg, self._steering_limit_deg)
+
+    def _curve_continuation_authority(
+        self,
+        *,
+        nav_mode: str,
+        turn_sign: int,
+        target_heading_deg: float,
+        turn_side_min_m: float,
+        opposite_side_min_m: float,
+        curve_confidence: float,
+        corridor_confidence: float,
+    ) -> tuple[bool, float]:
+        if nav_mode not in {"curve_entry", "curve_follow", "curve_exit"}:
+            return False, 0.0
+        if turn_sign == 0 or signbit(target_heading_deg) != turn_sign:
+            return False, 0.0
+        if abs(target_heading_deg) < 7.5:
+            return False, 0.0
+        if turn_side_min_m <= 0.0 or opposite_side_min_m <= 0.0:
+            return False, 0.0
+        if curve_confidence < 0.18 and corridor_confidence < 0.24:
+            return False, 0.0
+
+        openness_advantage_m = opposite_side_min_m - turn_side_min_m
+        openness_ratio = opposite_side_min_m / max(turn_side_min_m, 0.10)
+        if openness_advantage_m < 0.20 or openness_ratio < 1.45:
+            return False, 0.0
+
+        openness_strength = _clamp(
+            0.60 * _clamp(openness_advantage_m / 0.55, 0.0, 1.0)
+            + 0.40 * _clamp((openness_ratio - 1.45) / 2.20, 0.0, 1.0),
+            0.0,
+            1.0,
+        )
+        return True, float(openness_strength)
+
+    def _apply_fullsoft_curve_steering_profile(
+        self,
+        *,
+        steering_deg: float,
+        target_heading_deg: float,
+        nav_mode: str,
+        turn_side_min_m: float,
+        opposite_side_min_m: float,
+        curve_confidence: float,
+        corridor_confidence: float,
+        curve_steering_floor_deg: float,
+        state_estimate: ReconStateEstimate,
+        same_sign_trim_active: bool,
+    ) -> float:
+        if nav_mode not in {"curve_capture", "curve_entry", "curve_follow", "curve_exit"}:
+            self._fullsoft_last_curve_steering_deg = float(steering_deg)
+            return float(steering_deg)
+
+        profiled_steering_deg = float(steering_deg)
+        turn_sign = signbit(target_heading_deg)
+        continuation_active, continuation_strength = self._curve_continuation_authority(
+            nav_mode=nav_mode,
+            turn_sign=turn_sign,
+            target_heading_deg=target_heading_deg,
+            turn_side_min_m=turn_side_min_m,
+            opposite_side_min_m=opposite_side_min_m,
+            curve_confidence=curve_confidence,
+            corridor_confidence=corridor_confidence,
+        )
+        sensitivity = 0.78
+        if same_sign_trim_active:
+            sensitivity *= 0.80
+        if turn_side_min_m > 0.0:
+            side_ratio = _clamp(
+                turn_side_min_m / max(self._adaptive_near_wall_distance_m, 0.05),
+                0.30,
+                1.0,
+            )
+            sensitivity *= 0.55 + (0.45 * side_ratio)
+        if state_estimate.speed_mps > 0.40:
+            sensitivity *= 1.0 / (1.0 + (state_estimate.speed_mps - 0.40) * 0.55)
+        slip_decay = 0.020
+        if continuation_active:
+            sensitivity = max(sensitivity, 0.54 + (0.16 * continuation_strength))
+            slip_decay = 0.008
+        if abs(state_estimate.slip_proxy) > 8.0:
+            sensitivity *= math.exp(-slip_decay * (abs(state_estimate.slip_proxy) - 8.0))
+        sensitivity_floor = 0.35
+        if continuation_active:
+            sensitivity_floor = 0.50 + (0.10 * continuation_strength)
+        sensitivity = _clamp(sensitivity, sensitivity_floor, 0.92)
+
+        profiled_steering_deg *= sensitivity
+        steering_limit_factor = 0.80
+        if continuation_active:
+            steering_limit_factor = 0.88 + (0.06 * continuation_strength)
+        profiled_steering_deg = math.copysign(
+            min(
+                abs(profiled_steering_deg),
+                max(1.5, steering_limit_factor * abs(target_heading_deg)),
+            ),
+            profiled_steering_deg,
+        )
+
+        smoothing_keep = 0.45 if same_sign_trim_active else 0.30
+        if continuation_active:
+            smoothing_keep = min(smoothing_keep, 0.18)
+        profiled_steering_deg = (
+            smoothing_keep * self._fullsoft_last_curve_steering_deg
+            + (1.0 - smoothing_keep) * profiled_steering_deg
+        )
+        if continuation_active and turn_sign != 0:
+            continue_floor_deg = _clamp(
+                max(
+                    4.5,
+                    0.44 * abs(target_heading_deg),
+                    0.68 * curve_steering_floor_deg,
+                )
+                + (1.2 * continuation_strength),
+                4.5,
+                8.5,
+            )
+            profiled_steering_deg = turn_sign * _clamp(
+                abs(profiled_steering_deg),
+                continue_floor_deg,
+                self._steering_limit_deg,
+            )
+        profiled_steering_deg = _clamp(
+            profiled_steering_deg,
+            -self._steering_limit_deg,
+            self._steering_limit_deg,
+        )
+        self._fullsoft_last_curve_steering_deg = float(profiled_steering_deg)
+        return float(profiled_steering_deg)
+
+    def _compute_fullsoft_near_wall_heading_deg(
+        self,
+        *,
+        target_heading_deg: float,
+        turn_sign: int,
+        nav_mode: str,
+        turn_side_min_m: float,
+        opposite_side_min_m: float,
+        curve_confidence: float,
+        corridor_confidence: float,
+        preview_heading_deg: float,
+        corridor_center_heading_deg: float,
+        free_space_candidate_heading_deg: float,
+    ) -> float:
+        if turn_sign == 0:
+            return float(target_heading_deg)
+
+        continuation_active, continuation_strength = self._curve_continuation_authority(
+            nav_mode=nav_mode,
+            turn_sign=turn_sign,
+            target_heading_deg=target_heading_deg,
+            turn_side_min_m=turn_side_min_m,
+            opposite_side_min_m=opposite_side_min_m,
+            curve_confidence=curve_confidence,
+            corridor_confidence=corridor_confidence,
+        )
+        weighted_support_deg = 0.0
+        total_weight = 0.0
+        for heading_deg, weight, limit_deg in (
+            (preview_heading_deg, 0.45, 14.0),
+            (corridor_center_heading_deg, 0.35, 18.0),
+            (free_space_candidate_heading_deg, 0.20, 16.0),
+        ):
+            if signbit(heading_deg) != turn_sign:
+                continue
+            weighted_support_deg += weight * min(abs(heading_deg), limit_deg)
+            total_weight += weight
+
+        support_heading_deg = (
+            weighted_support_deg / total_weight if total_weight > 1e-6 else abs(target_heading_deg)
+        )
+        side_ratio = _clamp(
+            turn_side_min_m / max(self._adaptive_near_wall_distance_m, 0.05),
+            0.0,
+            1.0,
+        )
+        target_scale = 0.28 + (0.42 * side_ratio)
+        conservative_limit_deg = _clamp(
+            2.0 + (0.20 * support_heading_deg) + (4.0 * side_ratio),
+            2.0,
+            9.0,
+        )
+        if continuation_active:
+            target_scale = max(
+                target_scale,
+                0.52 + (0.18 * continuation_strength) + (0.10 * side_ratio),
+            )
+            conservative_limit_deg = max(
+                conservative_limit_deg,
+                7.0 + (4.5 * continuation_strength),
+            )
+        conservative_heading_deg = turn_sign * min(
+            abs(target_heading_deg) * target_scale,
+            conservative_limit_deg,
+        )
+        if continuation_active:
+            min_continue_heading_deg = _clamp(
+                6.0 + (4.0 * continuation_strength),
+                6.0,
+                11.0,
+            )
+            conservative_heading_deg = turn_sign * _clamp(
+                abs(conservative_heading_deg),
+                min_continue_heading_deg,
+                conservative_limit_deg,
+            )
+        return float(conservative_heading_deg)
 
     def _apply_simple_heading_slew(self, heading_deg: float) -> float:
         delta_deg = float(heading_deg) - self._simple_last_heading_deg
@@ -7133,12 +8924,72 @@ class ReconNavigator:
             speed_pct = max(min_speed_pct, speed_pct)
         return float(max(0.0, min(max_speed_pct, speed_pct)))
 
+    def _compute_curve_projected_front_clearance_m(
+        self,
+        *,
+        effective_front_clearance_m: float,
+        front_left_clearance_m: float,
+        front_right_clearance_m: float,
+        left_min_m: float,
+        right_min_m: float,
+        curve_confidence: float,
+        corridor_confidence: float,
+        same_sign_trim_active: bool,
+    ) -> float:
+        if (
+            front_left_clearance_m <= 0.0
+            or front_right_clearance_m <= 0.0
+            or left_min_m <= 0.0
+            or right_min_m <= 0.0
+        ):
+            return effective_front_clearance_m
+        if curve_confidence < 0.18 and corridor_confidence < 0.30:
+            return effective_front_clearance_m
+
+        width_candidates = []
+        if self._track_model is not None and self._track_model.width_m > 0.0:
+            width_candidates.append(self._track_model.width_m)
+        if self._adaptive_corridor_width_m > 0.0:
+            width_candidates.append(self._adaptive_corridor_width_m)
+        width_candidates.append(left_min_m + right_min_m)
+        width_scale_m = float(np.median(np.asarray(width_candidates, dtype=np.float32)))
+        width_scale_m = _clamp(width_scale_m, 0.28, 2.50)
+
+        inside_is_left = left_min_m <= right_min_m
+        inside_min_m = left_min_m if inside_is_left else right_min_m
+        outside_min_m = right_min_m if inside_is_left else left_min_m
+        inside_front_m = front_left_clearance_m if inside_is_left else front_right_clearance_m
+        outside_front_m = front_right_clearance_m if inside_is_left else front_left_clearance_m
+
+        inside_ratio = inside_min_m / max(width_scale_m, 0.05)
+        openness_adv_ratio = (outside_min_m - inside_min_m) / max(width_scale_m, 0.05)
+        if inside_ratio > 0.46 or openness_adv_ratio < 0.08:
+            return effective_front_clearance_m
+        if outside_front_m <= max(inside_front_m + 0.04, effective_front_clearance_m + 0.03):
+            return effective_front_clearance_m
+
+        outside_weight = _clamp(
+            0.50
+            + (0.25 * _clamp(openness_adv_ratio / 0.32, 0.0, 1.0))
+            + (0.15 * _clamp((0.46 - inside_ratio) / 0.24, 0.0, 1.0))
+            + (0.08 if same_sign_trim_active else 0.0),
+            0.50,
+            0.88,
+        )
+        projected_front_m = (
+            (1.0 - outside_weight) * inside_front_m
+            + outside_weight * outside_front_m
+        )
+        return float(max(effective_front_clearance_m, projected_front_m))
+
     def _compute_motion_front_clearance_m(
         self,
         *,
         effective_front_clearance_m: float,
         front_left_clearance_m: float,
         front_right_clearance_m: float,
+        left_min_m: float,
+        right_min_m: float,
         target_heading_deg: float,
         active_heading_source: str,
         nav_mode: str,
@@ -7146,10 +8997,24 @@ class ReconNavigator:
         corridor_center_heading_deg: float,
         wall_follow_active: bool,
         corridor_confidence: float,
+        curve_confidence: float,
+        same_sign_trim_active: bool,
     ) -> float:
         target_sign = signbit(target_heading_deg)
         if target_sign == 0:
             return effective_front_clearance_m
+
+        if active_heading_source in {"fullsoft_curve", "trajectory_planner"}:
+            effective_front_clearance_m = self._compute_curve_projected_front_clearance_m(
+                effective_front_clearance_m=effective_front_clearance_m,
+                front_left_clearance_m=front_left_clearance_m,
+                front_right_clearance_m=front_right_clearance_m,
+                left_min_m=left_min_m,
+                right_min_m=right_min_m,
+                curve_confidence=curve_confidence,
+                corridor_confidence=corridor_confidence,
+                same_sign_trim_active=same_sign_trim_active,
+            )
 
         if nav_mode not in {"curve_capture", "curve_entry", "curve_follow", "curve_exit"} and active_heading_source not in {
             "curve_entry_guard",
@@ -7160,6 +9025,7 @@ class ReconNavigator:
             "reference_curve_commit",
             "reference_free_space",
             "turn_commit",
+            "trajectory_planner",
             "wall_follow",
         }:
             return effective_front_clearance_m

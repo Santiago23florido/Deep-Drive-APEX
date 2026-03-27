@@ -16,6 +16,7 @@ from typing import Any, Optional, TextIO
 
 import numpy as np
 import rclpy
+from geometry_msgs.msg import Vector3Stamped
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -24,7 +25,7 @@ from sensor_msgs.msg import LaserScan
 from tf2_ros import Buffer, TransformListener
 
 from .actuation import MaverickESCMotor, SteeringServo
-from .recon_navigation import ReconCommand, ReconNavigator
+from .recon_navigation import ReconCommand, ReconNavigator, ReconStateEstimate
 
 
 def _yaw_from_quat(x: float, y: float, z: float, w: float) -> float:
@@ -146,6 +147,14 @@ class ReconMappingNode(Node):
         self._diagnostic_min_progress_m = max(
             0.0, float(self.get_parameter("diagnostic_min_progress_m").value)
         )
+        self._state_velocity_topic = str(self.get_parameter("state_velocity_topic").value)
+        self._state_acceleration_topic = str(
+            self.get_parameter("state_acceleration_topic").value
+        )
+        self._state_angular_velocity_topic = str(
+            self.get_parameter("state_angular_velocity_topic").value
+        )
+        self._state_timeout_s = max(0.0, float(self.get_parameter("state_timeout_s").value))
         self._diagnostic_enabled = self._diagnostic_mode != "off"
 
         self._navigator = ReconNavigator(
@@ -248,6 +257,43 @@ class ReconMappingNode(Node):
             vehicle_half_width_m=float(self.get_parameter("vehicle_half_width_m").value),
             vehicle_front_overhang_m=float(self.get_parameter("vehicle_front_overhang_m").value),
             vehicle_rear_overhang_m=float(self.get_parameter("vehicle_rear_overhang_m").value),
+            trajectory_horizon_m=float(self.get_parameter("trajectory_horizon_m").value),
+            trajectory_lookahead_min_m=float(
+                self.get_parameter("trajectory_lookahead_min_m").value
+            ),
+            trajectory_lookahead_max_m=float(
+                self.get_parameter("trajectory_lookahead_max_m").value
+            ),
+            trajectory_curvature_slew_per_cycle=float(
+                self.get_parameter("trajectory_curvature_slew_per_cycle").value
+            ),
+            trajectory_track_memory_alpha=float(
+                self.get_parameter("trajectory_track_memory_alpha").value
+            ),
+            trajectory_exit_heading_threshold_deg=float(
+                self.get_parameter("trajectory_exit_heading_threshold_deg").value
+            ),
+            trajectory_curve_speed_gain=float(
+                self.get_parameter("trajectory_curve_speed_gain").value
+            ),
+            trajectory_state_aux_weight=float(
+                self.get_parameter("trajectory_state_aux_weight").value
+            ),
+            trajectory_min_confidence=float(
+                self.get_parameter("trajectory_min_confidence").value
+            ),
+            trajectory_flip_hold_cycles=int(
+                self.get_parameter("trajectory_flip_hold_cycles").value
+            ),
+            trajectory_entry_heading_threshold_deg=float(
+                self.get_parameter("trajectory_entry_heading_threshold_deg").value
+            ),
+            trajectory_min_radius_m=float(
+                self.get_parameter("trajectory_min_radius_m").value
+            ),
+            trajectory_curve_heading_limit_deg=float(
+                self.get_parameter("trajectory_curve_heading_limit_deg").value
+            ),
         )
 
         self._motor = MaverickESCMotor(
@@ -278,6 +324,12 @@ class ReconMappingNode(Node):
 
         self._latest_scan: Optional[np.ndarray] = None
         self._latest_scan_stamp = None
+        self._latest_state_velocity: Optional[tuple[float, float, float]] = None
+        self._latest_state_velocity_stamp: Optional[Time] = None
+        self._latest_state_acceleration: Optional[tuple[float, float, float]] = None
+        self._latest_state_acceleration_stamp: Optional[Time] = None
+        self._latest_state_angular_velocity: Optional[tuple[float, float, float]] = None
+        self._latest_state_angular_velocity_stamp: Optional[Time] = None
         self._last_command: Optional[ReconCommand] = None
         self._blocked_cycles = 0
         self._recovery_deadline = None
@@ -328,6 +380,24 @@ class ReconMappingNode(Node):
             self._scan_topic,
             self._scan_cb,
             qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            Vector3Stamped,
+            self._state_velocity_topic,
+            self._state_velocity_cb,
+            20,
+        )
+        self.create_subscription(
+            Vector3Stamped,
+            self._state_acceleration_topic,
+            self._state_acceleration_cb,
+            20,
+        )
+        self.create_subscription(
+            Vector3Stamped,
+            self._state_angular_velocity_topic,
+            self._state_angular_velocity_cb,
+            20,
         )
         self.create_timer(1.0 / self._control_rate_hz, self._control_loop)
 
@@ -437,6 +507,23 @@ class ReconMappingNode(Node):
         self.declare_parameter("diagnostic_recon_timeout_s", 25.0)
         self.declare_parameter("diagnostic_max_recoveries", 4)
         self.declare_parameter("diagnostic_min_progress_m", 0.30)
+        self.declare_parameter("state_velocity_topic", "/apex/kinematics/velocity")
+        self.declare_parameter("state_acceleration_topic", "/apex/kinematics/acceleration")
+        self.declare_parameter("state_angular_velocity_topic", "/apex/kinematics/angular_velocity")
+        self.declare_parameter("state_timeout_s", 0.5)
+        self.declare_parameter("trajectory_horizon_m", 0.95)
+        self.declare_parameter("trajectory_lookahead_min_m", 0.35)
+        self.declare_parameter("trajectory_lookahead_max_m", 0.85)
+        self.declare_parameter("trajectory_curvature_slew_per_cycle", 0.22)
+        self.declare_parameter("trajectory_track_memory_alpha", 0.55)
+        self.declare_parameter("trajectory_exit_heading_threshold_deg", 2.0)
+        self.declare_parameter("trajectory_curve_speed_gain", 1.2)
+        self.declare_parameter("trajectory_state_aux_weight", 0.30)
+        self.declare_parameter("trajectory_min_confidence", 0.28)
+        self.declare_parameter("trajectory_flip_hold_cycles", 8)
+        self.declare_parameter("trajectory_entry_heading_threshold_deg", 4.0)
+        self.declare_parameter("trajectory_min_radius_m", 1.35)
+        self.declare_parameter("trajectory_curve_heading_limit_deg", 18.0)
 
     def _create_reset_client(self):
         try:
@@ -457,6 +544,48 @@ class ReconMappingNode(Node):
         ranges[ranges > float(msg.range_max)] = 0.0
         self._latest_scan = ranges
         self._latest_scan_stamp = self.get_clock().now()
+
+    def _msg_time_or_now(self, msg: Vector3Stamped) -> Time:
+        if msg.header.stamp.sec != 0 or msg.header.stamp.nanosec != 0:
+            return Time.from_msg(msg.header.stamp)
+        return self.get_clock().now()
+
+    def _state_velocity_cb(self, msg: Vector3Stamped) -> None:
+        self._latest_state_velocity = (
+            float(msg.vector.x),
+            float(msg.vector.y),
+            float(msg.vector.z),
+        )
+        self._latest_state_velocity_stamp = self._msg_time_or_now(msg)
+
+    def _state_acceleration_cb(self, msg: Vector3Stamped) -> None:
+        self._latest_state_acceleration = (
+            float(msg.vector.x),
+            float(msg.vector.y),
+            float(msg.vector.z),
+        )
+        self._latest_state_acceleration_stamp = self._msg_time_or_now(msg)
+
+    def _state_angular_velocity_cb(self, msg: Vector3Stamped) -> None:
+        self._latest_state_angular_velocity = (
+            float(msg.vector.x),
+            float(msg.vector.y),
+            float(msg.vector.z),
+        )
+        self._latest_state_angular_velocity_stamp = self._msg_time_or_now(msg)
+
+    def _fresh_state_tuple(
+        self,
+        stamp: Optional[Time],
+        value: Optional[tuple[float, float, float]],
+    ) -> Optional[tuple[float, float, float]]:
+        if stamp is None or value is None:
+            return None
+        if self._state_timeout_s > 0.0:
+            age_s = (self.get_clock().now() - stamp).nanoseconds * 1e-9
+            if age_s > self._state_timeout_s:
+                return None
+        return value
 
     def _build_phase_sequence(self) -> list[str]:
         mode = self._diagnostic_mode
@@ -680,12 +809,14 @@ class ReconMappingNode(Node):
             return
 
         pose_diag = self._build_pose_diag()
+        state_estimate = self._build_state_estimate(pose_diag)
 
         if self._recovery_deadline is not None and now < self._recovery_deadline:
             scan_command, front_min_m, scan_age_s = self._build_scan_diagnostics(
                 scan,
                 scan_age_s=age_s,
                 pose_diag=pose_diag,
+                state_estimate=state_estimate,
             )
             if self._recovery_mode == "curve_crawl":
                 self._active_step_name = "recovery_curve_crawl"
@@ -717,10 +848,7 @@ class ReconMappingNode(Node):
         self._active_step_name = "autonomous"
         command = self._navigator.compute_command(
             scan,
-            pose_yaw_deg=pose_diag["yaw_deg"],
-            pose_yaw_change_deg=pose_diag["yaw_change_deg"],
-            pose_distance_from_phase_start_m=pose_diag["distance_from_phase_start_m"],
-            pose_lateral_drift_m=pose_diag["lateral_drift_m"],
+            state_estimate=state_estimate,
         )
         self._last_command = command
 
@@ -836,12 +964,10 @@ class ReconMappingNode(Node):
             return
 
         pose_diag = self._build_pose_diag()
+        state_estimate = self._build_state_estimate(pose_diag)
         command = self._navigator.compute_command(
             scan,
-            pose_yaw_deg=pose_diag["yaw_deg"],
-            pose_yaw_change_deg=pose_diag["yaw_change_deg"],
-            pose_distance_from_phase_start_m=pose_diag["distance_from_phase_start_m"],
-            pose_lateral_drift_m=pose_diag["lateral_drift_m"],
+            state_estimate=state_estimate,
         )
         self._last_command = command
 
@@ -933,6 +1059,7 @@ class ReconMappingNode(Node):
         *,
         scan_age_s: Optional[float] = None,
         pose_diag: Optional[dict[str, Optional[float]]] = None,
+        state_estimate: Optional[ReconStateEstimate] = None,
     ) -> tuple[Optional[ReconCommand], Optional[float], Optional[float]]:
         scan = scan_override
         if scan is None:
@@ -943,12 +1070,11 @@ class ReconMappingNode(Node):
             return None, None, scan_age_s
         if pose_diag is None:
             pose_diag = self._build_pose_diag()
+        if state_estimate is None:
+            state_estimate = self._build_state_estimate(pose_diag)
         command = self._navigator.compute_command(
             scan,
-            pose_yaw_deg=pose_diag["yaw_deg"],
-            pose_yaw_change_deg=pose_diag["yaw_change_deg"],
-            pose_distance_from_phase_start_m=pose_diag["distance_from_phase_start_m"],
-            pose_lateral_drift_m=pose_diag["lateral_drift_m"],
+            state_estimate=state_estimate,
         )
         return command, self._compute_front_min(scan), scan_age_s
 
@@ -1002,6 +1128,63 @@ class ReconMappingNode(Node):
             "yaw_change_deg": yaw_change_deg,
             "pose_source": pose_source,
         }
+
+    def _build_state_estimate(
+        self,
+        pose_diag: dict[str, Optional[float]],
+    ) -> ReconStateEstimate:
+        velocity = self._fresh_state_tuple(
+            self._latest_state_velocity_stamp,
+            self._latest_state_velocity,
+        )
+        acceleration = self._fresh_state_tuple(
+            self._latest_state_acceleration_stamp,
+            self._latest_state_acceleration,
+        )
+        angular_velocity = self._fresh_state_tuple(
+            self._latest_state_angular_velocity_stamp,
+            self._latest_state_angular_velocity,
+        )
+
+        speed_mps = 0.0
+        accel_mps2 = 0.0
+        yaw_rate_rps = 0.0
+        slip_proxy = 0.0
+
+        if velocity is not None:
+            speed_mps = math.hypot(velocity[0], velocity[1])
+        if acceleration is not None:
+            accel_mps2 = math.hypot(acceleration[0], acceleration[1])
+        if angular_velocity is not None:
+            yaw_rate_rps = float(angular_velocity[2])
+
+        yaw_deg = pose_diag["yaw_deg"]
+        if velocity is not None and yaw_deg is not None and speed_mps >= 0.05:
+            velocity_heading_deg = math.degrees(math.atan2(velocity[1], velocity[0]))
+            slip_proxy = _normalize_angle_deg(velocity_heading_deg - yaw_deg)
+
+        valid = (
+            pose_diag["x"] is not None
+            or velocity is not None
+            or acceleration is not None
+            or angular_velocity is not None
+        )
+        return ReconStateEstimate(
+            x_m=float(pose_diag["x"] or 0.0),
+            y_m=float(pose_diag["y"] or 0.0),
+            yaw_deg=float(yaw_deg or 0.0),
+            yaw_rate_rps=float(yaw_rate_rps),
+            speed_mps=float(speed_mps),
+            accel_mps2=float(accel_mps2),
+            lateral_drift_m=float(pose_diag["lateral_drift_m"] or 0.0),
+            slip_proxy=float(slip_proxy),
+            pose_source=str(pose_diag["pose_source"] or "none"),
+            distance_from_phase_start_m=float(
+                pose_diag["distance_from_phase_start_m"] or 0.0
+            ),
+            yaw_change_deg=float(pose_diag["yaw_change_deg"] or 0.0),
+            valid=bool(valid),
+        )
 
     def _lookup_pose_with_source(self) -> tuple[Optional[tuple[float, float, float]], Optional[str]]:
         for source_frame, source_name in (
@@ -1097,6 +1280,7 @@ class ReconMappingNode(Node):
         if self._phase_cycle % self._diagnostic_log_every_n_cycles != 0:
             return
 
+        self._emit_diag("DIAG_POSE", pose_diag)
         self._emit_diag("DIAG_STEER", self._steer.get_state())
         self._emit_diag("DIAG_MOTOR", self._motor.get_state())
 
@@ -1156,6 +1340,17 @@ class ReconMappingNode(Node):
                     "geometry_agreement_score": None,
                     "curve_confirm_distance_m": None,
                     "curve_confirm_yaw_deg": None,
+                    "trajectory_phase": None,
+                    "lookahead_x_m": None,
+                    "lookahead_y_m": None,
+                    "signed_curvature": None,
+                    "radius_m": None,
+                    "target_speed_pct": None,
+                    "track_confidence": None,
+                    "state_speed_mps": None,
+                    "state_yaw_rate": None,
+                    "slip_proxy": None,
+                    "trajectory_flip_blocked": None,
                     "pose_source": pose_diag["pose_source"],
                     "gap_heading_deg": None,
                     "front_turn_heading_deg": None,
@@ -1241,6 +1436,17 @@ class ReconMappingNode(Node):
                     "geometry_agreement_score": nav_command.geometry_agreement_score,
                     "curve_confirm_distance_m": nav_command.curve_confirm_distance_m,
                     "curve_confirm_yaw_deg": nav_command.curve_confirm_yaw_deg,
+                    "trajectory_phase": nav_command.trajectory_phase,
+                    "lookahead_x_m": nav_command.lookahead_x_m,
+                    "lookahead_y_m": nav_command.lookahead_y_m,
+                    "signed_curvature": nav_command.signed_curvature,
+                    "radius_m": nav_command.radius_m,
+                    "target_speed_pct": nav_command.target_speed_pct,
+                    "track_confidence": nav_command.track_confidence,
+                    "state_speed_mps": nav_command.state_speed_mps,
+                    "state_yaw_rate": nav_command.state_yaw_rate,
+                    "slip_proxy": nav_command.slip_proxy,
+                    "trajectory_flip_blocked": nav_command.trajectory_flip_blocked,
                     "pose_source": pose_diag["pose_source"],
                     "gap_heading_deg": nav_command.gap_heading_deg,
                     "front_turn_heading_deg": nav_command.front_turn_heading_deg,
@@ -1368,6 +1574,33 @@ class ReconMappingNode(Node):
                 "ambiguity_probe_speed_pct": self._navigator._ambiguity_probe_speed_pct,
                 "stop_distance_m": self._stop_distance_m,
                 "slow_distance_m": self._slow_distance_m,
+                "state_velocity_topic": self._state_velocity_topic,
+                "state_acceleration_topic": self._state_acceleration_topic,
+                "state_angular_velocity_topic": self._state_angular_velocity_topic,
+                "state_timeout_s": self._state_timeout_s,
+                "trajectory_horizon_m": self._navigator._trajectory_horizon_m,
+                "trajectory_lookahead_min_m": self._navigator._trajectory_lookahead_min_m,
+                "trajectory_lookahead_max_m": self._navigator._trajectory_lookahead_max_m,
+                "trajectory_curvature_slew_per_cycle": (
+                    self._navigator._trajectory_curvature_slew_per_cycle
+                ),
+                "trajectory_track_memory_alpha": (
+                    self._navigator._trajectory_track_memory_alpha
+                ),
+                "trajectory_exit_heading_threshold_deg": (
+                    self._navigator._trajectory_exit_heading_threshold_deg
+                ),
+                "trajectory_curve_speed_gain": self._navigator._trajectory_curve_speed_gain,
+                "trajectory_state_aux_weight": self._navigator._trajectory_state_aux_weight,
+                "trajectory_min_confidence": self._navigator._trajectory_min_confidence,
+                "trajectory_flip_hold_cycles": self._navigator._trajectory_flip_hold_cycles,
+                "trajectory_entry_heading_threshold_deg": (
+                    self._navigator._trajectory_entry_heading_threshold_deg
+                ),
+                "trajectory_min_radius_m": self._navigator._trajectory_min_radius_m,
+                "trajectory_curve_heading_limit_deg": (
+                    self._navigator._trajectory_curve_heading_limit_deg
+                ),
             },
         )
 
