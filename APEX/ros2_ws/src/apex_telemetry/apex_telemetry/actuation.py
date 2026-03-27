@@ -57,6 +57,9 @@ class SteeringServo:
         self.center()
         self._pwm.stop()
 
+    def get_pwm_state(self) -> dict[str, float | int | str | None]:
+        return self._pwm.get_state()
+
     def get_state(self) -> dict[str, float]:
         return {
             "requested_deg": self._requested_angle_deg,
@@ -93,6 +96,7 @@ class MaverickESCMotor:
         self._reverse_brake_hold_s = max(0.0, float(reverse_brake_hold_s))
         self._reverse_neutral_hold_s = max(0.0, float(reverse_neutral_hold_s))
         self._reverse_exit_hold_s = max(0.0, float(reverse_exit_hold_s))
+        self._neutral_hold_on_stop_s = max(0.40, self._reverse_exit_hold_s + 0.35)
 
         self._pwm = HardwarePWM(channel=channel, frequency_hz=frequency_hz, logger=logger)
         self._pwm.start(self._neutral_dc)
@@ -129,16 +133,28 @@ class MaverickESCMotor:
     def neutral(self) -> None:
         self.set_speed_pct(0.0)
 
-    def stop(self) -> None:
+    def hold_neutral(
+        self,
+        *,
+        hold_s: float | None = None,
+        disable_pwm: bool = False,
+    ) -> None:
+        neutral_hold_s = (
+            self._neutral_hold_on_stop_s if hold_s is None else max(0.0, float(hold_s))
+        )
         try:
-            self._pwm.set_duty_cycle(self._neutral_dc)
-            time.sleep(max(0.05, self._reverse_exit_hold_s))
+            self._pwm.start(self._neutral_dc)
+            time.sleep(max(0.05, neutral_hold_s))
         except Exception:
             pass
         self._in_reverse_mode = False
         self._speed_pct = 0.0
         self._last_duty_cycle_pct = self._neutral_dc
-        self._pwm.stop()
+        if disable_pwm:
+            self._pwm.disable()
+
+    def stop(self) -> None:
+        self.hold_neutral(disable_pwm=False)
 
     def _enter_reverse_mode(self) -> None:
         self._logger.info(
@@ -164,3 +180,6 @@ class MaverickESCMotor:
             "neutral_dc": self._neutral_dc,
             "reverse_mode": self._in_reverse_mode,
         }
+
+    def get_pwm_state(self) -> dict[str, float | int | str | None]:
+        return self._pwm.get_state()

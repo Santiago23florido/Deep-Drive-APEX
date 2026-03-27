@@ -10,6 +10,7 @@ import os
 import signal
 import subprocess
 import threading
+import time
 from importlib import import_module
 from typing import Any, Optional, TextIO
 
@@ -71,6 +72,7 @@ class ReconMappingNode(Node):
         self._scan_timeout_s = max(0.1, float(self.get_parameter("scan_timeout_s").value))
         self._control_rate_hz = max(1.0, float(self.get_parameter("control_rate_hz").value))
         self._map_frame = str(self.get_parameter("map_frame").value)
+        self._odom_frame = str(self.get_parameter("odom_frame").value)
         self._base_frame = str(self.get_parameter("base_frame").value)
         self._heading_offset_deg = int(self.get_parameter("heading_offset_deg").value)
         self._enable_autostop_on_lap = bool(self.get_parameter("enable_autostop_on_lap").value)
@@ -312,6 +314,7 @@ class ReconMappingNode(Node):
         self._phase_cycle = 0
         self._phase_stats: Optional[PhaseStats] = None
         self._phase_start_pose = None
+        self._phase_start_pose_source: Optional[str] = None
         self._diagnostic_completed = False
         self._recovery_events = 0
         self._diagnostic_log_handle: Optional[TextIO] = None
@@ -339,6 +342,7 @@ class ReconMappingNode(Node):
         self.declare_parameter("scan_timeout_s", 0.6)
         self.declare_parameter("control_rate_hz", 10.0)
         self.declare_parameter("map_frame", "map")
+        self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
         self.declare_parameter("heading_offset_deg", -89)
 
@@ -523,7 +527,7 @@ class ReconMappingNode(Node):
             phase_started_at=now,
         )
         self._navigator.reset_runtime_state()
-        self._phase_start_pose = self._lookup_pose()
+        self._phase_start_pose, self._phase_start_pose_source = self._lookup_pose_with_source()
         self._blocked_cycles = 0
         self._recovery_deadline = None
         self._recovery_mode = "reverse"
@@ -573,6 +577,7 @@ class ReconMappingNode(Node):
         self._phase_cycle = 0
         self._phase_stats = None
         self._phase_start_pose = None
+        self._phase_start_pose_source = None
 
         self._start_next_phase(now)
 
@@ -610,9 +615,11 @@ class ReconMappingNode(Node):
             self._active_step_name = self._active_steps[0].name
 
         current_step = self._active_steps[self._active_step_index]
-        scan_command, front_min_m, scan_age_s = self._build_scan_diagnostics()
-        self._apply_command(current_step.speed_pct, current_step.steering_deg)
         pose_diag = self._build_pose_diag()
+        scan_command, front_min_m, scan_age_s = self._build_scan_diagnostics(
+            pose_diag=pose_diag
+        )
+        self._apply_command(current_step.speed_pct, current_step.steering_deg)
 
         self._phase_cycle += 1
         self._update_phase_stats(
@@ -672,10 +679,13 @@ class ReconMappingNode(Node):
             self._end_current_phase("recon_timeout", now)
             return
 
+        pose_diag = self._build_pose_diag()
+
         if self._recovery_deadline is not None and now < self._recovery_deadline:
             scan_command, front_min_m, scan_age_s = self._build_scan_diagnostics(
                 scan,
                 scan_age_s=age_s,
+                pose_diag=pose_diag,
             )
             if self._recovery_mode == "curve_crawl":
                 self._active_step_name = "recovery_curve_crawl"
@@ -687,7 +697,6 @@ class ReconMappingNode(Node):
                 applied_speed_pct = self._recovery_reverse_speed_pct
                 applied_steering_deg = 0.0
             self._apply_command(applied_speed_pct, applied_steering_deg)
-            pose_diag = self._build_pose_diag()
             self._phase_cycle += 1
             self._update_phase_stats(
                 applied_speed_pct=applied_speed_pct,
@@ -706,7 +715,13 @@ class ReconMappingNode(Node):
         self._recovery_deadline = None
         self._recovery_mode = "reverse"
         self._active_step_name = "autonomous"
-        command = self._navigator.compute_command(scan)
+        command = self._navigator.compute_command(
+            scan,
+            pose_yaw_deg=pose_diag["yaw_deg"],
+            pose_yaw_change_deg=pose_diag["yaw_change_deg"],
+            pose_distance_from_phase_start_m=pose_diag["distance_from_phase_start_m"],
+            pose_lateral_drift_m=pose_diag["lateral_drift_m"],
+        )
         self._last_command = command
 
         if 0.0 < command.effective_front_clearance_m <= self._recovery_trigger_distance_m:
@@ -761,7 +776,6 @@ class ReconMappingNode(Node):
                 applied_speed_pct = self._recovery_reverse_speed_pct
                 applied_steering_deg = 0.0
             self._apply_command(applied_speed_pct, applied_steering_deg)
-            pose_diag = self._build_pose_diag()
             self._phase_cycle += 1
             self._update_phase_stats(
                 applied_speed_pct=applied_speed_pct,
@@ -779,7 +793,6 @@ class ReconMappingNode(Node):
 
         self._apply_command(command.speed_pct, command.steering_deg)
         self._update_lap_tracking()
-        pose_diag = self._build_pose_diag()
 
         self._phase_cycle += 1
         self._update_phase_stats(
@@ -822,9 +835,15 @@ class ReconMappingNode(Node):
             )
             return
 
-        command = self._navigator.compute_command(scan)
-        self._last_command = command
         pose_diag = self._build_pose_diag()
+        command = self._navigator.compute_command(
+            scan,
+            pose_yaw_deg=pose_diag["yaw_deg"],
+            pose_yaw_change_deg=pose_diag["yaw_change_deg"],
+            pose_distance_from_phase_start_m=pose_diag["distance_from_phase_start_m"],
+            pose_lateral_drift_m=pose_diag["lateral_drift_m"],
+        )
+        self._last_command = command
 
         self._phase_cycle += 1
         self._update_phase_stats(
@@ -846,6 +865,12 @@ class ReconMappingNode(Node):
         return "reverse"
 
     def _is_curve_recovery_context(self, command: ReconCommand) -> bool:
+        if command.nav_mode in {"curve_entry", "curve_follow", "curve_exit"}:
+            return True
+
+        if command.curve_intent_score < 0.20 and command.curve_evidence_strength < 0.18:
+            return False
+
         if command.wall_follow_active:
             return True
 
@@ -907,6 +932,7 @@ class ReconMappingNode(Node):
         scan_override: Optional[np.ndarray] = None,
         *,
         scan_age_s: Optional[float] = None,
+        pose_diag: Optional[dict[str, Optional[float]]] = None,
     ) -> tuple[Optional[ReconCommand], Optional[float], Optional[float]]:
         scan = scan_override
         if scan is None:
@@ -915,7 +941,15 @@ class ReconMappingNode(Node):
             scan_age_s = (self.get_clock().now() - self._latest_scan_stamp).nanoseconds * 1e-9
         if scan is None:
             return None, None, scan_age_s
-        command = self._navigator.compute_command(scan)
+        if pose_diag is None:
+            pose_diag = self._build_pose_diag()
+        command = self._navigator.compute_command(
+            scan,
+            pose_yaw_deg=pose_diag["yaw_deg"],
+            pose_yaw_change_deg=pose_diag["yaw_change_deg"],
+            pose_distance_from_phase_start_m=pose_diag["distance_from_phase_start_m"],
+            pose_lateral_drift_m=pose_diag["lateral_drift_m"],
+        )
         return command, self._compute_front_min(scan), scan_age_s
 
     def _get_fresh_scan(self) -> tuple[Optional[np.ndarray], Optional[float]]:
@@ -936,7 +970,7 @@ class ReconMappingNode(Node):
         return min(values) if values else None
 
     def _build_pose_diag(self) -> dict[str, Optional[float]]:
-        pose = self._lookup_pose()
+        pose, pose_source = self._lookup_pose_with_source()
         if pose is None:
             return {
                 "x": None,
@@ -945,10 +979,12 @@ class ReconMappingNode(Node):
                 "distance_from_phase_start_m": None,
                 "lateral_drift_m": None,
                 "yaw_change_deg": None,
+                "pose_source": None,
             }
 
-        if self._phase_start_pose is None:
+        if self._phase_start_pose is None or self._phase_start_pose_source != pose_source:
             self._phase_start_pose = pose
+            self._phase_start_pose_source = pose_source
 
         x, y, yaw = pose
         x0, y0, yaw0 = self._phase_start_pose
@@ -964,25 +1000,42 @@ class ReconMappingNode(Node):
             "distance_from_phase_start_m": distance,
             "lateral_drift_m": lateral,
             "yaw_change_deg": yaw_change_deg,
+            "pose_source": pose_source,
         }
 
-    def _lookup_pose(self) -> Optional[tuple[float, float, float]]:
-        try:
-            transform = self._tf_buffer.lookup_transform(
-                self._map_frame,
-                self._base_frame,
-                Time(),
+    def _lookup_pose_with_source(self) -> tuple[Optional[tuple[float, float, float]], Optional[str]]:
+        for source_frame, source_name in (
+            (self._map_frame, "map"),
+            (self._odom_frame, "odom"),
+        ):
+            try:
+                transform = self._tf_buffer.lookup_transform(
+                    source_frame,
+                    self._base_frame,
+                    Time(),
+                )
+            except Exception:
+                continue
+
+            rotation = transform.transform.rotation
+            yaw = _yaw_from_quat(rotation.x, rotation.y, rotation.z, rotation.w)
+            return (
+                (
+                    float(transform.transform.translation.x),
+                    float(transform.transform.translation.y),
+                    float(yaw),
+                ),
+                source_name,
             )
-        except Exception:
+
+        return None, None
+
+    def _lookup_pose(self) -> Optional[tuple[float, float, float]]:
+        pose, _ = self._lookup_pose_with_source()
+        if pose is None:
             return None
 
-        rotation = transform.transform.rotation
-        yaw = _yaw_from_quat(rotation.x, rotation.y, rotation.z, rotation.w)
-        return (
-            float(transform.transform.translation.x),
-            float(transform.transform.translation.y),
-            float(yaw),
-        )
+        return pose
 
     def _update_phase_stats(
         self,
@@ -1071,6 +1124,39 @@ class ReconMappingNode(Node):
             self._emit_diag(
                 "DIAG_NAV",
                 {
+                    "nav_mode": None,
+                    "corridor_confidence": None,
+                    "curve_confidence": None,
+                    "preview_heading_deg": None,
+                    "corridor_curvature_sign": None,
+                    "corridor_curvature_confidence": None,
+                    "committed_turn_sign": None,
+                    "gate_curve_sign": None,
+                    "curve_capture_active": None,
+                    "curve_capture_reason": None,
+                    "curve_severity_score": None,
+                    "curve_steering_floor_deg": None,
+                    "curve_speed_cap_pct": None,
+                    "curve_release_reason": None,
+                    "same_sign_trim_active": None,
+                    "free_space_candidate_heading_deg": None,
+                    "sign_veto_reason": None,
+                    "straight_veto_active": None,
+                    "startup_adapt_active": None,
+                    "curve_intent_score": None,
+                    "curve_intent_sign": None,
+                    "curve_evidence_strength": None,
+                    "curve_decay_active": None,
+                    "premature_curve_veto": None,
+                    "pre_curve_bias_veto": None,
+                    "near_wall_mode": None,
+                    "straight_corridor_score": None,
+                    "curve_gate_open": None,
+                    "curve_gate_reason": None,
+                    "geometry_agreement_score": None,
+                    "curve_confirm_distance_m": None,
+                    "curve_confirm_yaw_deg": None,
+                    "pose_source": pose_diag["pose_source"],
                     "gap_heading_deg": None,
                     "front_turn_heading_deg": None,
                     "corridor_axis_heading_deg": None,
@@ -1119,6 +1205,43 @@ class ReconMappingNode(Node):
             self._emit_diag(
                 "DIAG_NAV",
                 {
+                    "nav_mode": nav_command.nav_mode,
+                    "corridor_confidence": nav_command.corridor_confidence,
+                    "curve_confidence": nav_command.curve_confidence,
+                    "preview_heading_deg": nav_command.preview_heading_deg,
+                    "corridor_curvature_sign": nav_command.corridor_curvature_sign,
+                    "corridor_curvature_confidence": (
+                        nav_command.corridor_curvature_confidence
+                    ),
+                    "committed_turn_sign": nav_command.committed_turn_sign,
+                    "gate_curve_sign": nav_command.gate_curve_sign,
+                    "curve_capture_active": nav_command.curve_capture_active,
+                    "curve_capture_reason": nav_command.curve_capture_reason,
+                    "curve_severity_score": nav_command.curve_severity_score,
+                    "curve_steering_floor_deg": nav_command.curve_steering_floor_deg,
+                    "curve_speed_cap_pct": nav_command.curve_speed_cap_pct,
+                    "curve_release_reason": nav_command.curve_release_reason,
+                    "same_sign_trim_active": nav_command.same_sign_trim_active,
+                    "free_space_candidate_heading_deg": (
+                        nav_command.free_space_candidate_heading_deg
+                    ),
+                    "sign_veto_reason": nav_command.sign_veto_reason,
+                    "straight_veto_active": nav_command.straight_veto_active,
+                    "startup_adapt_active": nav_command.startup_adapt_active,
+                    "curve_intent_score": nav_command.curve_intent_score,
+                    "curve_intent_sign": nav_command.curve_intent_sign,
+                    "curve_evidence_strength": nav_command.curve_evidence_strength,
+                    "curve_decay_active": nav_command.curve_decay_active,
+                    "premature_curve_veto": nav_command.premature_curve_veto,
+                    "pre_curve_bias_veto": nav_command.pre_curve_bias_veto,
+                    "near_wall_mode": nav_command.near_wall_mode,
+                    "straight_corridor_score": nav_command.straight_corridor_score,
+                    "curve_gate_open": nav_command.curve_gate_open,
+                    "curve_gate_reason": nav_command.curve_gate_reason,
+                    "geometry_agreement_score": nav_command.geometry_agreement_score,
+                    "curve_confirm_distance_m": nav_command.curve_confirm_distance_m,
+                    "curve_confirm_yaw_deg": nav_command.curve_confirm_yaw_deg,
+                    "pose_source": pose_diag["pose_source"],
                     "gap_heading_deg": nav_command.gap_heading_deg,
                     "front_turn_heading_deg": nav_command.front_turn_heading_deg,
                     "corridor_axis_heading_deg": nav_command.corridor_axis_heading_deg,
@@ -1144,7 +1267,30 @@ class ReconMappingNode(Node):
                 },
             )
 
-        self._emit_diag("DIAG_POSE", pose_diag)
+    def _emit_stop_diag(self, stage: str) -> None:
+        if not self._diagnostic_enabled:
+            return
+        payload = {
+            "stage": stage,
+            "commanded_speed_pct": 0.0,
+            "commanded_steering_deg": 0.0,
+        }
+        try:
+            payload.update(
+                {
+                    "motor_speed_pct": self._motor.get_state().get("speed_pct"),
+                    "motor_pwm_dc": self._motor.get_state().get("pwm_dc"),
+                    "motor_pwm_enabled": self._motor.get_pwm_state().get("enabled"),
+                    "motor_pwm_duty_cycle_ns": self._motor.get_pwm_state().get("duty_cycle_ns"),
+                    "motor_pwm_period_ns": self._motor.get_pwm_state().get("period_ns"),
+                    "steer_requested_deg": self._steer.get_state().get("requested_deg"),
+                    "steer_pwm_dc": self._steer.get_state().get("pwm_dc"),
+                    "steer_pwm_enabled": self._steer.get_pwm_state().get("enabled"),
+                }
+            )
+        except Exception:
+            pass
+        self._emit_diag("DIAG_STOP", payload)
 
     def _emit_diag_config(self) -> None:
         if not self._diagnostic_enabled:
@@ -1236,7 +1382,7 @@ class ReconMappingNode(Node):
         self.get_logger().info(line)
         self._write_diagnostic_log_line(
             line,
-            force_flush=tag in {"DIAG_CONFIG", "DIAG_SUMMARY"},
+            force_flush=tag in {"DIAG_CONFIG", "DIAG_SUMMARY", "DIAG_STOP"},
         )
 
     def _open_diagnostic_log_handle(self) -> Optional[TextIO]:
@@ -1479,10 +1625,38 @@ class ReconMappingNode(Node):
         return (now - start_time).nanoseconds * 1e-9
 
     def shutdown(self) -> None:
-        self._apply_command(0.0, 0.0)
-        self._motor.stop()
-        self._steer.stop()
-        self._close_diagnostic_log_handle()
+        try:
+            self._emit_stop_diag("begin")
+        except Exception as exc:
+            self.get_logger().error("Failed to emit DIAG_STOP begin: %s" % str(exc))
+
+        shutdown_steps = (
+            ("apply_neutral_command", lambda: self._apply_command(0.0, 0.0)),
+            ("apply_neutral_command", lambda: self._apply_command(0.0, 0.0)),
+            ("apply_neutral_command", lambda: self._apply_command(0.0, 0.0)),
+            ("motor_hold_neutral", lambda: self._motor.hold_neutral(disable_pwm=False)),
+            ("steer_center", self._steer.center),
+            ("steer_stop", self._steer.stop),
+        )
+
+        for step_name, step_fn in shutdown_steps:
+            try:
+                step_fn()
+            except Exception as exc:
+                self.get_logger().error(
+                    "Shutdown step %s failed: %s" % (step_name, str(exc))
+                )
+            if step_name == "apply_neutral_command":
+                time.sleep(0.05)
+            elif step_name == "steer_center":
+                time.sleep(0.05)
+
+        try:
+            self._emit_stop_diag("final")
+        except Exception as exc:
+            self.get_logger().error("Failed to emit DIAG_STOP final: %s" % str(exc))
+        finally:
+            self._close_diagnostic_log_handle()
 
 
 def main() -> None:
@@ -1503,8 +1677,11 @@ def main() -> None:
             pass
         try:
             node.shutdown()
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                node.get_logger().error("Shutdown exception: %s" % str(exc))
+            except Exception:
+                pass
         if rclpy.ok():
             rclpy.shutdown()
 
