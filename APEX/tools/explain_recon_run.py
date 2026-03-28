@@ -61,10 +61,21 @@ def load_timeline(bundle_dir: Path) -> list[dict[str, str]]:
 
 
 def autonomous_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    allowed_steps = {
+        "autonomous",
+        "dryrun",
+        "curve_static_detect",
+        "curve_entry_detect",
+        "curve_entry_track",
+    }
+    allowed_phases = {
+        "curve_static_probe",
+        "curve_entry_probe",
+    }
     return [
         row
         for row in rows
-        if row.get("step") in {"autonomous", "dryrun"}
+        if (row.get("step") in allowed_steps) or (row.get("phase") in allowed_phases)
     ]
 
 
@@ -336,6 +347,16 @@ def write_markdown(bundle_dir: Path, nav_rows: list[dict[str, str]], image_path:
     return markdown_path
 
 
+def write_empty_markdown(bundle_dir: Path, reason: str) -> Path:
+    markdown_path = bundle_dir / "analysis" / "trajectory_explainer.md"
+    markdown_path.write_text(
+        "## No Autonomous Timeline\n"
+        f"- {reason}\n",
+        encoding="utf-8",
+    )
+    return markdown_path
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate an explanation plot for a reconnaissance debug bundle."
@@ -348,6 +369,13 @@ def main() -> None:
     args = parse_args()
     rows = load_timeline(args.bundle_dir)
     nav_rows = autonomous_rows(rows)
+    if not nav_rows:
+        markdown_path = write_empty_markdown(
+            args.bundle_dir,
+            "No se encontraron filas compatibles para el explicador en este bundle.",
+        )
+        print(markdown_path)
+        return
     image_path = plot_bundle(args.bundle_dir, nav_rows)
     markdown_path = write_markdown(args.bundle_dir, nav_rows, image_path)
     print(image_path)

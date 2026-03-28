@@ -60,6 +60,7 @@ fi
 
 if [ -z "${RUN_ID}" ]; then
   echo "No run_id resolved from ${REMOTE_HOST}:${REMOTE_ROOT}" >&2
+  echo "Hint: if the run was started without --record-debug 1, no bundle will exist to fetch." >&2
   exit 1
 fi
 

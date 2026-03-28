@@ -21,6 +21,9 @@ export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 APEX_REPO_ROOT="/work"
 PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_params.yaml"
 SLAM_PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_slam_toolbox.yaml"
+LOCAL_SLAM_PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_local_slam_toolbox.yaml"
+EKF_PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_local_ekf.yaml"
+IMU_FILTER_PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_local_imu_filter.yaml"
 STATE_DIR="${APEX_RECON_SESSION_DIR:-/tmp/apex_recon_session}"
 RUNNER_PID_FILE="${STATE_DIR}/runner.pid"
 RECON_PID_FILE="${STATE_DIR}/recon.pid"
@@ -44,6 +47,7 @@ APEX_ROSBAG_LOG_PATH=""
 APEX_DEBUG_FINALIZED=0
 APEX_ROSBAG_PID=""
 RECON_PID=""
+WATCHDOG_PID=""
 RUNNER_CLEANUP_DONE=0
 RECON_ARGS=()
 
@@ -57,11 +61,12 @@ Usage:
 
 Options:
   --run-id <id>
-  --mode <nav_dryrun|recon_debug|steering_static|steering_sign_check|straight_open_loop>
+  --mode <nav_dryrun|recon_debug|curve_static_probe|curve_entry_probe|steering_static|steering_sign_check|straight_open_loop>
   --record-debug <0|1>
   --min-speed-pct <pct>
   --max-speed-pct <pct>
   --fixed-speed-pct <pct>
+  --step-duration-s <seconds>
   --timeout-s <seconds>
 EOF
 }
@@ -314,6 +319,9 @@ rosbag_log_path = Path(os.environ.get("APEX_ROSBAG_LOG_PATH", ""))
 recon_log_path = Path(os.environ.get("APEX_RECON_LOG_PATH", ""))
 params_snapshot = Path(os.environ.get("APEX_PARAMS_SNAPSHOT_PATH", ""))
 slam_params_snapshot = Path(os.environ.get("APEX_SLAM_PARAMS_SNAPSHOT_PATH", ""))
+local_slam_params_snapshot = Path(os.environ.get("APEX_LOCAL_SLAM_PARAMS_SNAPSHOT_PATH", ""))
+ekf_params_snapshot = Path(os.environ.get("APEX_EKF_PARAMS_SNAPSHOT_PATH", ""))
+imu_filter_params_snapshot = Path(os.environ.get("APEX_IMU_FILTER_PARAMS_SNAPSHOT_PATH", ""))
 pwm_snapshot_before = bundle_dir / "pwm_snapshot_before.txt"
 pwm_snapshot_after = bundle_dir / "pwm_snapshot_after.txt"
 
@@ -343,6 +351,9 @@ rosbag_log_present = rosbag_log_path.is_file()
 recon_log_present = recon_log_path.is_file()
 params_snapshot_present = params_snapshot.is_file()
 slam_params_snapshot_present = slam_params_snapshot.is_file()
+local_slam_params_snapshot_present = local_slam_params_snapshot.is_file()
+ekf_params_snapshot_present = ekf_params_snapshot.is_file()
+imu_filter_params_snapshot_present = imu_filter_params_snapshot.is_file()
 
 shutdown_clean = (
     shutdown_diag_begin_present
@@ -369,6 +380,12 @@ if not params_snapshot_present:
     bundle_missing_artifacts.append("config/apex_params.yaml")
 if not slam_params_snapshot_present:
     bundle_missing_artifacts.append("config/apex_slam_toolbox.yaml")
+if not local_slam_params_snapshot_present:
+    bundle_missing_artifacts.append("config/apex_local_slam_toolbox.yaml")
+if not ekf_params_snapshot_present:
+    bundle_missing_artifacts.append("config/apex_local_ekf.yaml")
+if not imu_filter_params_snapshot_present:
+    bundle_missing_artifacts.append("config/apex_local_imu_filter.yaml")
 if bag_expected and not bag_dir_present:
     bundle_missing_artifacts.append("bag/raw_debug_run")
 if bag_expected and not bag_mcap_present:
@@ -380,6 +397,9 @@ bundle_complete = (
     and recon_log_present
     and params_snapshot_present
     and slam_params_snapshot_present
+    and local_slam_params_snapshot_present
+    and ekf_params_snapshot_present
+    and imu_filter_params_snapshot_present
     and (not bag_expected or (bag_dir_present and bag_mcap_present))
 )
 
@@ -404,6 +424,12 @@ metadata = {
     "params_snapshot_present": params_snapshot_present,
     "slam_params_snapshot": str(slam_params_snapshot),
     "slam_params_snapshot_present": slam_params_snapshot_present,
+    "local_slam_params_snapshot": str(local_slam_params_snapshot),
+    "local_slam_params_snapshot_present": local_slam_params_snapshot_present,
+    "ekf_params_snapshot": str(ekf_params_snapshot),
+    "ekf_params_snapshot_present": ekf_params_snapshot_present,
+    "imu_filter_params_snapshot": str(imu_filter_params_snapshot),
+    "imu_filter_params_snapshot_present": imu_filter_params_snapshot_present,
     "record_debug_enabled": os.environ.get("APEX_RECORD_DEBUG", "0"),
     "diagnostic_mode_env": os.environ.get("APEX_RECON_DIAGNOSTIC_MODE", ""),
     "steering_direction_sign_env": os.environ.get("APEX_STEERING_DIRECTION_SIGN", ""),
@@ -541,8 +567,14 @@ setup_debug_run() {
 
   export APEX_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_params.yaml"
   export APEX_SLAM_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_slam_toolbox.yaml"
+  export APEX_LOCAL_SLAM_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_local_slam_toolbox.yaml"
+  export APEX_EKF_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_local_ekf.yaml"
+  export APEX_IMU_FILTER_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_local_imu_filter.yaml"
   cp "${PARAMS_FILE}" "${APEX_PARAMS_SNAPSHOT_PATH}"
   cp "${SLAM_PARAMS_FILE}" "${APEX_SLAM_PARAMS_SNAPSHOT_PATH}"
+  cp "${LOCAL_SLAM_PARAMS_FILE}" "${APEX_LOCAL_SLAM_PARAMS_SNAPSHOT_PATH}"
+  cp "${EKF_PARAMS_FILE}" "${APEX_EKF_PARAMS_SNAPSHOT_PATH}"
+  cp "${IMU_FILTER_PARAMS_FILE}" "${APEX_IMU_FILTER_PARAMS_SNAPSHOT_PATH}"
 
   export APEX_RAW_BAG_DIR="${APEX_DEBUG_BUNDLE_DIR}/bag/raw_debug_run"
   APEX_RAW_BAG_DIR="${APEX_RAW_BAG_DIR}"
@@ -572,11 +604,20 @@ start_debug_bag_recording() {
     /tf_static \
     /map \
     /map_metadata \
+    /apex/imu/data_raw \
+    /apex/imu/data_filtered \
+    /apex/imu/acceleration/raw \
+    /apex/imu/angular_velocity/raw \
     /apex/kinematics/acceleration \
     /apex/kinematics/velocity \
     /apex/kinematics/position \
     /apex/kinematics/angular_velocity \
     /apex/kinematics/heading \
+    /apex/kinematics/status \
+    /apex/odometry/imu_raw \
+    /apex/odometry/fusion_status \
+    /apex/lidar/pose_local \
+    /odometry/filtered \
     > "${APEX_ROSBAG_LOG_PATH}" 2>&1 &
   APEX_ROSBAG_PID="$!"
   printf '%s\n' "${APEX_ROSBAG_PID}" > "${ROSBAG_PID_FILE}"
@@ -636,6 +677,9 @@ build_recon_args() {
   if [ -n "${APEX_RECON_FIXED_SPEED_PCT:-}" ]; then
     RECON_ARGS+=(-p "diagnostic_fixed_speed_pct:=$(normalize_double_env "${APEX_RECON_FIXED_SPEED_PCT}")")
   fi
+  if [ -n "${APEX_RECON_STEP_DURATION_S:-}" ]; then
+    RECON_ARGS+=(-p "diagnostic_step_duration_s:=$(normalize_double_env "${APEX_RECON_STEP_DURATION_S}")")
+  fi
   if [ -n "${APEX_EXPLORE_MIN_SPEED_PCT:-}" ]; then
     RECON_ARGS+=(-p "explore_min_speed_pct:=$(normalize_double_env "${APEX_EXPLORE_MIN_SPEED_PCT}")")
   fi
@@ -666,7 +710,8 @@ write_session_env() {
   local min_speed_pct="$4"
   local max_speed_pct="$5"
   local fixed_speed_pct="$6"
-  local timeout_s="$7"
+  local step_duration_s="$7"
+  local timeout_s="$8"
 
   : > "${SESSION_ENV_FILE}"
   {
@@ -676,6 +721,7 @@ write_session_env() {
     printf 'APEX_EXPLORE_MIN_SPEED_PCT=%q\n' "${min_speed_pct}"
     printf 'APEX_EXPLORE_MAX_SPEED_PCT=%q\n' "${max_speed_pct}"
     printf 'APEX_RECON_FIXED_SPEED_PCT=%q\n' "${fixed_speed_pct}"
+    printf 'APEX_RECON_STEP_DURATION_S=%q\n' "${step_duration_s}"
     printf 'APEX_RECON_TIMEOUT_S=%q\n' "${timeout_s}"
     printf 'APEX_DEBUG_OUTPUT_DIR=%q\n' "${APEX_DEBUG_OUTPUT_DIR:-/work/ros2_ws/debug_runs}"
     printf 'APEX_RECON_LOG_FLUSH_EVERY=%q\n' "${APEX_RECON_LOG_FLUSH_EVERY:-}"
@@ -743,7 +789,7 @@ PY
 assert_allowed_mode() {
   local mode="$1"
   case "${mode}" in
-    nav_dryrun|recon_debug|steering_static|steering_sign_check|straight_open_loop)
+    nav_dryrun|recon_debug|curve_static_probe|curve_entry_probe|steering_static|steering_sign_check|straight_open_loop)
       ;;
     *)
       echo "[APEX][ERROR] Unsupported mode: ${mode}" >&2
@@ -854,6 +900,11 @@ runner_cleanup() {
     fi
   fi
 
+  if [ -n "${WATCHDOG_PID:-}" ] && pid_is_live "${WATCHDOG_PID}"; then
+    kill -TERM "${WATCHDOG_PID}" 2>/dev/null || true
+    wait_for_pid_exit "${WATCHDOG_PID}" 2 || true
+  fi
+
   stop_debug_bag_recording
   force_motor_neutral_from_params
   force_steering_center_from_params
@@ -906,6 +957,27 @@ cmd_run() {
   RECON_PID="$!"
   printf '%s\n' "${RECON_PID}" > "${RECON_PID_FILE}"
 
+  if [ -n "${APEX_RECON_TIMEOUT_S:-}" ]; then
+    (
+      sleep "${APEX_RECON_TIMEOUT_S}"
+      if kill -0 "${RECON_PID}" 2>/dev/null; then
+        echo "[APEX][WATCHDOG] Recon session exceeded timeout ${APEX_RECON_TIMEOUT_S}s; sending SIGINT" >&2
+        kill -INT "${RECON_PID}" 2>/dev/null || true
+        sleep 2
+      fi
+      if kill -0 "${RECON_PID}" 2>/dev/null; then
+        echo "[APEX][WATCHDOG] Recon session still alive; sending SIGTERM" >&2
+        kill -TERM "${RECON_PID}" 2>/dev/null || true
+        sleep 2
+      fi
+      if kill -0 "${RECON_PID}" 2>/dev/null; then
+        echo "[APEX][WATCHDOG] Recon session still alive; sending SIGKILL" >&2
+        kill -KILL "${RECON_PID}" 2>/dev/null || true
+      fi
+    ) &
+    WATCHDOG_PID="$!"
+  fi
+
   set +e
   wait "${RECON_PID}"
   local recon_status=$?
@@ -953,6 +1025,7 @@ cmd_start() {
   local min_speed_pct=""
   local max_speed_pct=""
   local fixed_speed_pct=""
+  local step_duration_s="${APEX_RECON_STEP_DURATION_S:-}"
   local timeout_s=""
 
   while [ "$#" -gt 0 ]; do
@@ -979,6 +1052,10 @@ cmd_start() {
         ;;
       --fixed-speed-pct)
         fixed_speed_pct="${2:-}"
+        shift 2
+        ;;
+      --step-duration-s)
+        step_duration_s="${2:-}"
         shift 2
         ;;
       --timeout-s)
@@ -1026,6 +1103,7 @@ cmd_start() {
     "${min_speed_pct}" \
     "${max_speed_pct}" \
     "${fixed_speed_pct}" \
+    "${step_duration_s}" \
     "${timeout_s}"
 
   rm -f "${START_LOG_FILE}"

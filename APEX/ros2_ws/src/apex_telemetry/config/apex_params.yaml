@@ -4,6 +4,11 @@ nano_accel_serial_node:
     baudrate: 115200
     serial_timeout_s: 0.5
     reconnect_delay_s: 1.0
+    connect_toggle_dtr: true
+    connect_dtr_low_s: 0.2
+    connect_settle_s: 2.0
+    flush_input_on_connect: true
+    log_no_data_every_s: 5.0
     frame_id: "imu_link"
     topic: "/apex/imu/acceleration/raw"
     gyro_topic: "/apex/imu/angular_velocity/raw"
@@ -26,18 +31,32 @@ kinematics_estimator_node:
     max_dt_s: 0.05
     accel_low_pass_alpha: 0.35
     gyro_low_pass_alpha: 0.45
-    deadband_mps2: 0.20
+    deadband_mps2: 0.05
     gyro_deadband_rps: 0.01
     integrate_accel_in_world_frame: true
     use_gyro_yaw: true
     gravity_compensation_enabled: true
     gravity_axis: "z"
+    planar_mount_yaw_deg: -90.0
     accel_bias_x: 0.302
     accel_bias_y: 0.490
     accel_bias_z: -0.063
     gyro_bias_x: 0.0
     gyro_bias_y: -0.093
     gyro_bias_z: -0.050
+    status_topic: "/apex/kinematics/status"
+    startup_static_calibration_enabled: true
+    startup_static_calibration_duration_s: 2.5
+    stationary_accel_threshold_mps2: 0.10
+    stationary_gyro_threshold_rps: 0.02
+    stationary_speed_threshold_mps: 0.05
+    stationary_hold_s: 0.35
+    stationary_release_accel_multiplier: 1.05
+    stationary_release_speed_multiplier: 1.50
+    stationary_release_gyro_multiplier: 1.25
+    zero_velocity_update_enabled: true
+    velocity_decay_enabled: true
+    velocity_decay_tau_s: 0.8
 
 kinematics_odometry_node:
   ros__parameters:
@@ -45,9 +64,10 @@ kinematics_odometry_node:
     velocity_topic: "/apex/kinematics/velocity"
     heading_topic: "/apex/kinematics/heading"
     angular_velocity_topic: "/apex/kinematics/angular_velocity"
-    odom_topic: "/odom"
-    odom_frame_id: "odom"
+    odom_topic: "/apex/odometry/imu_raw"
+    odom_frame_id: "odom_imu_raw"
     base_frame_id: "base_link"
+    translation_mode: "full"
     publish_rate_hz: 50.0
     publish_tf: true
     use_heading_topic: true
@@ -55,6 +75,70 @@ kinematics_odometry_node:
     integrate_yaw_from_rate_when_heading_missing: true
     use_velocity_heading: true
     min_speed_for_heading_mps: 0.05
+
+imu_lidar_planar_fusion_node:
+  ros__parameters:
+    accel_topic: "/apex/imu/acceleration/raw"
+    gyro_topic: "/apex/imu/angular_velocity/raw"
+    lidar_pose_topic: "/apex/lidar/pose_local"
+    status_topic: "/apex/kinematics/status"
+    odom_topic: "/odometry/filtered"
+    fusion_status_topic: "/apex/odometry/fusion_status"
+    odom_frame_id: "odom_lidar_local"
+    base_frame_id: "base_link"
+    publish_rate_hz: 50.0
+    publish_tf: false
+    use_message_time: true
+    planar_mount_yaw_deg: -90.0
+    accel_bias_x: 0.302
+    accel_bias_y: 0.490
+    gyro_bias_z: -0.050
+    max_dt_s: 0.05
+    max_planar_accel_mps2: 4.5
+    max_speed_mps: 2.5
+    velocity_leak_tau_s: 4.0
+    stationary_zero_gain: 8.0
+    stationary_bias_alpha: 0.05
+    launch_suppression_s: 0.25
+    launch_min_accel_scale: 0.25
+    launch_speed_cap_mps: 0.65
+    lidar_pose_timeout_s: 0.35
+    status_timeout_s: 0.75
+    status_motion_release_accel_mps2: 0.10
+    status_motion_release_speed_mps: 0.05
+    status_motion_release_yaw_rate_rps: 0.03
+    lidar_position_gain: 0.35
+    lidar_yaw_gain: 0.75
+    lidar_velocity_gain: 0.80
+    lidar_low_motion_position_gain: 0.03
+    lidar_low_motion_velocity_gain: 0.05
+    lidar_min_translation_delta_m: 0.01
+    lidar_min_translation_speed_mps: 0.06
+    lidar_motion_override_speed_mps: 0.12
+    lidar_reacquire_ramp_s: 0.40
+    lidar_reacquire_position_gain_start: 0.12
+    lidar_reacquire_velocity_gain_start: 0.20
+    innovation_bias_gain: 0.10
+    gyro_bias_gain: 0.08
+    base_pose_covariance_x_m2: 0.02
+    base_pose_covariance_y_m2: 0.02
+    base_yaw_covariance_rad2: 0.03
+    base_twist_covariance_xy_m2ps2: 0.20
+    stale_covariance_scale: 25.0
+
+lidar_pose_bridge:
+  ros__parameters:
+    scan_topic: "/lidar/scan"
+    pose_topic: "/apex/lidar/pose_local"
+    pose_frame_id: "odom_lidar_local"
+    base_frame_id: "base_link"
+    publish_rate_hz: 20.0
+    scan_timeout_s: 0.25
+    tf_timeout_s: 0.05
+    covariance_x_m2: 0.01
+    covariance_y_m2: 0.01
+    covariance_yaw_rad2: 0.04
+    stale_covariance_scale: 50.0
 
 apex_rplidar_publisher:
   ros__parameters:
@@ -77,6 +161,10 @@ apex_recon_mapping_node:
     map_frame: "map"
     base_frame: "base_link"
     heading_offset_deg: 91
+    pose_source_mode: "odometry_topic"
+    odometry_input_topic: "/odometry/filtered"
+    lidar_pose_topic: "/apex/lidar/pose_local"
+    lidar_pose_timeout_s: 0.25
 
     steering_channel: 1
     steering_frequency_hz: 50.0
@@ -150,7 +238,11 @@ apex_recon_mapping_node:
     state_velocity_topic: "/apex/kinematics/velocity"
     state_acceleration_topic: "/apex/kinematics/acceleration"
     state_angular_velocity_topic: "/apex/kinematics/angular_velocity"
+    state_status_topic: "/apex/kinematics/status"
     state_timeout_s: 0.5
+    curve_probe_progress_stall_cycles_limit: 8
+    curve_probe_progress_epsilon: 0.01
+    curve_probe_wrong_side_lateral_threshold_m: 0.12
     trajectory_horizon_m: 0.95
     trajectory_lookahead_min_m: 0.35
     trajectory_lookahead_max_m: 1.00

@@ -12,17 +12,33 @@ RUN set -eux; \
   find /etc/apt -type f -name '*.sources' -print0 \
     | xargs -0 -r sed -i 's/^Types:[[:space:]]*deb[[:space:]]\\+deb-src$/Types: deb/g'; \
   apt-get clean; \
-  rm -rf /var/lib/apt/lists/* /var/lib/apt/lists/partial/*; \
-  apt-get update -o Acquire::Retries=5 && apt-get install -y --no-install-recommends \
+  update_ok=0; \
+  for attempt in 1 2 3 4 5; do \
+    rm -rf /var/lib/apt/lists/* /var/lib/apt/lists/partial/*; \
+    if apt-get update \
+      -o Acquire::Retries=5 \
+      -o Acquire::By-Hash=force \
+      -o Acquire::http::No-Cache=true \
+      -o Acquire::https::No-Cache=true; then \
+      update_ok=1; \
+      break; \
+    fi; \
+    sleep 3; \
+  done; \
+  test "${update_ok}" = "1"; \
+  apt-get install -y --no-install-recommends \
     python3-colcon-common-extensions \
     python3-numpy \
     python3-pip \
     python3-serial \
     python3-venv \
+    ros-jazzy-imu-filter-madgwick \
     ros-jazzy-nav2-map-server \
+    ros-jazzy-robot-localization \
     ros-jazzy-ros2bag \
     ros-jazzy-rosbag2-storage-default-plugins \
     ros-jazzy-rosbag2-storage-mcap \
+    ros-jazzy-slam-toolbox \
     ros-dev-tools \
   && python3 -m venv --system-site-packages /opt/apex_venv \
   && /opt/apex_venv/bin/python -m pip install -U pip setuptools \

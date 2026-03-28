@@ -23,6 +23,7 @@ setup(
             [
                 "launch/apex_pipeline.launch.py",
                 "launch/apex_lidar_slam.launch.py",
+                "launch/apex_local_odom_fusion.launch.py",
             ],
         ),
         (
@@ -30,6 +31,9 @@ setup(
             [
                 "config/apex_params.yaml",
                 "config/apex_slam_toolbox.yaml",
+                "config/apex_local_slam_toolbox.yaml",
+                "config/apex_local_ekf.yaml",
+                "config/apex_local_imu_filter.yaml",
             ],
         ),
     ],
@@ -44,6 +48,8 @@ setup(
             "nano_accel_serial_node = apex_telemetry.nano_accel_serial_node:main",
             "kinematics_estimator_node = apex_telemetry.kinematics_estimator_node:main",
             "kinematics_odometry_node = apex_telemetry.kinematics_odometry_node:main",
+            "imu_lidar_planar_fusion_node = apex_telemetry.imu_lidar_planar_fusion_node:main",
+            "lidar_pose_bridge = apex_telemetry.lidar_pose_bridge:main",
             "rplidar_publisher_node = apex_telemetry.rplidar_publisher_node:main",
             "recon_mapping_node = apex_telemetry.recon_mapping_node:main",
         ],

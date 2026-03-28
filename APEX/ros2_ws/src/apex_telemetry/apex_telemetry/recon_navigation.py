@@ -9,6 +9,14 @@ from typing import Optional
 
 import numpy as np
 
+from .curve_window_detection import (
+    CurveWindowDetectionConfig,
+    CurveWindowDetectionResult,
+    detection_result_to_dict,
+    detect_curve_window_points,
+    scan_ranges_to_forward_left_xy,
+)
+
 
 @dataclass(frozen=True)
 class ReconCommand:
@@ -89,6 +97,19 @@ class ReconCommand:
     state_yaw_rate: float
     slip_proxy: float
     trajectory_flip_blocked: bool
+    curve_window_valid: bool
+    curve_window_side: str
+    curve_window_entry_x_m: float
+    curve_window_entry_y_m: float
+    curve_window_width_m: float
+    curve_window_far_wall_x_m: float
+    curve_window_target_x_m: float
+    curve_window_target_y_m: float
+    curve_window_score: float
+    probe_subphase: str
+    probe_locked: bool
+    probe_goal_distance_m: float
+    probe_path_progress: float
 
 
 @dataclass(frozen=True)
@@ -104,6 +125,12 @@ class ReconStateEstimate:
     pose_source: str = "none"
     distance_from_phase_start_m: float = 0.0
     yaw_change_deg: float = 0.0
+    stationary_detected: bool = False
+    zupt_applied: bool = False
+    velocity_decay_active: bool = False
+    odom_translation_confidence: float = 0.0
+    raw_accel_planar_mps2: float = 0.0
+    corrected_accel_planar_mps2: float = 0.0
     valid: bool = False
 
 
@@ -753,6 +780,7 @@ class ReconNavigator:
         self._adaptive_last_pose_yaw_delta_deg = 0.0
         self._adaptive_last_nav_mode = "startup_adapt"
         self._track_model: ReconTrackModel | None = None
+        self._curve_window_detection_config = CurveWindowDetectionConfig()
         self._trajectory_phase = "idle"
         self._trajectory_phase_cycles = 0
         self._trajectory_signed_curvature = 0.0
@@ -1967,6 +1995,19 @@ class ReconNavigator:
             state_yaw_rate=state_estimate.yaw_rate_rps,
             slip_proxy=state_estimate.slip_proxy,
             trajectory_flip_blocked=False,
+            curve_window_valid=False,
+            curve_window_side="none",
+            curve_window_entry_x_m=0.0,
+            curve_window_entry_y_m=0.0,
+            curve_window_width_m=0.0,
+            curve_window_far_wall_x_m=0.0,
+            curve_window_target_x_m=0.0,
+            curve_window_target_y_m=0.0,
+            curve_window_score=0.0,
+            probe_subphase="inactive",
+            probe_locked=False,
+            probe_goal_distance_m=0.0,
+            probe_path_progress=0.0,
         )
 
     def compute_command(
@@ -2166,6 +2207,19 @@ class ReconNavigator:
             state_yaw_rate=0.0,
             slip_proxy=0.0,
             trajectory_flip_blocked=False,
+            curve_window_valid=False,
+            curve_window_side="none",
+            curve_window_entry_x_m=0.0,
+            curve_window_entry_y_m=0.0,
+            curve_window_width_m=0.0,
+            curve_window_far_wall_x_m=0.0,
+            curve_window_target_x_m=0.0,
+            curve_window_target_y_m=0.0,
+            curve_window_score=0.0,
+            probe_subphase="inactive",
+            probe_locked=False,
+            probe_goal_distance_m=0.0,
+            probe_path_progress=0.0,
         )
 
     def _shrink_scan(self, ranges: np.ndarray) -> np.ndarray:
@@ -9738,6 +9792,162 @@ class ReconNavigator:
     def _window_min(self, ranges: np.ndarray, start_deg: int, end_deg: int) -> float:
         values = self._window_values(ranges, start_deg, end_deg)
         return float(min(values)) if values else 0.0
+
+    def detect_curve_window(self, scan_ranges_m: np.ndarray) -> CurveWindowDetectionResult:
+        points_x_m, points_y_m, angles_deg = scan_ranges_to_forward_left_xy(scan_ranges_m)
+        return detect_curve_window_points(
+            points_x_m,
+            points_y_m,
+            angles_deg=angles_deg,
+            config=self._curve_window_detection_config,
+        )
+
+    def compute_probe_tracking_state(
+        self,
+        *,
+        target_x_m: float,
+        target_y_m: float,
+    ) -> tuple[float, float, float, float]:
+        heading_deg = math.degrees(math.atan2(float(target_y_m), max(float(target_x_m), 1e-6)))
+        steering_deg = self._compute_reference_steering_deg(heading_deg)
+        signed_curvature = self._pure_pursuit_curvature(
+            max(float(target_x_m), 1e-6),
+            float(target_y_m),
+        )
+        radius_m = 0.0
+        if abs(signed_curvature) > 1e-6:
+            radius_m = float(1.0 / abs(signed_curvature))
+        return (
+            float(heading_deg),
+            float(steering_deg),
+            float(signed_curvature),
+            float(radius_m),
+        )
+
+    def apply_curve_probe_metadata(
+        self,
+        command: ReconCommand,
+        *,
+        detection: CurveWindowDetectionResult | None,
+        probe_subphase: str,
+        probe_locked: bool,
+        probe_goal_distance_m: float,
+        probe_path_progress: float,
+        speed_pct: float | None = None,
+        steering_deg: float | None = None,
+        target_heading_deg: float | None = None,
+        active_heading_source: str | None = None,
+        nav_mode: str | None = None,
+        trajectory_phase: str | None = None,
+        lookahead_x_m: float | None = None,
+        lookahead_y_m: float | None = None,
+        signed_curvature: float | None = None,
+        radius_m: float | None = None,
+        target_speed_pct: float | None = None,
+    ) -> ReconCommand:
+        curve_payload = detection_result_to_dict(detection or CurveWindowDetectionResult())
+        return ReconCommand(
+            speed_pct=float(command.speed_pct if speed_pct is None else speed_pct),
+            steering_deg=float(command.steering_deg if steering_deg is None else steering_deg),
+            steering_pre_servo_deg=float(
+                command.steering_pre_servo_deg if steering_deg is None else steering_deg
+            ),
+            target_heading_deg=float(
+                command.target_heading_deg if target_heading_deg is None else target_heading_deg
+            ),
+            gap_heading_deg=command.gap_heading_deg,
+            front_turn_heading_deg=command.front_turn_heading_deg,
+            corridor_axis_heading_deg=command.corridor_axis_heading_deg,
+            corridor_center_heading_deg=command.corridor_center_heading_deg,
+            corridor_balance_ratio=command.corridor_balance_ratio,
+            corridor_available=command.corridor_available,
+            wall_follow_heading_deg=command.wall_follow_heading_deg,
+            wall_follow_active=command.wall_follow_active,
+            wall_follow_anchor_side=command.wall_follow_anchor_side,
+            startup_candidate_heading_deg=command.startup_candidate_heading_deg,
+            startup_candidate_source=command.startup_candidate_source,
+            startup_hold_active=command.startup_hold_active,
+            startup_latched_sign=command.startup_latched_sign,
+            startup_latch_cycles_remaining=command.startup_latch_cycles_remaining,
+            left_wall_heading_deg=command.left_wall_heading_deg,
+            right_wall_heading_deg=command.right_wall_heading_deg,
+            centering_heading_deg=command.centering_heading_deg,
+            avoidance_heading_deg=command.avoidance_heading_deg,
+            centering_weight=command.centering_weight,
+            front_clearance_m=command.front_clearance_m,
+            effective_front_clearance_m=command.effective_front_clearance_m,
+            front_clearance_fallback_used=command.front_clearance_fallback_used,
+            front_left_clearance_m=command.front_left_clearance_m,
+            front_right_clearance_m=command.front_right_clearance_m,
+            left_clearance_m=command.left_clearance_m,
+            right_clearance_m=command.right_clearance_m,
+            left_min_m=command.left_min_m,
+            right_min_m=command.right_min_m,
+            left_right_delta_m=command.left_right_delta_m,
+            active_heading_source=(
+                command.active_heading_source if active_heading_source is None else active_heading_source
+            ),
+            nav_mode=command.nav_mode if nav_mode is None else nav_mode,
+            corridor_confidence=command.corridor_confidence,
+            curve_confidence=command.curve_confidence,
+            preview_heading_deg=command.preview_heading_deg,
+            corridor_curvature_sign=command.corridor_curvature_sign,
+            corridor_curvature_confidence=command.corridor_curvature_confidence,
+            committed_turn_sign=command.committed_turn_sign,
+            gate_curve_sign=command.gate_curve_sign,
+            curve_capture_active=command.curve_capture_active,
+            curve_capture_reason=command.curve_capture_reason,
+            curve_severity_score=command.curve_severity_score,
+            curve_steering_floor_deg=command.curve_steering_floor_deg,
+            curve_speed_cap_pct=command.curve_speed_cap_pct,
+            curve_release_reason=command.curve_release_reason,
+            same_sign_trim_active=command.same_sign_trim_active,
+            free_space_candidate_heading_deg=command.free_space_candidate_heading_deg,
+            sign_veto_reason=command.sign_veto_reason,
+            near_wall_mode=command.near_wall_mode,
+            straight_veto_active=command.straight_veto_active,
+            startup_adapt_active=command.startup_adapt_active,
+            curve_intent_score=command.curve_intent_score,
+            curve_intent_sign=command.curve_intent_sign,
+            curve_evidence_strength=command.curve_evidence_strength,
+            curve_decay_active=command.curve_decay_active,
+            premature_curve_veto=command.premature_curve_veto,
+            pre_curve_bias_veto=command.pre_curve_bias_veto,
+            straight_corridor_score=command.straight_corridor_score,
+            curve_gate_open=command.curve_gate_open,
+            curve_gate_reason=command.curve_gate_reason,
+            geometry_agreement_score=command.geometry_agreement_score,
+            curve_confirm_distance_m=command.curve_confirm_distance_m,
+            curve_confirm_yaw_deg=command.curve_confirm_yaw_deg,
+            trajectory_phase=command.trajectory_phase if trajectory_phase is None else trajectory_phase,
+            lookahead_x_m=float(command.lookahead_x_m if lookahead_x_m is None else lookahead_x_m),
+            lookahead_y_m=float(command.lookahead_y_m if lookahead_y_m is None else lookahead_y_m),
+            signed_curvature=float(
+                command.signed_curvature if signed_curvature is None else signed_curvature
+            ),
+            radius_m=float(command.radius_m if radius_m is None else radius_m),
+            target_speed_pct=float(
+                command.target_speed_pct if target_speed_pct is None else target_speed_pct
+            ),
+            track_confidence=command.track_confidence,
+            state_speed_mps=command.state_speed_mps,
+            state_yaw_rate=command.state_yaw_rate,
+            slip_proxy=command.slip_proxy,
+            trajectory_flip_blocked=command.trajectory_flip_blocked,
+            curve_window_valid=bool(curve_payload["curve_window_valid"]),
+            curve_window_side=str(curve_payload["curve_window_side"]),
+            curve_window_entry_x_m=float(curve_payload["curve_window_entry_x_m"]),
+            curve_window_entry_y_m=float(curve_payload["curve_window_entry_y_m"]),
+            curve_window_width_m=float(curve_payload["curve_window_width_m"]),
+            curve_window_far_wall_x_m=float(curve_payload["curve_window_far_wall_x_m"]),
+            curve_window_target_x_m=float(curve_payload["curve_window_target_x_m"]),
+            curve_window_target_y_m=float(curve_payload["curve_window_target_y_m"]),
+            curve_window_score=float(curve_payload["curve_window_score"]),
+            probe_subphase=str(probe_subphase),
+            probe_locked=bool(probe_locked),
+            probe_goal_distance_m=float(probe_goal_distance_m),
+            probe_path_progress=float(probe_path_progress),
+        )
 
     def _compute_speed_pct(
         self,

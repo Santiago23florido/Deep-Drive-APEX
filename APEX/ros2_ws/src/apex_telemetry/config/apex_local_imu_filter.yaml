@@ -1,0 +1,6 @@
+/**:
+  ros__parameters:
+    use_mag: false
+    publish_tf: false
+    reverse_tf: false
+    world_frame: "enu"

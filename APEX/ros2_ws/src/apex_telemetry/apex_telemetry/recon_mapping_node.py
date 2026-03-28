@@ -16,15 +16,18 @@ from typing import Any, Optional, TextIO
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import Vector3Stamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, Vector3Stamped
+from nav_msgs.msg import Odometry
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 
 from .actuation import MaverickESCMotor, SteeringServo
+from .curve_window_detection import CurveWindowDetectionResult, detection_result_to_curve_diag
 from .recon_navigation import ReconCommand, ReconNavigator, ReconStateEstimate
 
 
@@ -63,6 +66,31 @@ class PhaseStats:
     max_distance_from_phase_start_m: float = 0.0
 
 
+@dataclass
+class CurveProbeState:
+    stable_cycles: int = 0
+    ever_valid_candidate: bool = False
+    last_candidate_side: str = "none"
+    last_entry_x_m: float = 0.0
+    last_window_width_m: float = 0.0
+    last_target_x_m: float = 0.0
+    last_target_y_m: float = 0.0
+    locked: bool = False
+    locked_detection: Optional[CurveWindowDetectionResult] = None
+    current_detection: Optional[CurveWindowDetectionResult] = None
+    subphase: str = "inactive"
+    locked_pose_xyyaw: Optional[tuple[float, float, float]] = None
+    locked_pose_source: Optional[str] = None
+    path_world_xy: list[tuple[float, float]] = None
+    target_world_xy: Optional[tuple[float, float]] = None
+    progress_index: int = 0
+    path_progress: float = 0.0
+    goal_distance_m: float = 0.0
+    progress_stall_cycles: int = 0
+    wrong_side_cycles: int = 0
+    last_path_progress: float = 0.0
+
+
 class ReconMappingNode(Node):
     def __init__(self) -> None:
         super().__init__("apex_recon_mapping_node")
@@ -76,6 +104,17 @@ class ReconMappingNode(Node):
         self._odom_frame = str(self.get_parameter("odom_frame").value)
         self._base_frame = str(self.get_parameter("base_frame").value)
         self._heading_offset_deg = int(self.get_parameter("heading_offset_deg").value)
+        self._pose_source_mode = str(self.get_parameter("pose_source_mode").value).strip().lower()
+        self._odometry_input_topic = str(self.get_parameter("odometry_input_topic").value)
+        self._lidar_pose_topic = str(self.get_parameter("lidar_pose_topic").value)
+        self._lidar_pose_timeout_s = max(
+            0.05, float(self.get_parameter("lidar_pose_timeout_s").value)
+        )
+        if self._pose_source_mode not in {"tf", "odometry_topic"}:
+            self.get_logger().warning(
+                "Unknown pose_source_mode=%s, falling back to tf" % self._pose_source_mode
+            )
+            self._pose_source_mode = "tf"
         self._enable_autostop_on_lap = bool(self.get_parameter("enable_autostop_on_lap").value)
         self._lap_min_duration_s = max(5.0, float(self.get_parameter("lap_min_duration_s").value))
         self._lap_min_path_length_m = max(1.0, float(self.get_parameter("lap_min_path_length_m").value))
@@ -147,6 +186,13 @@ class ReconMappingNode(Node):
         self._diagnostic_min_progress_m = max(
             0.0, float(self.get_parameter("diagnostic_min_progress_m").value)
         )
+        self._curve_probe_lock_cycles = 6
+        self._curve_probe_entry_x_tolerance_m = 0.08
+        self._curve_probe_window_width_tolerance_m = 0.10
+        self._curve_probe_target_tolerance_m = 0.12
+        self._curve_probe_lookahead_m = 0.25
+        self._curve_probe_goal_tolerance_m = 0.12
+        self._curve_probe_goal_progress_threshold = 0.95
         self._state_velocity_topic = str(self.get_parameter("state_velocity_topic").value)
         self._state_acceleration_topic = str(
             self.get_parameter("state_acceleration_topic").value
@@ -154,7 +200,17 @@ class ReconMappingNode(Node):
         self._state_angular_velocity_topic = str(
             self.get_parameter("state_angular_velocity_topic").value
         )
+        self._state_status_topic = str(self.get_parameter("state_status_topic").value)
         self._state_timeout_s = max(0.0, float(self.get_parameter("state_timeout_s").value))
+        self._curve_probe_progress_stall_cycles_limit = max(
+            2, int(self.get_parameter("curve_probe_progress_stall_cycles_limit").value)
+        )
+        self._curve_probe_progress_epsilon = max(
+            0.0, float(self.get_parameter("curve_probe_progress_epsilon").value)
+        )
+        self._curve_probe_wrong_side_lateral_threshold_m = max(
+            0.0, float(self.get_parameter("curve_probe_wrong_side_lateral_threshold_m").value)
+        )
         self._diagnostic_enabled = self._diagnostic_mode != "off"
 
         self._navigator = ReconNavigator(
@@ -411,7 +467,13 @@ class ReconMappingNode(Node):
         self._latest_state_acceleration_stamp: Optional[Time] = None
         self._latest_state_angular_velocity: Optional[tuple[float, float, float]] = None
         self._latest_state_angular_velocity_stamp: Optional[Time] = None
+        self._latest_state_status: Optional[dict[str, Any]] = None
+        self._latest_state_status_stamp: Optional[Time] = None
+        self._latest_odometry_pose: Optional[tuple[float, float, float]] = None
+        self._latest_odometry_pose_stamp: Optional[Time] = None
+        self._latest_lidar_pose_stamp: Optional[Time] = None
         self._last_command: Optional[ReconCommand] = None
+        self._curve_probe_state = CurveProbeState()
         self._blocked_cycles = 0
         self._recovery_deadline = None
         self._recovery_mode = "reverse"
@@ -448,7 +510,10 @@ class ReconMappingNode(Node):
         self._phase_stats: Optional[PhaseStats] = None
         self._phase_start_pose = None
         self._phase_start_pose_source: Optional[str] = None
+        self._scripted_pose_wait_started_at: Optional[Time] = None
+        self._scripted_pose_last_wait_log_s = -10.0
         self._diagnostic_completed = False
+        self._process_exit_requested = False
         self._recovery_events = 0
         self._diagnostic_log_handle: Optional[TextIO] = None
         self._diagnostic_pending_flush_records = 0
@@ -480,11 +545,35 @@ class ReconMappingNode(Node):
             self._state_angular_velocity_cb,
             20,
         )
+        self.create_subscription(
+            String,
+            self._state_status_topic,
+            self._state_status_cb,
+            20,
+        )
+        self.create_subscription(
+            Odometry,
+            self._odometry_input_topic,
+            self._odometry_pose_cb,
+            20,
+        )
+        self.create_subscription(
+            PoseWithCovarianceStamped,
+            self._lidar_pose_topic,
+            self._lidar_pose_cb,
+            20,
+        )
         self.create_timer(1.0 / self._control_rate_hz, self._control_loop)
 
         self.get_logger().info(
-            "ReconMappingNode ready (scan=%s, control_rate=%.1f Hz, mode=%s)"
-            % (self._scan_topic, self._control_rate_hz, self._diagnostic_mode)
+            "ReconMappingNode ready (scan=%s, pose_mode=%s, odom_topic=%s, control_rate=%.1f Hz, mode=%s)"
+            % (
+                self._scan_topic,
+                self._pose_source_mode,
+                self._odometry_input_topic,
+                self._control_rate_hz,
+                self._diagnostic_mode,
+            )
         )
         self._emit_diag_config()
 
@@ -496,6 +585,10 @@ class ReconMappingNode(Node):
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
         self.declare_parameter("heading_offset_deg", -89)
+        self.declare_parameter("pose_source_mode", "odometry_topic")
+        self.declare_parameter("odometry_input_topic", "/odometry/filtered")
+        self.declare_parameter("lidar_pose_topic", "/apex/lidar/pose_local")
+        self.declare_parameter("lidar_pose_timeout_s", 0.25)
 
         self.declare_parameter("steering_channel", 1)
         self.declare_parameter("steering_frequency_hz", 50.0)
@@ -591,7 +684,11 @@ class ReconMappingNode(Node):
         self.declare_parameter("state_velocity_topic", "/apex/kinematics/velocity")
         self.declare_parameter("state_acceleration_topic", "/apex/kinematics/acceleration")
         self.declare_parameter("state_angular_velocity_topic", "/apex/kinematics/angular_velocity")
+        self.declare_parameter("state_status_topic", "/apex/kinematics/status")
         self.declare_parameter("state_timeout_s", 0.5)
+        self.declare_parameter("curve_probe_progress_stall_cycles_limit", 8)
+        self.declare_parameter("curve_probe_progress_epsilon", 0.01)
+        self.declare_parameter("curve_probe_wrong_side_lateral_threshold_m", 0.12)
         self.declare_parameter("trajectory_horizon_m", 0.95)
         self.declare_parameter("trajectory_lookahead_min_m", 0.35)
         self.declare_parameter("trajectory_lookahead_max_m", 0.85)
@@ -682,6 +779,41 @@ class ReconMappingNode(Node):
         )
         self._latest_state_angular_velocity_stamp = self._msg_time_or_now(msg)
 
+    def _state_status_cb(self, msg: String) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+        self._latest_state_status = payload
+        self._latest_state_status_stamp = self.get_clock().now()
+
+    def _odometry_pose_cb(self, msg: Odometry) -> None:
+        yaw = _yaw_from_quat(
+            float(msg.pose.pose.orientation.x),
+            float(msg.pose.pose.orientation.y),
+            float(msg.pose.pose.orientation.z),
+            float(msg.pose.pose.orientation.w),
+        )
+        self._latest_odometry_pose = (
+            float(msg.pose.pose.position.x),
+            float(msg.pose.pose.position.y),
+            float(yaw),
+        )
+        # Use local receipt time for liveliness gating. The EKF output can
+        # carry a slightly older header stamp than wall-clock arrival, which
+        # is fine for state estimation but can incorrectly block scripted
+        # motion when we only need to know that fresh fused odometry is
+        # currently arriving.
+        self._latest_odometry_pose_stamp = self.get_clock().now()
+
+    def _lidar_pose_cb(self, msg: PoseWithCovarianceStamped) -> None:
+        if msg.header.stamp.sec != 0 or msg.header.stamp.nanosec != 0:
+            self._latest_lidar_pose_stamp = Time.from_msg(msg.header.stamp)
+        else:
+            self._latest_lidar_pose_stamp = self.get_clock().now()
+
     def _fresh_state_tuple(
         self,
         stamp: Optional[Time],
@@ -695,6 +827,36 @@ class ReconMappingNode(Node):
                 return None
         return value
 
+    def _fresh_state_status(self) -> Optional[dict[str, Any]]:
+        if self._latest_state_status is None or self._latest_state_status_stamp is None:
+            return None
+        if self._state_timeout_s > 0.0:
+            age_s = (self.get_clock().now() - self._latest_state_status_stamp).nanoseconds * 1e-9
+            if age_s > self._state_timeout_s:
+                return None
+        return self._latest_state_status
+
+    def _fresh_odometry_pose(self) -> Optional[tuple[float, float, float]]:
+        if self._latest_odometry_pose is None or self._latest_odometry_pose_stamp is None:
+            return None
+        if self._state_timeout_s > 0.0:
+            age_s = (self.get_clock().now() - self._latest_odometry_pose_stamp).nanoseconds * 1e-9
+            if age_s > self._state_timeout_s:
+                return None
+        return self._latest_odometry_pose
+
+    def _lidar_pose_age_s(self) -> Optional[float]:
+        if self._latest_lidar_pose_stamp is None:
+            return None
+        return max(
+            0.0,
+            (self.get_clock().now() - self._latest_lidar_pose_stamp).nanoseconds * 1e-9,
+        )
+
+    def _lidar_pose_is_fresh(self) -> bool:
+        age_s = self._lidar_pose_age_s()
+        return age_s is not None and age_s <= self._lidar_pose_timeout_s
+
     def _build_phase_sequence(self) -> list[str]:
         mode = self._diagnostic_mode
         if mode == "off":
@@ -707,6 +869,8 @@ class ReconMappingNode(Node):
             "steering_sign_check",
             "nav_dryrun",
             "recon_debug",
+            "curve_static_probe",
+            "curve_entry_probe",
         }:
             return [mode]
         if mode == "all":
@@ -716,6 +880,8 @@ class ReconMappingNode(Node):
                 "steering_sign_check",
                 "nav_dryrun",
                 "recon_debug",
+                "curve_static_probe",
+                "curve_entry_probe",
             ]
         self.get_logger().warning("Unknown diagnostic_mode=%s, falling back to calibration" % mode)
         self._diagnostic_mode = "calibration"
@@ -743,10 +909,16 @@ class ReconMappingNode(Node):
             ]
         return []
 
+    def _phase_requires_pose_before_motion(self, phase_name: Optional[str]) -> bool:
+        if self._pose_source_mode != "odometry_topic" or phase_name is None:
+            return False
+        return any(abs(step.speed_pct) >= 1e-6 for step in self._steps_for_phase(phase_name))
+
     def _start_next_phase(self, now: Time) -> None:
         self._active_phase_index += 1
         if self._active_phase_index >= len(self._phase_sequence):
             self._diagnostic_completed = True
+            self._process_exit_requested = True
             self._active_phase_name = None
             self._active_step_name = "complete"
             self._apply_command(0.0, 0.0)
@@ -757,14 +929,23 @@ class ReconMappingNode(Node):
         self._active_steps = self._steps_for_phase(self._active_phase_name)
         self._active_step_index = -1
         self._active_step_started_at = None
-        self._phase_started_at = now
+        self._phase_started_at = (
+            None if self._phase_requires_pose_before_motion(self._active_phase_name) else now
+        )
         self._phase_cycle = 0
         self._phase_stats = PhaseStats(
             phase_name=self._active_phase_name,
-            phase_started_at=now,
+            phase_started_at=self._phase_started_at,
         )
         self._navigator.reset_runtime_state()
-        self._phase_start_pose, self._phase_start_pose_source = self._lookup_pose_with_source()
+        self._reset_curve_probe_state()
+        if self._phase_started_at is None:
+            self._phase_start_pose = None
+            self._phase_start_pose_source = None
+        else:
+            self._phase_start_pose, self._phase_start_pose_source = self._lookup_pose_with_source()
+        self._scripted_pose_wait_started_at = None
+        self._scripted_pose_last_wait_log_s = -10.0
         self._blocked_cycles = 0
         self._recovery_deadline = None
         self._recovery_mode = "reverse"
@@ -815,6 +996,8 @@ class ReconMappingNode(Node):
         self._phase_stats = None
         self._phase_start_pose = None
         self._phase_start_pose_source = None
+        self._scripted_pose_wait_started_at = None
+        self._scripted_pose_last_wait_log_s = -10.0
 
         self._start_next_phase(now)
 
@@ -830,7 +1013,11 @@ class ReconMappingNode(Node):
             if self._diagnostic_completed:
                 return
 
-        if self._active_phase_name != "nav_dryrun" and not self._ensure_startup_map_reset():
+        if self._active_phase_name not in {
+            "nav_dryrun",
+            "curve_static_probe",
+            "curve_entry_probe",
+        } and not self._ensure_startup_map_reset():
             self._apply_command(0.0, 0.0)
             return
 
@@ -838,6 +1025,10 @@ class ReconMappingNode(Node):
             self._run_recon_debug(now)
         elif self._active_phase_name == "nav_dryrun":
             self._run_nav_dryrun(now)
+        elif self._active_phase_name == "curve_static_probe":
+            self._run_curve_static_probe(now)
+        elif self._active_phase_name == "curve_entry_probe":
+            self._run_curve_entry_probe(now)
         else:
             self._run_scripted_phase(now)
 
@@ -848,11 +1039,55 @@ class ReconMappingNode(Node):
 
         if self._active_step_index < 0:
             self._active_step_index = 0
-            self._active_step_started_at = now
             self._active_step_name = self._active_steps[0].name
 
         current_step = self._active_steps[self._active_step_index]
         pose_diag = self._build_pose_diag()
+        if (
+            self._phase_requires_pose_before_motion(self._active_phase_name)
+            and self._active_step_started_at is None
+            and abs(current_step.speed_pct) >= 1e-6
+            and pose_diag["pose_source"] is None
+        ):
+            if self._scripted_pose_wait_started_at is None:
+                self._scripted_pose_wait_started_at = now
+            wait_s = self._duration_since(self._scripted_pose_wait_started_at, now)
+            if wait_s - self._scripted_pose_last_wait_log_s >= 1.0:
+                self.get_logger().info(
+                    "Waiting for fused pose before starting %s (mode=%s lidar_fresh=%s waited=%.1fs)"
+                    % (
+                        self._active_phase_name,
+                        self._pose_source_mode,
+                        pose_diag["lidar_pose_fresh"],
+                        wait_s,
+                    )
+                )
+                self._scripted_pose_last_wait_log_s = wait_s
+            scan_command, front_min_m, scan_age_s = self._build_scan_diagnostics(
+                pose_diag=pose_diag
+            )
+            self._apply_command(0.0, current_step.steering_deg)
+            self._maybe_emit_cycle_logs(
+                nav_command=scan_command,
+                front_min_m=front_min_m,
+                pose_diag=pose_diag,
+                scan_age_s=scan_age_s,
+            )
+            return
+
+        self._scripted_pose_wait_started_at = None
+        self._scripted_pose_last_wait_log_s = -10.0
+        if self._active_step_started_at is None:
+            if self._phase_started_at is None:
+                self._phase_started_at = now
+                if self._phase_stats is not None:
+                    self._phase_stats.phase_started_at = now
+                # Anchor the phase origin at the instant the fused pose first becomes usable.
+                self._phase_start_pose = None
+                self._phase_start_pose_source = None
+                pose_diag = self._build_pose_diag()
+            self._active_step_started_at = now
+
         scan_command, front_min_m, scan_age_s = self._build_scan_diagnostics(
             pose_diag=pose_diag
         )
@@ -873,6 +1108,18 @@ class ReconMappingNode(Node):
         )
 
         if self._active_step_started_at is None:
+            return
+
+        if (
+            self._diagnostic_recon_timeout_s > 0.0
+            and self._duration_since(self._active_step_started_at, now)
+            >= self._diagnostic_recon_timeout_s
+        ):
+            self.get_logger().warning(
+                "Ending %s after %.1fs scripted timeout"
+                % (self._active_phase_name, self._diagnostic_recon_timeout_s)
+            )
+            self._end_current_phase("script_timeout", now)
             return
 
         if self._duration_since(self._active_step_started_at, now) < current_step.duration_s:
@@ -1093,6 +1340,541 @@ class ReconMappingNode(Node):
             scan_age_s=age_s,
         )
 
+    def _build_curve_probe_command(
+        self,
+        base_command: ReconCommand,
+        *,
+        detection: Optional[CurveWindowDetectionResult],
+        phase_name: str,
+        probe_subphase: str,
+        probe_locked: bool,
+        speed_pct: float,
+        steering_deg: float,
+        target_heading_deg: float,
+        active_heading_source: str,
+        lookahead_x_m: float = 0.0,
+        lookahead_y_m: float = 0.0,
+        signed_curvature: float = 0.0,
+        radius_m: float = 0.0,
+    ) -> ReconCommand:
+        return self._navigator.apply_curve_probe_metadata(
+            base_command,
+            detection=detection,
+            probe_subphase=probe_subphase,
+            probe_locked=probe_locked,
+            probe_goal_distance_m=self._curve_probe_state.goal_distance_m,
+            probe_path_progress=self._curve_probe_state.path_progress,
+            speed_pct=speed_pct,
+            steering_deg=steering_deg,
+            target_heading_deg=target_heading_deg,
+            active_heading_source=active_heading_source,
+            nav_mode=phase_name,
+            trajectory_phase=phase_name,
+            lookahead_x_m=lookahead_x_m,
+            lookahead_y_m=lookahead_y_m,
+            signed_curvature=signed_curvature,
+            radius_m=radius_m,
+            target_speed_pct=max(0.0, float(speed_pct)),
+        )
+
+    def _run_curve_static_probe(self, now: Time) -> None:
+        scan, age_s = self._get_fresh_scan()
+        self._active_step_name = "curve_static_detect"
+        self._curve_probe_state.subphase = "detecting"
+
+        if self._mapping_started_at is None:
+            self._mapping_started_at = now
+            self.get_logger().info("Curve static probe started")
+        elif self._duration_since(self._mapping_started_at, now) >= self._diagnostic_recon_timeout_s:
+            timeout_reason = (
+                "curve_static_none"
+                if not self._curve_probe_state.ever_valid_candidate
+                else "curve_static_timeout"
+            )
+            self.get_logger().warning("Ending curve_static_probe after %.1fs" % self._diagnostic_recon_timeout_s)
+            self._end_current_phase(timeout_reason, now)
+            return
+
+        if scan is None:
+            if age_s is not None and age_s > self._scan_timeout_s:
+                self.get_logger().warning("Curve static probe: LiDAR scan timeout %.2fs" % age_s)
+            self._apply_command(0.0, 0.0)
+            self._curve_probe_state.current_detection = CurveWindowDetectionResult()
+            self._phase_cycle += 1
+            self._maybe_emit_cycle_logs(
+                nav_command=None,
+                front_min_m=None,
+                pose_diag=self._build_pose_diag(),
+                scan_age_s=age_s,
+            )
+            return
+
+        pose_diag = self._build_pose_diag()
+        state_estimate = self._build_state_estimate(pose_diag)
+        base_command = self._navigator.compute_command(
+            scan,
+            state_estimate=state_estimate,
+        )
+        detection = self._navigator.detect_curve_window(scan)
+        locked_now = False
+        if not self._curve_probe_state.locked:
+            locked_now = self._update_curve_probe_lock_state(detection)
+
+        command = self._build_curve_probe_command(
+            base_command,
+            detection=self._curve_probe_state.locked_detection if self._curve_probe_state.locked else detection,
+            phase_name="curve_static_probe",
+            probe_subphase="locked_static" if (self._curve_probe_state.locked or locked_now) else "detecting",
+            probe_locked=bool(self._curve_probe_state.locked or locked_now),
+            speed_pct=0.0,
+            steering_deg=0.0,
+            target_heading_deg=0.0,
+            active_heading_source=(
+                "curve_static_probe_locked"
+                if (self._curve_probe_state.locked or locked_now)
+                else "curve_static_probe_wait"
+            ),
+        )
+        self._last_command = command
+        self._apply_command(0.0, 0.0)
+        self._phase_cycle += 1
+        self._update_phase_stats(
+            applied_speed_pct=0.0,
+            applied_steering_deg=0.0,
+            nav_command=command,
+            pose_diag=pose_diag,
+        )
+        self._maybe_emit_cycle_logs(
+            nav_command=command,
+            front_min_m=self._compute_front_min(scan),
+            pose_diag=pose_diag,
+            scan_age_s=age_s,
+        )
+        if self._curve_probe_state.locked or locked_now:
+            self._end_current_phase("curve_static_locked", now)
+
+    def _run_curve_entry_probe(self, now: Time) -> None:
+        scan, age_s = self._get_fresh_scan()
+        self._active_step_name = "curve_entry_detect"
+
+        if self._mapping_started_at is None:
+            self._mapping_started_at = now
+            self.get_logger().info("Curve entry probe started")
+        elif self._duration_since(self._mapping_started_at, now) >= self._diagnostic_recon_timeout_s:
+            self.get_logger().warning("Ending curve_entry_probe after %.1fs" % self._diagnostic_recon_timeout_s)
+            self._end_current_phase("curve_entry_timeout", now)
+            return
+
+        if scan is None:
+            if age_s is not None and age_s > self._scan_timeout_s:
+                self.get_logger().warning("Curve entry probe: LiDAR scan timeout %.2fs" % age_s)
+            self._apply_command(0.0, 0.0)
+            self._curve_probe_state.current_detection = CurveWindowDetectionResult()
+            self._phase_cycle += 1
+            self._maybe_emit_cycle_logs(
+                nav_command=None,
+                front_min_m=None,
+                pose_diag=self._build_pose_diag(),
+                scan_age_s=age_s,
+            )
+            return
+
+        pose_diag = self._build_pose_diag()
+        state_estimate = self._build_state_estimate(pose_diag)
+        base_command = self._navigator.compute_command(
+            scan,
+            state_estimate=state_estimate,
+        )
+        detection = self._navigator.detect_curve_window(scan)
+        if not self._curve_probe_state.locked:
+            self._update_curve_probe_lock_state(detection)
+        else:
+            self._curve_probe_state.current_detection = detection
+
+        phase_name = "curve_entry_probe"
+        probe_detection = self._curve_probe_state.locked_detection or detection
+        speed_pct = 0.0
+        steering_deg = 0.0
+        target_heading_deg = 0.0
+        active_heading_source = "curve_entry_probe_wait"
+        lookahead_x_m = 0.0
+        lookahead_y_m = 0.0
+        signed_curvature = 0.0
+        radius_m = 0.0
+
+        if not self._curve_probe_state.locked:
+            self._curve_probe_state.subphase = "detecting"
+            self._active_step_name = "curve_entry_detect"
+        elif self._curve_probe_state.path_world_xy is None:
+            pose, pose_source = self._lookup_pose_with_source()
+            if pose is None or pose_source is None:
+                self._curve_probe_state.subphase = "waiting_pose"
+                command = self._build_curve_probe_command(
+                    base_command,
+                    detection=probe_detection,
+                    phase_name=phase_name,
+                    probe_subphase="waiting_pose",
+                    probe_locked=True,
+                    speed_pct=0.0,
+                    steering_deg=0.0,
+                    target_heading_deg=0.0,
+                    active_heading_source="curve_entry_probe_wait_pose",
+                )
+                self._last_command = command
+                self._apply_command(0.0, 0.0)
+                self._phase_cycle += 1
+                self._update_phase_stats(
+                    applied_speed_pct=0.0,
+                    applied_steering_deg=0.0,
+                    nav_command=command,
+                    pose_diag=pose_diag,
+                )
+                self._maybe_emit_cycle_logs(
+                    nav_command=command,
+                    front_min_m=self._compute_front_min(scan),
+                    pose_diag=pose_diag,
+                    scan_age_s=age_s,
+                )
+                self._end_current_phase("curve_entry_safety_stop", now)
+                return
+            self._lock_curve_probe_world_path(pose=pose, pose_source=pose_source)
+            self._curve_probe_state.subphase = "tracking"
+            self._active_step_name = "curve_entry_track"
+
+        if self._curve_probe_state.path_world_xy is not None:
+            current_pose, current_pose_source = self._lookup_pose_with_source()
+            lidar_pose_stale = (
+                self._pose_source_mode == "odometry_topic"
+                and not self._lidar_pose_is_fresh()
+            )
+            if (
+                current_pose is None
+                or current_pose_source is None
+                or current_pose_source != self._curve_probe_state.locked_pose_source
+                or self._curve_probe_state.target_world_xy is None
+                or lidar_pose_stale
+            ):
+                self._curve_probe_state.subphase = "safety_stop"
+                command = self._build_curve_probe_command(
+                    base_command,
+                    detection=probe_detection,
+                    phase_name=phase_name,
+                    probe_subphase="safety_stop",
+                    probe_locked=True,
+                    speed_pct=0.0,
+                    steering_deg=0.0,
+                    target_heading_deg=0.0,
+                    active_heading_source=(
+                        "curve_entry_probe_lidar_pose_stale"
+                        if lidar_pose_stale
+                        else "curve_entry_probe_pose_lost"
+                    ),
+                )
+                self._last_command = command
+                self._apply_command(0.0, 0.0)
+                self._phase_cycle += 1
+                self._update_phase_stats(
+                    applied_speed_pct=0.0,
+                    applied_steering_deg=0.0,
+                    nav_command=command,
+                    pose_diag=pose_diag,
+                )
+                self._maybe_emit_cycle_logs(
+                    nav_command=command,
+                    front_min_m=self._compute_front_min(scan),
+                    pose_diag=pose_diag,
+                    scan_age_s=age_s,
+                )
+                self._end_current_phase("curve_entry_safety_stop", now)
+                return
+
+            goal_local_x_m, goal_local_y_m = self._transform_world_to_local(
+                current_pose,
+                self._curve_probe_state.target_world_xy,
+            )
+            self._curve_probe_state.goal_distance_m = math.hypot(goal_local_x_m, goal_local_y_m)
+            current_local_x_m = 0.0
+            current_local_y_m = 0.0
+            if self._curve_probe_state.locked_pose_xyyaw is not None:
+                current_local_x_m, current_local_y_m = self._transform_world_to_local(
+                    self._curve_probe_state.locked_pose_xyyaw,
+                    (current_pose[0], current_pose[1]),
+                )
+            target_local_xy, path_progress = self._compute_curve_probe_target_local(current_pose)
+            self._curve_probe_state.path_progress = path_progress
+            if target_local_xy is None:
+                self._curve_probe_state.subphase = "safety_stop"
+                command = self._build_curve_probe_command(
+                    base_command,
+                    detection=probe_detection,
+                    phase_name=phase_name,
+                    probe_subphase="safety_stop",
+                    probe_locked=True,
+                    speed_pct=0.0,
+                    steering_deg=0.0,
+                    target_heading_deg=0.0,
+                    active_heading_source="curve_entry_probe_path_lost",
+                )
+                self._last_command = command
+                self._apply_command(0.0, 0.0)
+                self._phase_cycle += 1
+                self._update_phase_stats(
+                    applied_speed_pct=0.0,
+                    applied_steering_deg=0.0,
+                    nav_command=command,
+                    pose_diag=pose_diag,
+                )
+                self._maybe_emit_cycle_logs(
+                    nav_command=command,
+                    front_min_m=self._compute_front_min(scan),
+                    pose_diag=pose_diag,
+                    scan_age_s=age_s,
+                )
+                self._end_current_phase("curve_entry_safety_stop", now)
+                return
+
+            if (
+                self._curve_probe_state.goal_distance_m <= self._curve_probe_goal_tolerance_m
+                and self._curve_probe_state.path_progress >= self._curve_probe_goal_progress_threshold
+            ):
+                self._curve_probe_state.subphase = "arrived"
+                command = self._build_curve_probe_command(
+                    base_command,
+                    detection=probe_detection,
+                    phase_name=phase_name,
+                    probe_subphase="arrived",
+                    probe_locked=True,
+                    speed_pct=0.0,
+                    steering_deg=0.0,
+                    target_heading_deg=0.0,
+                    active_heading_source="curve_entry_probe_arrived",
+                )
+                self._last_command = command
+                self._apply_command(0.0, 0.0)
+                self._phase_cycle += 1
+                self._update_phase_stats(
+                    applied_speed_pct=0.0,
+                    applied_steering_deg=0.0,
+                    nav_command=command,
+                    pose_diag=pose_diag,
+                )
+                self._maybe_emit_cycle_logs(
+                    nav_command=command,
+                    front_min_m=self._compute_front_min(scan),
+                    pose_diag=pose_diag,
+                    scan_age_s=age_s,
+                )
+                self._end_current_phase("curve_entry_arrived", now)
+                return
+
+            if path_progress <= (
+                self._curve_probe_state.last_path_progress + self._curve_probe_progress_epsilon
+            ):
+                self._curve_probe_state.progress_stall_cycles += 1
+            else:
+                self._curve_probe_state.progress_stall_cycles = 0
+            self._curve_probe_state.last_path_progress = max(
+                self._curve_probe_state.last_path_progress,
+                path_progress,
+            )
+
+            expected_side = 0
+            locked_detection = self._curve_probe_state.locked_detection
+            if locked_detection is not None and locked_detection.trajectory is not None:
+                if locked_detection.trajectory.target_y_m > 0.05:
+                    expected_side = 1
+                elif locked_detection.trajectory.target_y_m < -0.05:
+                    expected_side = -1
+            actual_side = 0
+            if current_local_y_m > self._curve_probe_wrong_side_lateral_threshold_m:
+                actual_side = 1
+            elif current_local_y_m < -self._curve_probe_wrong_side_lateral_threshold_m:
+                actual_side = -1
+            if expected_side != 0 and actual_side != 0 and actual_side != expected_side:
+                self._curve_probe_state.wrong_side_cycles += 1
+            else:
+                self._curve_probe_state.wrong_side_cycles = 0
+
+            if self._curve_probe_state.wrong_side_cycles >= 2:
+                self._curve_probe_state.subphase = "safety_stop"
+                command = self._build_curve_probe_command(
+                    base_command,
+                    detection=probe_detection,
+                    phase_name=phase_name,
+                    probe_subphase="safety_stop",
+                    probe_locked=True,
+                    speed_pct=0.0,
+                    steering_deg=0.0,
+                    target_heading_deg=0.0,
+                    active_heading_source="curve_entry_probe_wrong_side",
+                )
+                self._last_command = command
+                self._apply_command(0.0, 0.0)
+                self._phase_cycle += 1
+                self._update_phase_stats(
+                    applied_speed_pct=0.0,
+                    applied_steering_deg=0.0,
+                    nav_command=command,
+                    pose_diag=pose_diag,
+                )
+                self._maybe_emit_cycle_logs(
+                    nav_command=command,
+                    front_min_m=self._compute_front_min(scan),
+                    pose_diag=pose_diag,
+                    scan_age_s=age_s,
+                )
+                self._end_current_phase("curve_entry_safety_stop", now)
+                return
+
+            if (
+                self._curve_probe_state.progress_stall_cycles
+                >= self._curve_probe_progress_stall_cycles_limit
+                and self._curve_probe_state.goal_distance_m
+                > (self._curve_probe_goal_tolerance_m * 2.0)
+            ):
+                self._curve_probe_state.subphase = "safety_stop"
+                command = self._build_curve_probe_command(
+                    base_command,
+                    detection=probe_detection,
+                    phase_name=phase_name,
+                    probe_subphase="safety_stop",
+                    probe_locked=True,
+                    speed_pct=0.0,
+                    steering_deg=0.0,
+                    target_heading_deg=0.0,
+                    active_heading_source="curve_entry_probe_progress_stall",
+                )
+                self._last_command = command
+                self._apply_command(0.0, 0.0)
+                self._phase_cycle += 1
+                self._update_phase_stats(
+                    applied_speed_pct=0.0,
+                    applied_steering_deg=0.0,
+                    nav_command=command,
+                    pose_diag=pose_diag,
+                )
+                self._maybe_emit_cycle_logs(
+                    nav_command=command,
+                    front_min_m=self._compute_front_min(scan),
+                    pose_diag=pose_diag,
+                    scan_age_s=age_s,
+                )
+                self._end_current_phase("curve_entry_safety_stop", now)
+                return
+
+            raw_front_blocked = (
+                (not base_command.front_clearance_fallback_used)
+                and base_command.front_clearance_m > 0.0
+                and base_command.front_clearance_m <= self._stop_distance_m
+            )
+            effective_front_blocked = (
+                base_command.effective_front_clearance_m <= self._stop_distance_m
+            )
+            if raw_front_blocked or effective_front_blocked:
+                self._curve_probe_state.subphase = "safety_stop"
+                command = self._build_curve_probe_command(
+                    base_command,
+                    detection=probe_detection,
+                    phase_name=phase_name,
+                    probe_subphase="safety_stop",
+                    probe_locked=True,
+                    speed_pct=0.0,
+                    steering_deg=0.0,
+                    target_heading_deg=0.0,
+                    active_heading_source="curve_entry_probe_front_stop",
+                )
+                self._last_command = command
+                self._apply_command(0.0, 0.0)
+                self._phase_cycle += 1
+                self._update_phase_stats(
+                    applied_speed_pct=0.0,
+                    applied_steering_deg=0.0,
+                    nav_command=command,
+                    pose_diag=pose_diag,
+                )
+                self._maybe_emit_cycle_logs(
+                    nav_command=command,
+                    front_min_m=self._compute_front_min(scan),
+                    pose_diag=pose_diag,
+                    scan_age_s=age_s,
+                )
+                self._end_current_phase("curve_entry_safety_stop", now)
+                return
+
+            lookahead_x_m, lookahead_y_m = target_local_xy
+            if lookahead_x_m <= 0.0:
+                self._curve_probe_state.subphase = "safety_stop"
+                command = self._build_curve_probe_command(
+                    base_command,
+                    detection=probe_detection,
+                    phase_name=phase_name,
+                    probe_subphase="safety_stop",
+                    probe_locked=True,
+                    speed_pct=0.0,
+                    steering_deg=0.0,
+                    target_heading_deg=0.0,
+                    active_heading_source="curve_entry_probe_target_behind",
+                )
+                self._last_command = command
+                self._apply_command(0.0, 0.0)
+                self._phase_cycle += 1
+                self._update_phase_stats(
+                    applied_speed_pct=0.0,
+                    applied_steering_deg=0.0,
+                    nav_command=command,
+                    pose_diag=pose_diag,
+                )
+                self._maybe_emit_cycle_logs(
+                    nav_command=command,
+                    front_min_m=self._compute_front_min(scan),
+                    pose_diag=pose_diag,
+                    scan_age_s=age_s,
+                )
+                self._end_current_phase("curve_entry_safety_stop", now)
+                return
+
+            target_heading_deg, steering_deg, signed_curvature, radius_m = (
+                self._navigator.compute_probe_tracking_state(
+                    target_x_m=lookahead_x_m,
+                    target_y_m=lookahead_y_m,
+                )
+            )
+            speed_pct = abs(self._diagnostic_fixed_speed_pct)
+            active_heading_source = "curve_entry_probe_track"
+            self._curve_probe_state.subphase = "tracking"
+            self._active_step_name = "curve_entry_track"
+
+        command = self._build_curve_probe_command(
+            base_command,
+            detection=probe_detection,
+            phase_name=phase_name,
+            probe_subphase=self._curve_probe_state.subphase,
+            probe_locked=self._curve_probe_state.locked,
+            speed_pct=speed_pct,
+            steering_deg=steering_deg,
+            target_heading_deg=target_heading_deg,
+            active_heading_source=active_heading_source,
+            lookahead_x_m=lookahead_x_m,
+            lookahead_y_m=lookahead_y_m,
+            signed_curvature=signed_curvature,
+            radius_m=radius_m,
+        )
+        self._last_command = command
+        self._apply_command(speed_pct, steering_deg)
+        self._phase_cycle += 1
+        self._update_phase_stats(
+            applied_speed_pct=speed_pct,
+            applied_steering_deg=steering_deg,
+            nav_command=command,
+            pose_diag=pose_diag,
+        )
+        self._maybe_emit_cycle_logs(
+            nav_command=command,
+            front_min_m=self._compute_front_min(scan),
+            pose_diag=pose_diag,
+            scan_age_s=age_s,
+        )
+
     def _select_recovery_mode(self, command: ReconCommand) -> str:
         if self._is_curve_recovery_context(command):
             return "curve_crawl"
@@ -1214,6 +1996,7 @@ class ReconMappingNode(Node):
 
     def _build_pose_diag(self) -> dict[str, Optional[float]]:
         pose, pose_source = self._lookup_pose_with_source()
+        lidar_pose_age_s = self._lidar_pose_age_s()
         if pose is None:
             return {
                 "x": None,
@@ -1223,6 +2006,8 @@ class ReconMappingNode(Node):
                 "lateral_drift_m": None,
                 "yaw_change_deg": None,
                 "pose_source": None,
+                "lidar_pose_age_s": lidar_pose_age_s,
+                "lidar_pose_fresh": self._lidar_pose_is_fresh(),
             }
 
         if self._phase_start_pose is None or self._phase_start_pose_source != pose_source:
@@ -1244,12 +2029,15 @@ class ReconMappingNode(Node):
             "lateral_drift_m": lateral,
             "yaw_change_deg": yaw_change_deg,
             "pose_source": pose_source,
+            "lidar_pose_age_s": lidar_pose_age_s,
+            "lidar_pose_fresh": self._lidar_pose_is_fresh(),
         }
 
     def _build_state_estimate(
         self,
         pose_diag: dict[str, Optional[float]],
     ) -> ReconStateEstimate:
+        status = self._fresh_state_status() or {}
         velocity = self._fresh_state_tuple(
             self._latest_state_velocity_stamp,
             self._latest_state_velocity,
@@ -1285,6 +2073,7 @@ class ReconMappingNode(Node):
             or velocity is not None
             or acceleration is not None
             or angular_velocity is not None
+            or bool(status)
         )
         return ReconStateEstimate(
             x_m=float(pose_diag["x"] or 0.0),
@@ -1300,10 +2089,174 @@ class ReconMappingNode(Node):
                 pose_diag["distance_from_phase_start_m"] or 0.0
             ),
             yaw_change_deg=float(pose_diag["yaw_change_deg"] or 0.0),
+            stationary_detected=bool(status.get("stationary_detected", False)),
+            zupt_applied=bool(status.get("zupt_applied", False)),
+            velocity_decay_active=bool(status.get("velocity_decay_active", False)),
+            odom_translation_confidence=float(
+                status.get("odom_translation_confidence", 0.0) or 0.0
+            ),
+            raw_accel_planar_mps2=float(status.get("raw_accel_planar_mps2", 0.0) or 0.0),
+            corrected_accel_planar_mps2=float(
+                status.get("corrected_accel_planar_mps2", 0.0) or 0.0
+            ),
             valid=bool(valid),
         )
 
+    def _reset_curve_probe_state(self) -> None:
+        self._curve_probe_state = CurveProbeState()
+
+    @staticmethod
+    def _transform_local_to_world(
+        origin_pose: tuple[float, float, float],
+        point_local_xy: tuple[float, float],
+    ) -> tuple[float, float]:
+        origin_x_m, origin_y_m, origin_yaw = origin_pose
+        local_x_m, local_y_m = point_local_xy
+        c = math.cos(origin_yaw)
+        s = math.sin(origin_yaw)
+        world_x_m = origin_x_m + (c * local_x_m) - (s * local_y_m)
+        world_y_m = origin_y_m + (s * local_x_m) + (c * local_y_m)
+        return float(world_x_m), float(world_y_m)
+
+    @staticmethod
+    def _transform_world_to_local(
+        current_pose: tuple[float, float, float],
+        point_world_xy: tuple[float, float],
+    ) -> tuple[float, float]:
+        current_x_m, current_y_m, current_yaw = current_pose
+        point_x_m, point_y_m = point_world_xy
+        dx_m = point_x_m - current_x_m
+        dy_m = point_y_m - current_y_m
+        c = math.cos(current_yaw)
+        s = math.sin(current_yaw)
+        local_x_m = (c * dx_m) + (s * dy_m)
+        local_y_m = (-s * dx_m) + (c * dy_m)
+        return float(local_x_m), float(local_y_m)
+
+    def _curve_probe_candidate_matches(self, detection: CurveWindowDetectionResult) -> bool:
+        candidate = detection.candidate
+        trajectory = detection.trajectory
+        if candidate is None or trajectory is None:
+            return False
+        state = self._curve_probe_state
+        if state.last_candidate_side == "none":
+            return False
+        if candidate.side_name != state.last_candidate_side:
+            return False
+        if abs(candidate.entry_x_m - state.last_entry_x_m) > self._curve_probe_entry_x_tolerance_m:
+            return False
+        if abs(candidate.window_width_m - state.last_window_width_m) > self._curve_probe_window_width_tolerance_m:
+            return False
+        if abs(trajectory.target_x_m - state.last_target_x_m) > self._curve_probe_target_tolerance_m:
+            return False
+        if abs(trajectory.target_y_m - state.last_target_y_m) > self._curve_probe_target_tolerance_m:
+            return False
+        return True
+
+    def _update_curve_probe_lock_state(self, detection: CurveWindowDetectionResult) -> bool:
+        self._curve_probe_state.current_detection = detection
+        if not detection.valid or detection.candidate is None or detection.trajectory is None:
+            self._curve_probe_state.stable_cycles = 0
+            self._curve_probe_state.last_candidate_side = "none"
+            self._curve_probe_state.subphase = "detecting"
+            return False
+
+        self._curve_probe_state.ever_valid_candidate = True
+        candidate = detection.candidate
+        trajectory = detection.trajectory
+        if self._curve_probe_candidate_matches(detection):
+            self._curve_probe_state.stable_cycles += 1
+        else:
+            self._curve_probe_state.stable_cycles = 1
+
+        self._curve_probe_state.last_candidate_side = candidate.side_name
+        self._curve_probe_state.last_entry_x_m = float(candidate.entry_x_m)
+        self._curve_probe_state.last_window_width_m = float(candidate.window_width_m)
+        self._curve_probe_state.last_target_x_m = float(trajectory.target_x_m)
+        self._curve_probe_state.last_target_y_m = float(trajectory.target_y_m)
+        self._curve_probe_state.subphase = "detecting"
+
+        if self._curve_probe_state.stable_cycles < self._curve_probe_lock_cycles:
+            return False
+
+        self._curve_probe_state.locked = True
+        self._curve_probe_state.locked_detection = detection
+        return True
+
+    def _lock_curve_probe_world_path(
+        self,
+        *,
+        pose: tuple[float, float, float],
+        pose_source: str,
+    ) -> bool:
+        locked_detection = self._curve_probe_state.locked_detection
+        if locked_detection is None or locked_detection.trajectory is None:
+            return False
+        trajectory = locked_detection.trajectory
+        self._curve_probe_state.locked_pose_xyyaw = pose
+        self._curve_probe_state.locked_pose_source = pose_source
+        self._curve_probe_state.path_world_xy = [
+            self._transform_local_to_world(pose, (float(x_m), float(y_m)))
+            for x_m, y_m in zip(trajectory.x_m.tolist(), trajectory.y_m.tolist())
+        ]
+        self._curve_probe_state.target_world_xy = self._transform_local_to_world(
+            pose,
+            (float(trajectory.target_x_m), float(trajectory.target_y_m)),
+        )
+        self._curve_probe_state.progress_index = 0
+        self._curve_probe_state.path_progress = 0.0
+        self._curve_probe_state.goal_distance_m = 0.0
+        self._curve_probe_state.progress_stall_cycles = 0
+        self._curve_probe_state.wrong_side_cycles = 0
+        self._curve_probe_state.last_path_progress = 0.0
+        self._curve_probe_state.subphase = "tracking"
+        return True
+
+    def _compute_curve_probe_target_local(
+        self,
+        current_pose: tuple[float, float, float],
+    ) -> tuple[Optional[tuple[float, float]], float]:
+        path_world_xy = self._curve_probe_state.path_world_xy
+        if not path_world_xy:
+            return None, 0.0
+
+        start_index = max(0, int(self._curve_probe_state.progress_index))
+        best_index = start_index
+        best_distance_m = float("inf")
+        for index in range(start_index, len(path_world_xy)):
+            local_x_m, local_y_m = self._transform_world_to_local(current_pose, path_world_xy[index])
+            distance_m = math.hypot(local_x_m, local_y_m)
+            if distance_m < best_distance_m:
+                best_distance_m = distance_m
+                best_index = index
+
+        target_index = best_index
+        cumulative_distance_m = 0.0
+        while target_index < (len(path_world_xy) - 1):
+            current_point = path_world_xy[target_index]
+            next_point = path_world_xy[target_index + 1]
+            cumulative_distance_m += math.hypot(
+                next_point[0] - current_point[0],
+                next_point[1] - current_point[1],
+            )
+            if cumulative_distance_m >= self._curve_probe_lookahead_m:
+                break
+            target_index += 1
+
+        self._curve_probe_state.progress_index = max(self._curve_probe_state.progress_index, best_index)
+        self._curve_probe_state.path_progress = float(target_index) / max(float(len(path_world_xy) - 1), 1.0)
+        target_local_xy = self._transform_world_to_local(current_pose, path_world_xy[target_index])
+        return target_local_xy, self._curve_probe_state.path_progress
+
     def _lookup_pose_with_source(self) -> tuple[Optional[tuple[float, float, float]], Optional[str]]:
+        if self._pose_source_mode == "odometry_topic":
+            if not self._lidar_pose_is_fresh():
+                return None, None
+            pose = self._fresh_odometry_pose()
+            if pose is not None:
+                return pose, "odometry_topic"
+            return None, None
+
         for source_frame, source_name in (
             (self._map_frame, "map"),
             (self._odom_frame, "odom"),
@@ -1397,7 +2350,20 @@ class ReconMappingNode(Node):
         if self._phase_cycle % self._diagnostic_log_every_n_cycles != 0:
             return
 
-        self._emit_diag("DIAG_POSE", pose_diag)
+        state_status = self._fresh_state_status() or {}
+        pose_payload = {
+            **pose_diag,
+            "stationary_detected": state_status.get("stationary_detected"),
+            "zupt_applied": state_status.get("zupt_applied"),
+            "velocity_decay_active": state_status.get("velocity_decay_active"),
+            "odom_translation_confidence": state_status.get("odom_translation_confidence"),
+            "raw_accel_planar_mps2": state_status.get("raw_accel_planar_mps2"),
+            "corrected_accel_planar_mps2": state_status.get("corrected_accel_planar_mps2"),
+            "calibration_active": state_status.get("calibration_active"),
+            "calibration_complete": state_status.get("calibration_complete"),
+        }
+
+        self._emit_diag("DIAG_POSE", pose_payload)
         self._emit_diag("DIAG_STEER", self._steer.get_state())
         self._emit_diag("DIAG_MOTOR", self._motor.get_state())
 
@@ -1491,6 +2457,19 @@ class ReconMappingNode(Node):
                     "steering_pre_servo_deg": None,
                     "steering_deg": None,
                     "speed_pct": None,
+                    "curve_window_valid": None,
+                    "curve_window_side": None,
+                    "curve_window_entry_x_m": None,
+                    "curve_window_entry_y_m": None,
+                    "curve_window_width_m": None,
+                    "curve_window_far_wall_x_m": None,
+                    "curve_window_target_x_m": None,
+                    "curve_window_target_y_m": None,
+                    "curve_window_score": None,
+                    "probe_subphase": None,
+                    "probe_locked": None,
+                    "probe_goal_distance_m": None,
+                    "probe_path_progress": None,
                 },
             )
         else:
@@ -1587,7 +2566,36 @@ class ReconMappingNode(Node):
                     "steering_pre_servo_deg": nav_command.steering_pre_servo_deg,
                     "steering_deg": nav_command.steering_deg,
                     "speed_pct": nav_command.speed_pct,
+                    "curve_window_valid": nav_command.curve_window_valid,
+                    "curve_window_side": nav_command.curve_window_side,
+                    "curve_window_entry_x_m": nav_command.curve_window_entry_x_m,
+                    "curve_window_entry_y_m": nav_command.curve_window_entry_y_m,
+                    "curve_window_width_m": nav_command.curve_window_width_m,
+                    "curve_window_far_wall_x_m": nav_command.curve_window_far_wall_x_m,
+                    "curve_window_target_x_m": nav_command.curve_window_target_x_m,
+                    "curve_window_target_y_m": nav_command.curve_window_target_y_m,
+                    "curve_window_score": nav_command.curve_window_score,
+                    "probe_subphase": nav_command.probe_subphase,
+                    "probe_locked": nav_command.probe_locked,
+                    "probe_goal_distance_m": nav_command.probe_goal_distance_m,
+                    "probe_path_progress": nav_command.probe_path_progress,
                 },
+            )
+        if self._active_phase_name in {"curve_static_probe", "curve_entry_probe"}:
+            detection = (
+                self._curve_probe_state.locked_detection
+                if self._curve_probe_state.locked and self._curve_probe_state.locked_detection is not None
+                else self._curve_probe_state.current_detection
+            )
+            self._emit_diag(
+                "DIAG_CURVE",
+                detection_result_to_curve_diag(
+                    detection or CurveWindowDetectionResult(),
+                    probe_subphase=self._curve_probe_state.subphase,
+                    probe_locked=self._curve_probe_state.locked,
+                    probe_goal_distance_m=self._curve_probe_state.goal_distance_m,
+                    probe_path_progress=self._curve_probe_state.path_progress,
+                ),
             )
 
     def _emit_stop_diag(self, stage: str) -> None:
@@ -1622,6 +2630,10 @@ class ReconMappingNode(Node):
             "DIAG_CONFIG",
             {
                 "heading_offset_deg": self._heading_offset_deg,
+                "pose_source_mode": self._pose_source_mode,
+                "odometry_input_topic": self._odometry_input_topic,
+                "lidar_pose_topic": self._lidar_pose_topic,
+                "lidar_pose_timeout_s": self._lidar_pose_timeout_s,
                 "steering_center_trim_dc": self._steering_center_trim_dc,
                 "steering_direction_sign": self._steering_direction_sign,
                 "diagnostic_mode": self._diagnostic_mode,
@@ -1636,6 +2648,12 @@ class ReconMappingNode(Node):
                 "diagnostic_recon_timeout_s": self._diagnostic_recon_timeout_s,
                 "diagnostic_max_recoveries": self._diagnostic_max_recoveries,
                 "diagnostic_min_progress_m": self._diagnostic_min_progress_m,
+                "curve_probe_lock_cycles": self._curve_probe_lock_cycles,
+                "curve_probe_entry_x_tolerance_m": self._curve_probe_entry_x_tolerance_m,
+                "curve_probe_window_width_tolerance_m": self._curve_probe_window_width_tolerance_m,
+                "curve_probe_target_tolerance_m": self._curve_probe_target_tolerance_m,
+                "curve_probe_lookahead_m": self._curve_probe_lookahead_m,
+                "curve_probe_goal_tolerance_m": self._curve_probe_goal_tolerance_m,
                 "steering_gain": self._steering_gain,
                 "wall_centering_gain_deg_per_m": self._wall_centering_gain_deg_per_m,
                 "wall_centering_base_weight": self._wall_centering_base_weight,
@@ -1694,7 +2712,13 @@ class ReconMappingNode(Node):
                 "state_velocity_topic": self._state_velocity_topic,
                 "state_acceleration_topic": self._state_acceleration_topic,
                 "state_angular_velocity_topic": self._state_angular_velocity_topic,
+                "state_status_topic": self._state_status_topic,
                 "state_timeout_s": self._state_timeout_s,
+                "curve_probe_progress_stall_cycles_limit": self._curve_probe_progress_stall_cycles_limit,
+                "curve_probe_progress_epsilon": self._curve_probe_progress_epsilon,
+                "curve_probe_wrong_side_lateral_threshold_m": (
+                    self._curve_probe_wrong_side_lateral_threshold_m
+                ),
                 "trajectory_horizon_m": self._navigator._trajectory_horizon_m,
                 "trajectory_lookahead_min_m": self._navigator._trajectory_lookahead_min_m,
                 "trajectory_lookahead_max_m": self._navigator._trajectory_lookahead_max_m,
@@ -2024,6 +3048,9 @@ class ReconMappingNode(Node):
             return 0.0
         return (now - start_time).nanoseconds * 1e-9
 
+    def should_exit(self) -> bool:
+        return bool(self._process_exit_requested)
+
     def shutdown(self) -> None:
         try:
             self._emit_stop_diag("begin")
@@ -2088,9 +3115,17 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle_shutdown_signal)
     signal.signal(signal.SIGINT, _handle_shutdown_signal)
     try:
-        rclpy.spin(node)
+        while rclpy.ok() and not node.should_exit():
+            rclpy.spin_once(node, timeout_sec=0.1)
     except KeyboardInterrupt:
         pass
+    except Exception as exc:
+        # Signal-triggered shutdown can invalidate the ROS context while the
+        # executor is still unwinding; treat that as a clean stop.
+        if shutdown_requested and "context is not valid" in str(exc).lower():
+            pass
+        else:
+            raise
     finally:
         if not shutdown_requested:
             node.shutdown()

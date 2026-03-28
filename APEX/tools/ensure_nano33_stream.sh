@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APEX_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PORT="${APEX_SERIAL_PORT:-/dev/ttyACM0}"
+CHECK_TIMEOUT_S="${APEX_NANO_CHECK_TIMEOUT_S:-6}"
+CONNECT_DTR_LOW_S="${APEX_NANO_CONNECT_DTR_LOW_S:-0.2}"
+CONNECT_SETTLE_S="${APEX_NANO_CONNECT_SETTLE_S:-2.0}"
+AUTOFLASH="${APEX_NANO_AUTOFLASH:-1}"
+UPLOAD_SCRIPT="${APEX_ROOT}/tools/upload_nano33_iot.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/ensure_nano33_stream.sh [--port /dev/ttyACM0] [--timeout-s 6] [--no-autoflash]
+
+Behavior:
+  - Checks whether the Nano is already streaming valid ax,ay,az,gx,gy,gz CSV.
+  - If the stream is missing and autoflash is enabled, reflashes the Nano sketch.
+  - Rechecks the stream after flashing.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port)
+      PORT="${2:?missing port value}"
+      shift 2
+      ;;
+    --timeout-s)
+      CHECK_TIMEOUT_S="${2:?missing timeout value}"
+      shift 2
+      ;;
+    --no-autoflash)
+      AUTOFLASH=0
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "[APEX][ERROR] Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+check_stream() {
+  local sample
+  if [[ ! -e "${PORT}" ]]; then
+    echo "[APEX][ERROR] Nano serial port not found: ${PORT}" >&2
+    return 1
+  fi
+
+  set +e
+  sample="$(
+    python3 - "${PORT}" "${CHECK_TIMEOUT_S}" "${CONNECT_DTR_LOW_S}" "${CONNECT_SETTLE_S}" <<'PY' \
+      || true
+import re
+import serial
+import sys
+import time
+
+port = sys.argv[1]
+timeout_s = float(sys.argv[2])
+dtr_low_s = float(sys.argv[3])
+settle_s = float(sys.argv[4])
+num_re = re.compile(r"^[-+]?[0-9]*\.?[0-9]+$")
+
+try:
+    ser = serial.Serial(port, 115200, timeout=0.5)
+except Exception:
+    raise SystemExit(1)
+
+try:
+    ser.setDTR(False)
+    time.sleep(max(0.0, dtr_low_s))
+    ser.reset_input_buffer()
+    ser.setDTR(True)
+    time.sleep(max(0.0, settle_s))
+    deadline = time.time() + max(0.5, timeout_s)
+    while time.time() < deadline:
+        line = ser.readline().decode("utf-8", errors="ignore").strip()
+        if not line or line.startswith("INFO:") or line.startswith("ERROR:"):
+            continue
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) == 6 and all(num_re.match(part) for part in parts):
+            print(line)
+            raise SystemExit(0)
+    raise SystemExit(1)
+finally:
+    ser.close()
+PY
+  )"
+  set -e
+
+  if [[ -n "${sample}" ]]; then
+    echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
+    return 0
+  fi
+
+  echo "[APEX][WARN] No valid Nano IMU CSV sample detected on ${PORT} within ${CHECK_TIMEOUT_S}s" >&2
+  return 1
+}
+
+if check_stream; then
+  exit 0
+fi
+
+if [[ "${AUTOFLASH}" != "1" ]]; then
+  echo "[APEX][ERROR] Nano stream missing and autoflash disabled" >&2
+  exit 1
+fi
+
+if [[ ! -x "${UPLOAD_SCRIPT}" ]]; then
+  echo "[APEX][ERROR] Upload script not found or not executable: ${UPLOAD_SCRIPT}" >&2
+  exit 1
+fi
+
+echo "[APEX] Attempting Nano reflashing because the serial stream is missing"
+"${UPLOAD_SCRIPT}" --port "${PORT}"
+
+if check_stream; then
+  exit 0
+fi
+
+echo "[APEX][ERROR] Nano still not streaming after reflashing" >&2
+exit 1

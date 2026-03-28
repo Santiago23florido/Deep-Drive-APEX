@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import threading
 import time
@@ -29,6 +30,11 @@ class NanoAccelSerialNode(Node):
         self.declare_parameter("baudrate", 115200)
         self.declare_parameter("serial_timeout_s", 0.5)
         self.declare_parameter("reconnect_delay_s", 1.0)
+        self.declare_parameter("connect_toggle_dtr", True)
+        self.declare_parameter("connect_dtr_low_s", 0.2)
+        self.declare_parameter("connect_settle_s", 2.0)
+        self.declare_parameter("flush_input_on_connect", True)
+        self.declare_parameter("log_no_data_every_s", 5.0)
         self.declare_parameter("frame_id", "imu_link")
         self.declare_parameter("topic", "/apex/imu/acceleration/raw")
         self.declare_parameter("gyro_topic", "/apex/imu/angular_velocity/raw")
@@ -41,6 +47,13 @@ class NanoAccelSerialNode(Node):
         self._baudrate = int(self.get_parameter("baudrate").value)
         self._serial_timeout_s = max(0.05, float(self.get_parameter("serial_timeout_s").value))
         self._reconnect_delay_s = max(0.1, float(self.get_parameter("reconnect_delay_s").value))
+        self._connect_toggle_dtr = bool(self.get_parameter("connect_toggle_dtr").value)
+        self._connect_dtr_low_s = max(0.0, float(self.get_parameter("connect_dtr_low_s").value))
+        self._connect_settle_s = max(0.0, float(self.get_parameter("connect_settle_s").value))
+        self._flush_input_on_connect = bool(self.get_parameter("flush_input_on_connect").value)
+        self._log_no_data_every_s = max(
+            0.5, float(self.get_parameter("log_no_data_every_s").value)
+        )
         self._frame_id = str(self.get_parameter("frame_id").value)
         self._log_every_n_invalid = max(1, int(self.get_parameter("log_every_n_invalid").value))
         self._log_every_n_no_gyro = max(1, int(self.get_parameter("log_every_n_no_gyro").value))
@@ -107,7 +120,11 @@ class NanoAccelSerialNode(Node):
                 gx = float(parts[3])
                 gy = float(parts[4])
                 gz = float(parts[5])
+                if not all(math.isfinite(v) for v in (ax, ay, az, gx, gy, gz)):
+                    return None
                 return (ax, ay, az, gx, gy, gz, True)
+            if not all(math.isfinite(v) for v in (ax, ay, az)):
+                return None
             return (ax, ay, az, 0.0, 0.0, 0.0, False)
         except ValueError:
             return None
@@ -160,6 +177,52 @@ class NanoAccelSerialNode(Node):
             imu_msg.linear_acceleration.z = az
             self._imu_pub.publish(imu_msg)
 
+    def _sleep_with_stop(self, duration_s: float) -> None:
+        if duration_s <= 0.0:
+            return
+        deadline = time.monotonic() + duration_s
+        while not self._stop_event.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                return
+            time.sleep(min(0.1, remaining))
+
+    def _prepare_serial_connection(self, ser: serial.Serial) -> None:
+        # Arduino ACM devices often reset on open/DTR transitions. Make that
+        # reset explicit, then wait for the firmware to start streaming before
+        # we begin parsing lines.
+        if self._connect_toggle_dtr:
+            try:
+                ser.setDTR(False)
+            except Exception:
+                pass
+            self._sleep_with_stop(self._connect_dtr_low_s)
+
+        if self._flush_input_on_connect:
+            try:
+                ser.reset_input_buffer()
+            except Exception:
+                pass
+
+        if self._connect_toggle_dtr:
+            try:
+                ser.setDTR(True)
+            except Exception:
+                pass
+
+        if self._connect_toggle_dtr and self._connect_settle_s > 0.0:
+            self.get_logger().info(
+                "Waiting %.2fs for Arduino serial to settle after DTR handshake."
+                % self._connect_settle_s
+            )
+        self._sleep_with_stop(self._connect_settle_s)
+
+        if self._flush_input_on_connect:
+            try:
+                ser.reset_input_buffer()
+            except Exception:
+                pass
+
     def _serial_worker(self) -> None:
         if serial is None:
             self.get_logger().error("pyserial is not available. Install python3-serial.")
@@ -168,19 +231,31 @@ class NanoAccelSerialNode(Node):
         while not self._stop_event.is_set():
             ser = None
             try:
-                ser = serial.Serial(
-                    self._serial_port,
-                    self._baudrate,
-                    timeout=self._serial_timeout_s,
-                )
+                ser = serial.Serial()
+                ser.port = self._serial_port
+                ser.baudrate = self._baudrate
+                ser.timeout = self._serial_timeout_s
+                ser.write_timeout = self._serial_timeout_s
+                ser.open()
                 self.get_logger().info(
                     "Connected to Arduino serial %s @ %d"
                     % (self._serial_port, self._baudrate)
                 )
+                self._prepare_serial_connection(ser)
+
+                last_no_data_log_t = time.monotonic()
+                valid_samples = 0
 
                 while not self._stop_event.is_set():
                     raw = ser.readline()
                     if not raw:
+                        now_t = time.monotonic()
+                        if now_t - last_no_data_log_t >= self._log_no_data_every_s:
+                            self.get_logger().warning(
+                                "No serial IMU samples received on %s for %.1fs after connect."
+                                % (self._serial_port, now_t - last_no_data_log_t)
+                            )
+                            last_no_data_log_t = now_t
                         continue
 
                     line = raw.decode("utf-8", errors="replace").strip()
@@ -194,6 +269,12 @@ class NanoAccelSerialNode(Node):
                         continue
 
                     ax, ay, az, gx, gy, gz, has_gyro = parsed
+                    valid_samples += 1
+                    last_no_data_log_t = time.monotonic()
+                    if valid_samples == 1:
+                        self.get_logger().info(
+                            "First valid Arduino IMU sample received on %s." % self._serial_port
+                        )
                     self._publish_sample(ax, ay, az, gx, gy, gz, has_gyro)
             except Exception as exc:
                 self.get_logger().warning(
@@ -225,7 +306,8 @@ def main() -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

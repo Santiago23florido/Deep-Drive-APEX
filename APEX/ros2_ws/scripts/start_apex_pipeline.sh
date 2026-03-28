@@ -24,6 +24,10 @@ export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 
 PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_params.yaml"
 SLAM_PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_slam_toolbox.yaml"
+LOCAL_SLAM_PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_local_slam_toolbox.yaml"
+EKF_PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_local_ekf.yaml"
+IMU_FILTER_PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_local_imu_filter.yaml"
+LOCAL_ODOM_FUSION_LAUNCH_FILE="/work/ros2_ws/src/apex_telemetry/launch/apex_local_odom_fusion.launch.py"
 
 PIDS=()
 APEX_DEBUG_RUN_NAME=""
@@ -227,6 +231,9 @@ docker_tail_log = Path(os.environ.get("APEX_DOCKER_TAIL_LOG", ""))
 recon_log_path = Path(os.environ.get("APEX_RECON_LOG_PATH", ""))
 params_snapshot = Path(os.environ.get("APEX_PARAMS_SNAPSHOT_PATH", ""))
 slam_params_snapshot = Path(os.environ.get("APEX_SLAM_PARAMS_SNAPSHOT_PATH", ""))
+local_slam_params_snapshot = Path(os.environ.get("APEX_LOCAL_SLAM_PARAMS_SNAPSHOT_PATH", ""))
+ekf_params_snapshot = Path(os.environ.get("APEX_EKF_PARAMS_SNAPSHOT_PATH", ""))
+imu_filter_params_snapshot = Path(os.environ.get("APEX_IMU_FILTER_PARAMS_SNAPSHOT_PATH", ""))
 pwm_snapshot_before = bundle_dir / "pwm_snapshot_before.txt"
 pwm_snapshot_after = bundle_dir / "pwm_snapshot_after.txt"
 
@@ -255,6 +262,9 @@ docker_tail_present = docker_tail_log.is_file()
 recon_log_present = recon_log_path.is_file()
 params_snapshot_present = params_snapshot.is_file()
 slam_params_snapshot_present = slam_params_snapshot.is_file()
+local_slam_params_snapshot_present = local_slam_params_snapshot.is_file()
+ekf_params_snapshot_present = ekf_params_snapshot.is_file()
+imu_filter_params_snapshot_present = imu_filter_params_snapshot.is_file()
 
 shutdown_clean = (
     shutdown_diag_begin_present
@@ -279,6 +289,12 @@ if not params_snapshot_present:
     bundle_missing_artifacts.append("config/apex_params.yaml")
 if not slam_params_snapshot_present:
     bundle_missing_artifacts.append("config/apex_slam_toolbox.yaml")
+if not local_slam_params_snapshot_present:
+    bundle_missing_artifacts.append("config/apex_local_slam_toolbox.yaml")
+if not ekf_params_snapshot_present:
+    bundle_missing_artifacts.append("config/apex_local_ekf.yaml")
+if not imu_filter_params_snapshot_present:
+    bundle_missing_artifacts.append("config/apex_local_imu_filter.yaml")
 if bag_expected and not bag_dir_present:
     bundle_missing_artifacts.append("bag/raw_debug_run")
 if bag_expected and not bag_mcap_present:
@@ -292,6 +308,9 @@ bundle_complete = (
     and recon_log_present
     and params_snapshot_present
     and slam_params_snapshot_present
+    and local_slam_params_snapshot_present
+    and ekf_params_snapshot_present
+    and imu_filter_params_snapshot_present
     and (not bag_expected or (bag_dir_present and bag_mcap_present and bag_metadata_present))
 )
 
@@ -314,6 +333,12 @@ metadata = {
     "params_snapshot_present": params_snapshot_present,
     "slam_params_snapshot": str(slam_params_snapshot),
     "slam_params_snapshot_present": slam_params_snapshot_present,
+    "local_slam_params_snapshot": str(local_slam_params_snapshot),
+    "local_slam_params_snapshot_present": local_slam_params_snapshot_present,
+    "ekf_params_snapshot": str(ekf_params_snapshot),
+    "ekf_params_snapshot_present": ekf_params_snapshot_present,
+    "imu_filter_params_snapshot": str(imu_filter_params_snapshot),
+    "imu_filter_params_snapshot_present": imu_filter_params_snapshot_present,
     "record_debug_enabled": os.environ.get("APEX_RECORD_DEBUG", "0"),
     "diagnostic_mode_env": os.environ.get("APEX_RECON_DIAGNOSTIC_MODE", ""),
     "steering_direction_sign_env": os.environ.get("APEX_STEERING_DIRECTION_SIGN", ""),
@@ -359,6 +384,12 @@ if not metadata.get("shutdown_clean", False):
     errors.append("shutdown_clean=false")
 if not metadata.get("pwm_snapshot_after_present", False):
     errors.append("pwm_snapshot_after.txt missing")
+if not metadata.get("local_slam_params_snapshot_present", False):
+    errors.append("config/apex_local_slam_toolbox.yaml missing")
+if not metadata.get("ekf_params_snapshot_present", False):
+    errors.append("config/apex_local_ekf.yaml missing")
+if not metadata.get("imu_filter_params_snapshot_present", False):
+    errors.append("config/apex_local_imu_filter.yaml missing")
 if metadata.get("bag_expected", False) and not metadata.get("bag_mcap_present", False):
     errors.append("bag/debug_run.mcap missing")
 if metadata.get("bag_expected", False) and not metadata.get("bag_metadata_present", False):
@@ -463,8 +494,14 @@ setup_debug_run() {
 
   export APEX_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_params.yaml"
   export APEX_SLAM_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_slam_toolbox.yaml"
+  export APEX_LOCAL_SLAM_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_local_slam_toolbox.yaml"
+  export APEX_EKF_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_local_ekf.yaml"
+  export APEX_IMU_FILTER_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_local_imu_filter.yaml"
   cp "${PARAMS_FILE}" "${APEX_PARAMS_SNAPSHOT_PATH}"
   cp "${SLAM_PARAMS_FILE}" "${APEX_SLAM_PARAMS_SNAPSHOT_PATH}"
+  cp "${LOCAL_SLAM_PARAMS_FILE}" "${APEX_LOCAL_SLAM_PARAMS_SNAPSHOT_PATH}"
+  cp "${EKF_PARAMS_FILE}" "${APEX_EKF_PARAMS_SNAPSHOT_PATH}"
+  cp "${IMU_FILTER_PARAMS_FILE}" "${APEX_IMU_FILTER_PARAMS_SNAPSHOT_PATH}"
 
   export APEX_RAW_BAG_DIR="${APEX_DEBUG_BUNDLE_DIR}/bag/raw_debug_run"
   APEX_RAW_BAG_DIR="${APEX_RAW_BAG_DIR}"
@@ -491,11 +528,21 @@ start_debug_bag_recording() {
     /tf_static \
     /map \
     /map_metadata \
+    /apex/imu/data_raw \
+    /apex/imu/data_filtered \
+    /apex/imu/acceleration/raw \
+    /apex/imu/angular_velocity/raw \
     /apex/kinematics/acceleration \
     /apex/kinematics/velocity \
     /apex/kinematics/position \
     /apex/kinematics/angular_velocity \
-    /apex/kinematics/heading &
+    /apex/kinematics/heading \
+    /apex/kinematics/status \
+    /apex/odometry/imu_raw \
+    /apex/odometry/imu_yaw_only \
+    /apex/odometry/fusion_status \
+    /apex/lidar/pose_local \
+    /odometry/filtered &
   APEX_ROSBAG_PID="$!"
   PIDS+=("${APEX_ROSBAG_PID}")
 }
@@ -514,9 +561,14 @@ python3 -m apex_telemetry.kinematics_estimator_node \
   --params-file "${PARAMS_FILE}" &
 PIDS+=("$!")
 
-python3 -m apex_telemetry.kinematics_odometry_node \
-  --ros-args \
-  --params-file "${PARAMS_FILE}" &
+KINEMATICS_ODOM_ARGS=(
+  --ros-args
+  --params-file "${PARAMS_FILE}"
+)
+if [ "${APEX_ENABLE_LOCAL_ODOM_FUSION:-1}" = "1" ]; then
+  KINEMATICS_ODOM_ARGS+=(-p "publish_tf:=false")
+fi
+python3 -m apex_telemetry.kinematics_odometry_node "${KINEMATICS_ODOM_ARGS[@]}" &
 PIDS+=("$!")
 
 LIDAR_ARGS=(
@@ -541,6 +593,18 @@ ros2 run tf2_ros static_transform_publisher \
   --frame-id "${APEX_BASE_FRAME:-base_link}" \
   --child-frame-id "${APEX_LIDAR_FRAME:-laser}" &
 PIDS+=("$!")
+
+if [ "${APEX_ENABLE_LOCAL_ODOM_FUSION:-1}" = "1" ]; then
+  ros2 launch "${LOCAL_ODOM_FUSION_LAUNCH_FILE}" \
+    params_file:="${PARAMS_FILE}" \
+    imu_filter_params_file:="${IMU_FILTER_PARAMS_FILE}" \
+    ekf_params_file:="${EKF_PARAMS_FILE}" \
+    local_slam_params_file:="${LOCAL_SLAM_PARAMS_FILE}" \
+    use_sim_time:=false &
+  PIDS+=("$!")
+else
+  echo "[APEX] local LiDAR+IMU odom fusion disabled for this run"
+fi
 
 if [ "${APEX_ENABLE_SLAM_TOOLBOX:-1}" = "1" ]; then
   ros2 launch slam_toolbox online_async_launch.py \

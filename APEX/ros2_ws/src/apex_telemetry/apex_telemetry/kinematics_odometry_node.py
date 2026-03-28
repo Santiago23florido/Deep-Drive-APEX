@@ -27,9 +27,10 @@ class KinematicsOdometryNode(Node):
         self.declare_parameter("velocity_topic", "/apex/kinematics/velocity")
         self.declare_parameter("heading_topic", "/apex/kinematics/heading")
         self.declare_parameter("angular_velocity_topic", "/apex/kinematics/angular_velocity")
-        self.declare_parameter("odom_topic", "/odom")
-        self.declare_parameter("odom_frame_id", "odom")
+        self.declare_parameter("odom_topic", "/apex/odometry/imu_raw")
+        self.declare_parameter("odom_frame_id", "odom_imu_raw")
         self.declare_parameter("base_frame_id", "base_link")
+        self.declare_parameter("translation_mode", "full")
         self.declare_parameter("publish_rate_hz", 30.0)
         self.declare_parameter("publish_tf", True)
         self.declare_parameter("use_heading_topic", True)
@@ -46,6 +47,7 @@ class KinematicsOdometryNode(Node):
 
         self._odom_frame = str(self.get_parameter("odom_frame_id").value)
         self._base_frame = str(self.get_parameter("base_frame_id").value)
+        self._translation_mode = str(self.get_parameter("translation_mode").value).strip().lower()
         self._publish_tf = bool(self.get_parameter("publish_tf").value)
         self._use_heading_topic = bool(self.get_parameter("use_heading_topic").value)
         self._heading_timeout_s = max(0.0, float(self.get_parameter("heading_timeout_s").value))
@@ -78,8 +80,16 @@ class KinematicsOdometryNode(Node):
         self.create_timer(period, self._publish_odom)
 
         self.get_logger().info(
-            "KinematicsOdometryNode started (pos=%s vel=%s heading=%s ang_vel=%s odom=%s)"
-            % (pos_topic, vel_topic, heading_topic, angular_velocity_topic, odom_topic)
+            "KinematicsOdometryNode started (pos=%s vel=%s heading=%s ang_vel=%s odom=%s mode=%s tf=%s)"
+            % (
+                pos_topic,
+                vel_topic,
+                heading_topic,
+                angular_velocity_topic,
+                odom_topic,
+                self._translation_mode,
+                self._publish_tf,
+            )
         )
 
     @staticmethod
@@ -137,16 +147,31 @@ class KinematicsOdometryNode(Node):
         odom.header.stamp = stamp
         odom.header.frame_id = self._odom_frame
         odom.child_frame_id = self._base_frame
-        odom.pose.pose.position.x = self._px
-        odom.pose.pose.position.y = self._py
-        odom.pose.pose.position.z = self._pz
+        if self._translation_mode == "zero":
+            px = 0.0
+            py = 0.0
+            pz = 0.0
+            vx = 0.0
+            vy = 0.0
+            vz = 0.0
+        else:
+            px = self._px
+            py = self._py
+            pz = self._pz
+            vx = self._vx
+            vy = self._vy
+            vz = self._vz
+
+        odom.pose.pose.position.x = px
+        odom.pose.pose.position.y = py
+        odom.pose.pose.position.z = pz
         odom.pose.pose.orientation.x = qx
         odom.pose.pose.orientation.y = qy
         odom.pose.pose.orientation.z = qz
         odom.pose.pose.orientation.w = qw
-        odom.twist.twist.linear.x = self._vx
-        odom.twist.twist.linear.y = self._vy
-        odom.twist.twist.linear.z = self._vz
+        odom.twist.twist.linear.x = vx
+        odom.twist.twist.linear.y = vy
+        odom.twist.twist.linear.z = vz
         odom.twist.twist.angular.z = self._yaw_rate
         self._odom_pub.publish(odom)
 
@@ -155,9 +180,9 @@ class KinematicsOdometryNode(Node):
             tf.header.stamp = stamp
             tf.header.frame_id = self._odom_frame
             tf.child_frame_id = self._base_frame
-            tf.transform.translation.x = self._px
-            tf.transform.translation.y = self._py
-            tf.transform.translation.z = self._pz
+            tf.transform.translation.x = px
+            tf.transform.translation.y = py
+            tf.transform.translation.z = pz
             tf.transform.rotation.x = qx
             tf.transform.rotation.y = qy
             tf.transform.rotation.z = qz
@@ -174,7 +199,8 @@ def main() -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
