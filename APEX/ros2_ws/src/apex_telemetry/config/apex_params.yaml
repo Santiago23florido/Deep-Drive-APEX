@@ -147,6 +147,23 @@ apex_recon_mapping_node:
     vehicle_half_width_m: 0.11
     vehicle_front_overhang_m: 0.11
     vehicle_rear_overhang_m: 0.31
+    state_velocity_topic: "/apex/kinematics/velocity"
+    state_acceleration_topic: "/apex/kinematics/acceleration"
+    state_angular_velocity_topic: "/apex/kinematics/angular_velocity"
+    state_timeout_s: 0.5
+    trajectory_horizon_m: 0.95
+    trajectory_lookahead_min_m: 0.35
+    trajectory_lookahead_max_m: 1.00
+    trajectory_curvature_slew_per_cycle: 0.22
+    trajectory_track_memory_alpha: 0.55
+    trajectory_exit_heading_threshold_deg: 2.0
+    trajectory_curve_speed_gain: 1.2
+    trajectory_state_aux_weight: 0.20
+    trajectory_min_confidence: 0.28
+    trajectory_flip_hold_cycles: 8
+    trajectory_entry_heading_threshold_deg: 4.0
+    trajectory_min_radius_m: 1.35
+    trajectory_curve_heading_limit_deg: 18.0
 
     enable_autostop_on_lap: true
     lap_min_duration_s: 25.0

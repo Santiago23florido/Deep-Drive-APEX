@@ -63,7 +63,7 @@ Output format:
 From Raspberry host:
 
 ```bash
-cd ~/Voiture-Autonome/code/APEX
+cd ~/AiAtonomousRc/APEX
 ./run_apex.sh -d
 ```
 
@@ -177,143 +177,148 @@ ros2 run nav2_map_server map_saver_cli -f /work/ros2_ws/maps/apex_map
 '
 ```
 
-## 5b) Directed Wall-Approach Debugging
+## 5b) Static Recon Debugging Workflow
 
-This workflow isolates three possible causes when the vehicle sees free space on one side but turns the other way:
-- navigation logic sign mismatch,
-- LiDAR heading offset mismatch,
-- steering servo sign mismatch.
+For planner debugging, do not use `./run_apex.sh` directly with `APEX_ENABLE_RECON_MAPPING=1`.
+With the current defaults, `diagnostic_mode` falls back to `calibration`, so the node runs scripted calibration steps instead of a continuous reconnaissance lap.
 
-Every debug run can persist a bundle under `ros2_ws/debug_runs/<run_id>_<UTC timestamp>/` with:
+Use this two-layer workflow instead:
+- keep the container running in core mode with LiDAR + IMU + kinematics only,
+- start and stop individual debug sessions inside the running container with `tools/apex_recon_start.sh`.
+
+Every debug run persists a bundle under `ros2_ws/debug_runs/<run_id>_<UTC timestamp>/` with:
 - `recon_diagnostic.log`
 - `docker_tail.log`
 - `run_metadata.json`
 - config snapshots
 - rosbag2 MCAP capture
 
-### Raspberry: Stage 1, servo static
+### Raspberry: bring up the core container once
 
 ```bash
-cd ~/Voiture-Autonome/code/APEX
-APEX_ENABLE_RECON_MAPPING=1 \
-APEX_RECORD_DEBUG=1 \
-APEX_DEBUG_RUN_ID=01_servo_static \
-APEX_RECON_DIAGNOSTIC_MODE=steering_static \
-./run_apex.sh -d
+cd ~/AiAtonomousRc/APEX
+rm -rf debug_runs logs ros2_ws/debug_runs ros2_ws/logs
+./tools/apex_core_down.sh
+APEX_SKIP_BUILD=1 ./tools/apex_core_up.sh
+docker ps | grep apex_pipeline
+docker logs --tail 80 apex_pipeline
 ```
 
-### Raspberry: Stage 2, servo sign check
+This runs the container in core mode:
+- `APEX_ENABLE_RECON_MAPPING=0`
+- `APEX_ENABLE_SLAM_TOOLBOX=0`
+- `APEX_RECORD_DEBUG=0`
+
+### Raspberry: verify live sensor topics
 
 ```bash
-cd ~/Voiture-Autonome/code/APEX
-APEX_ENABLE_RECON_MAPPING=1 \
-APEX_RECORD_DEBUG=1 \
-APEX_DEBUG_RUN_ID=02_servo_sign_check \
-APEX_RECON_DIAGNOSTIC_MODE=steering_sign_check \
-APEX_RECON_FIXED_SPEED_PCT=10.0 \
-./run_apex.sh -d
+docker exec -it apex_pipeline bash -lc '
+source /opt/ros/jazzy/setup.bash
+ros2 topic list | egrep "/lidar/scan|/odom|/apex/kinematics"
+'
+docker exec -it apex_pipeline bash -lc '
+source /opt/ros/jazzy/setup.bash
+timeout 5 ros2 topic hz /lidar/scan
+'
 ```
 
-If the physical steering direction is inverted, repeat the same run with:
+### Raspberry: run one `nav_dryrun` case
+
+Quick wrapper:
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/apex_nav_dryrun_case.sh 01_left_curve_center
+```
+
+Equivalent manual command:
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/apex_recon_start.sh --run-id 01_left_curve_center --mode nav_dryrun --record-debug 1 --timeout-s 15
+sleep 17
+docker exec apex_pipeline /bin/bash /work/ros2_ws/scripts/apex_recon_session.sh status
+ls -1t ros2_ws/debug_runs | head -n 3
+```
+
+### Raspberry: first static matrix
+
+Use the same geometry twice, mirrored left/right, and repeat centered plus both near-wall offsets:
+- `01_left_curve_center`
+- `02_left_curve_near_left_wall`
+- `03_left_curve_near_right_wall`
+- `04_right_curve_center`
+- `05_right_curve_near_left_wall`
+- `06_right_curve_near_right_wall`
+
+### Raspberry: steering and sign preflight before moving the car
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/apex_recon_start.sh --run-id 90_steering_static --mode steering_static --record-debug 1
+sleep 6
+./tools/apex_recon_start.sh --restart --run-id 91_steering_sign_check --mode steering_sign_check --record-debug 1 --fixed-speed-pct 20
+sleep 8
+```
+
+If the physical steering direction is inverted, repeat with:
 
 ```bash
 APEX_STEERING_DIRECTION_SIGN=-1
 ```
 
-### Raspberry: Stage 3, logic dry-run with space open on the right
+### PC: fetch bundles from Raspberry
 
-This computes the full navigation decision from the live LiDAR scan, but does not drive the vehicle.
-
-```bash
-cd ~/Voiture-Autonome/code/APEX
-APEX_ENABLE_RECON_MAPPING=1 \
-APEX_RECORD_DEBUG=1 \
-APEX_DEBUG_RUN_ID=03_nav_dryrun_right_open \
-APEX_RECON_DIAGNOSTIC_MODE=nav_dryrun \
-./run_apex.sh -d
-```
-
-### Raspberry: Stage 4, logic dry-run with space open on the left
-
-```bash
-cd ~/Voiture-Autonome/code/APEX
-APEX_ENABLE_RECON_MAPPING=1 \
-APEX_RECORD_DEBUG=1 \
-APEX_DEBUG_RUN_ID=04_nav_dryrun_left_open \
-APEX_RECON_DIAGNOSTIC_MODE=nav_dryrun \
-./run_apex.sh -d
-```
-
-### Raspberry: Stage 5, LiDAR orientation checks
-
-Run three static captures with the wall physically placed in front, on the right, and on the left. Use different `APEX_DEBUG_RUN_ID` values such as:
-- `05_orientation_front_wall`
-- `05_orientation_right_wall`
-- `05_orientation_left_wall`
-
-If the scan sectors are mirrored or rotated, adjust:
-
-```bash
-APEX_LIDAR_HEADING_OFFSET_DEG=<new_offset_deg>
-```
-
-### Raspberry: Stage 6+, slow wall approach
-
-```bash
-cd ~/Voiture-Autonome/code/APEX
-APEX_ENABLE_RECON_MAPPING=1 \
-APEX_RECORD_DEBUG=1 \
-APEX_DEBUG_RUN_ID=06_single_wall_right \
-APEX_RECON_DIAGNOSTIC_MODE=recon_debug \
-APEX_RECON_FIXED_SPEED_PCT=8.0 \
-./run_apex.sh -d
-```
-
-Mirror the same run for the left wall:
-
-```bash
-APEX_DEBUG_RUN_ID=07_single_wall_left
-```
-
-### PC: fetch one bundle from Raspberry
+Copy all bundles:
 
 ```bash
 cd ~/AiAtonomousRc/APEX
-./tools/fetch_debug_run.sh ensta@raspberrypi.local latest
+mkdir -p debug_runs
+rsync -av ensta@raspberrypi:/home/ensta/AiAtonomousRc/APEX/ros2_ws/debug_runs/ ./debug_runs/
+ls -1t debug_runs | head -n 10
+```
+
+Fetch just the latest bundle:
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/fetch_debug_run.sh
 ```
 
 ### PC: analyze one bundle
 
+Run the full analysis stack:
+
 ```bash
 cd ~/AiAtonomousRc/APEX
-python3 ./tools/analyze_debug_run.py ./debug_runs/<run_id>
+./tools/analyze_debug_bundle.sh ./debug_runs/<bundle_dir>
 ```
 
-Artifacts are written under:
+Equivalent manual commands:
 
 ```bash
-./debug_runs/<run_id>/analysis/
+cd ~/AiAtonomousRc/APEX
+python3 ./tools/analyze_debug_run.py ./debug_runs/<bundle_dir>
+python3 ./tools/replay_nav_from_bag.py ./debug_runs/<bundle_dir>
+python3 ./tools/explain_recon_run.py ./debug_runs/<bundle_dir>
+sed -n '1,200p' ./debug_runs/<bundle_dir>/analysis/summary.md
+cat ./debug_runs/<bundle_dir>/analysis/flags.json
 ```
+
+Artifacts are written under `./debug_runs/<bundle_dir>/analysis/`.
 
 Key files:
 - `summary.md`
-- `decision_timeline.csv`
 - `flags.json`
-- `plots/headings.svg`
-- `plots/clearances.svg`
-
-### PC: replay navigation from the recorded bag
-
-```bash
-cd ~/AiAtonomousRc/APEX
-python3 ./tools/replay_nav_from_bag.py ./debug_runs/<run_id>
-```
+- `decision_timeline.csv`
+- `replay_nav.csv`
+- `trajectory_explainer.md`
 
 ### PC: replay the run in RViz
 
 ```bash
 cd ~/AiAtonomousRc/APEX
-./tools/review_debug_run.sh ./debug_runs/<run_id>
+./tools/review_debug_run.sh ./debug_runs/<bundle_dir>
 ```
 
 ## Quick Reset and Restart (Raspberry + PC)
@@ -327,7 +332,7 @@ Important:
 ### Raspberry Terminal 1 (restart SLAM from scratch)
 
 ```bash
-cd ~/Voiture-Autonome/code/APEX
+cd ~/AiAtonomousRc/APEX
 docker compose -f docker/docker-compose.yml down --remove-orphans
 rm -f ros2_ws/maps/apex_map.yaml ros2_ws/maps/apex_map.pgm
 APEX_SERIAL_PORT=/dev/ttyACM0 \
