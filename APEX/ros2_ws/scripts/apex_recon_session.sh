@@ -40,6 +40,7 @@ APEX_DEBUG_RUN_NAME=""
 APEX_DEBUG_BUNDLE_DIR=""
 APEX_DOCKER_TAIL_LOG=""
 APEX_RAW_BAG_DIR=""
+APEX_ROSBAG_LOG_PATH=""
 APEX_DEBUG_FINALIZED=0
 APEX_ROSBAG_PID=""
 RECON_PID=""
@@ -309,6 +310,7 @@ if bag_dir and not bag_metadata_path_raw:
 bag_mcap_path = Path(bag_mcap_path_raw) if bag_mcap_path_raw else None
 bag_metadata_path = Path(bag_metadata_path_raw) if bag_metadata_path_raw else None
 docker_tail_log = Path(os.environ.get("APEX_DOCKER_TAIL_LOG", ""))
+rosbag_log_path = Path(os.environ.get("APEX_ROSBAG_LOG_PATH", ""))
 recon_log_path = Path(os.environ.get("APEX_RECON_LOG_PATH", ""))
 params_snapshot = Path(os.environ.get("APEX_PARAMS_SNAPSHOT_PATH", ""))
 slam_params_snapshot = Path(os.environ.get("APEX_SLAM_PARAMS_SNAPSHOT_PATH", ""))
@@ -337,6 +339,7 @@ pwm_snapshot_after_present = pwm_snapshot_after.is_file()
 bag_mcap_present = bool(bag_mcap_path and bag_mcap_path.is_file())
 bag_metadata_present = bool(bag_metadata_path and bag_metadata_path.is_file())
 docker_tail_present = docker_tail_log.is_file()
+rosbag_log_present = rosbag_log_path.is_file()
 recon_log_present = recon_log_path.is_file()
 params_snapshot_present = params_snapshot.is_file()
 slam_params_snapshot_present = slam_params_snapshot.is_file()
@@ -358,6 +361,8 @@ if not shutdown_diag_final_present:
     bundle_missing_artifacts.append("DIAG_STOP final")
 if not docker_tail_present:
     bundle_missing_artifacts.append("docker_tail.log")
+if bag_expected and not rosbag_log_present:
+    bundle_missing_artifacts.append("rosbag_record.log")
 if not recon_log_present:
     bundle_missing_artifacts.append("recon_diagnostic.log")
 if not params_snapshot_present:
@@ -391,6 +396,8 @@ metadata = {
     "bag_metadata_present": bag_metadata_present,
     "docker_tail_log": str(docker_tail_log),
     "docker_tail_present": docker_tail_present,
+    "rosbag_log_path": str(rosbag_log_path),
+    "rosbag_log_present": rosbag_log_present,
     "recon_diagnostic_log": str(recon_log_path),
     "recon_diagnostic_present": recon_log_present,
     "params_snapshot": str(params_snapshot),
@@ -473,17 +480,22 @@ finalize_debug_artifacts() {
   if [ -n "${APEX_RAW_BAG_DIR}" ] && [ -d "${APEX_RAW_BAG_DIR}" ]; then
     local mcap_path metadata_path
     local waited=0
-    while [ "${waited}" -lt 50 ]; do
+    while [ "${waited}" -lt 150 ]; do
       mcap_path="$(find "${APEX_RAW_BAG_DIR}" -maxdepth 1 -name '*.mcap' | sort | head -n 1 || true)"
-      if [ -n "${mcap_path}" ]; then
+      metadata_path="${APEX_RAW_BAG_DIR}/metadata.yaml"
+      if [ -n "${mcap_path}" ] && [ -f "${metadata_path}" ]; then
         break
       fi
       sleep 0.1
       waited=$((waited + 1))
     done
-    metadata_path="${APEX_RAW_BAG_DIR}/metadata.yaml"
     if [ -n "${mcap_path}" ] && [ ! -f "${metadata_path}" ]; then
       ros2 bag reindex "${APEX_RAW_BAG_DIR}" >/dev/null 2>&1 || true
+      local reindex_waited=0
+      while [ "${reindex_waited}" -lt 50 ] && [ ! -f "${metadata_path}" ]; do
+        sleep 0.1
+        reindex_waited=$((reindex_waited + 1))
+      done
     fi
     mcap_path="$(find "${APEX_RAW_BAG_DIR}" -maxdepth 1 -name '*.mcap' | sort | head -n 1 || true)"
     metadata_path="${APEX_RAW_BAG_DIR}/metadata.yaml"
@@ -522,6 +534,8 @@ setup_debug_run() {
 
   export APEX_DOCKER_TAIL_LOG="${APEX_DEBUG_BUNDLE_DIR}/docker_tail.log"
   APEX_DOCKER_TAIL_LOG="${APEX_DOCKER_TAIL_LOG}"
+  export APEX_ROSBAG_LOG_PATH="${APEX_DEBUG_BUNDLE_DIR}/rosbag_record.log"
+  APEX_ROSBAG_LOG_PATH="${APEX_ROSBAG_LOG_PATH}"
   export APEX_RECON_LOG_PATH="${APEX_RECON_LOG_PATH:-${APEX_DEBUG_BUNDLE_DIR}/recon_diagnostic.log}"
   mkdir -p "$(dirname "${APEX_RECON_LOG_PATH}")"
 
@@ -534,8 +548,8 @@ setup_debug_run() {
   APEX_RAW_BAG_DIR="${APEX_RAW_BAG_DIR}"
   printf '%s\n' "${APEX_DEBUG_BUNDLE_DIR}" > "${CURRENT_BUNDLE_FILE}"
 
-  write_debug_metadata
   write_pwm_snapshot "before"
+  write_debug_metadata
 
   exec > >(tee -a "${APEX_DOCKER_TAIL_LOG}") 2>&1
   echo "[APEX] Recon debug bundle: ${APEX_DEBUG_BUNDLE_DIR}"
@@ -547,6 +561,7 @@ start_debug_bag_recording() {
   fi
 
   rm -rf "${APEX_RAW_BAG_DIR}"
+  : > "${APEX_ROSBAG_LOG_PATH}"
   ros2 bag record \
     --storage mcap \
     --output "${APEX_RAW_BAG_DIR}" \
@@ -561,7 +576,8 @@ start_debug_bag_recording() {
     /apex/kinematics/velocity \
     /apex/kinematics/position \
     /apex/kinematics/angular_velocity \
-    /apex/kinematics/heading &
+    /apex/kinematics/heading \
+    > "${APEX_ROSBAG_LOG_PATH}" 2>&1 &
   APEX_ROSBAG_PID="$!"
   printf '%s\n' "${APEX_ROSBAG_PID}" > "${ROSBAG_PID_FILE}"
 }
@@ -589,6 +605,23 @@ stop_debug_bag_recording() {
     kill -KILL "${bag_pid}" 2>/dev/null || true
   fi
   rm -f "${ROSBAG_PID_FILE}"
+
+  if [ -n "${APEX_RAW_BAG_DIR:-}" ]; then
+    local waited=0
+    local mcap_path=""
+    local metadata_path="${APEX_RAW_BAG_DIR}/metadata.yaml"
+    while [ "${waited}" -lt 150 ]; do
+      mcap_path="$(find "${APEX_RAW_BAG_DIR}" -maxdepth 1 -name '*.mcap' | sort | head -n 1 || true)"
+      if [ -n "${mcap_path}" ] && [ -f "${metadata_path}" ]; then
+        break
+      fi
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+    if [ -d "${APEX_RAW_BAG_DIR}" ] && [ ! -f "${metadata_path}" ]; then
+      ros2 bag reindex "${APEX_RAW_BAG_DIR}" >/dev/null 2>&1 || true
+    fi
+  fi
 }
 
 build_recon_args() {
@@ -683,6 +716,7 @@ load_last_bundle_context() {
   if [ -f "${CURRENT_BUNDLE_FILE}" ]; then
     export APEX_DEBUG_BUNDLE_DIR="$(cat "${CURRENT_BUNDLE_FILE}")"
     export APEX_DOCKER_TAIL_LOG="${APEX_DEBUG_BUNDLE_DIR}/docker_tail.log"
+    export APEX_ROSBAG_LOG_PATH="${APEX_DEBUG_BUNDLE_DIR}/rosbag_record.log"
     export APEX_RECON_LOG_PATH="${APEX_DEBUG_BUNDLE_DIR}/recon_diagnostic.log"
     export APEX_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_params.yaml"
     export APEX_SLAM_PARAMS_SNAPSHOT_PATH="${APEX_DEBUG_BUNDLE_DIR}/config/apex_slam_toolbox.yaml"

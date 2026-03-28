@@ -294,6 +294,87 @@ class ReconMappingNode(Node):
             trajectory_curve_heading_limit_deg=float(
                 self.get_parameter("trajectory_curve_heading_limit_deg").value
             ),
+            fullsoft_field_of_view_deg=int(
+                self.get_parameter("fullsoft_field_of_view_deg").value
+            ),
+            fullsoft_convolution_size=int(
+                self.get_parameter("fullsoft_convolution_size").value
+            ),
+            fullsoft_avoid_corner_max_angle=int(
+                self.get_parameter("fullsoft_avoid_corner_max_angle").value
+            ),
+            fullsoft_avoid_corner_min_distance_m=float(
+                self.get_parameter("fullsoft_avoid_corner_min_distance_m").value
+            ),
+            fullsoft_avoid_corner_scale_factor=float(
+                self.get_parameter("fullsoft_avoid_corner_scale_factor").value
+            ),
+            fullsoft_speed_curve_decay_factor=float(
+                self.get_parameter("fullsoft_speed_curve_decay_factor").value
+            ),
+            fullsoft_speed_stop_distance_m=float(
+                self.get_parameter("fullsoft_speed_stop_distance_m").value
+            ),
+            fullsoft_speed_slow_distance_m=float(
+                self.get_parameter("fullsoft_speed_slow_distance_m").value
+            ),
+            fullsoft_bias_heading_limit_deg=float(
+                self.get_parameter("fullsoft_bias_heading_limit_deg").value
+            ),
+            fullsoft_curve_evidence_low=float(
+                self.get_parameter("fullsoft_curve_evidence_low").value
+            ),
+            fullsoft_curve_evidence_high=float(
+                self.get_parameter("fullsoft_curve_evidence_high").value
+            ),
+            fullsoft_same_sign_slew_deg=float(
+                self.get_parameter("fullsoft_same_sign_slew_deg").value
+            ),
+            fullsoft_opposite_sign_slew_deg=float(
+                self.get_parameter("fullsoft_opposite_sign_slew_deg").value
+            ),
+            fullsoft_straight_balance_ratio_threshold=float(
+                self.get_parameter("fullsoft_straight_balance_ratio_threshold").value
+            ),
+            fullsoft_straight_front_balance_ratio_threshold=float(
+                self.get_parameter("fullsoft_straight_front_balance_ratio_threshold").value
+            ),
+            fullsoft_straight_heading_limit_deg=float(
+                self.get_parameter("fullsoft_straight_heading_limit_deg").value
+            ),
+            fullsoft_straight_activation_heading_deg=float(
+                self.get_parameter("fullsoft_straight_activation_heading_deg").value
+            ),
+            fullsoft_straight_min_front_clearance_m=float(
+                self.get_parameter("fullsoft_straight_min_front_clearance_m").value
+            ),
+            fullsoft_straight_support_heading_threshold_deg=float(
+                self.get_parameter("fullsoft_straight_support_heading_threshold_deg").value
+            ),
+            fullsoft_curve_preview_heading_limit_deg=float(
+                self.get_parameter("fullsoft_curve_preview_heading_limit_deg").value
+            ),
+            fullsoft_curve_preview_support_heading_deg=float(
+                self.get_parameter("fullsoft_curve_preview_support_heading_deg").value
+            ),
+            fullsoft_curve_preview_min_cycles=int(
+                self.get_parameter("fullsoft_curve_preview_min_cycles").value
+            ),
+            fullsoft_curve_preview_balance_ratio_threshold=float(
+                self.get_parameter("fullsoft_curve_preview_balance_ratio_threshold").value
+            ),
+            fullsoft_curve_entry_heading_limit_deg=float(
+                self.get_parameter("fullsoft_curve_entry_heading_limit_deg").value
+            ),
+            fullsoft_curve_balance_ratio_threshold=float(
+                self.get_parameter("fullsoft_curve_balance_ratio_threshold").value
+            ),
+            fullsoft_curve_support_heading_deg=float(
+                self.get_parameter("fullsoft_curve_support_heading_deg").value
+            ),
+            fullsoft_curve_progress_exponent=float(
+                self.get_parameter("fullsoft_curve_progress_exponent").value
+            ),
         )
 
         self._motor = MaverickESCMotor(
@@ -434,7 +515,7 @@ class ReconMappingNode(Node):
         self.declare_parameter("reverse_neutral_hold_s", 0.12)
         self.declare_parameter("reverse_exit_hold_s", 0.15)
 
-        self.declare_parameter("explore_min_speed_pct", 18.0)
+        self.declare_parameter("explore_min_speed_pct", 20.0)
         self.declare_parameter("explore_max_speed_pct", 24.0)
         self.declare_parameter("recovery_reverse_speed_pct", 30.0)
         self.declare_parameter("recovery_duration_s", 0.8)
@@ -524,6 +605,33 @@ class ReconMappingNode(Node):
         self.declare_parameter("trajectory_entry_heading_threshold_deg", 4.0)
         self.declare_parameter("trajectory_min_radius_m", 1.35)
         self.declare_parameter("trajectory_curve_heading_limit_deg", 18.0)
+        self.declare_parameter("fullsoft_field_of_view_deg", 180)
+        self.declare_parameter("fullsoft_convolution_size", 71)
+        self.declare_parameter("fullsoft_avoid_corner_max_angle", 8)
+        self.declare_parameter("fullsoft_avoid_corner_min_distance_m", 2.5)
+        self.declare_parameter("fullsoft_avoid_corner_scale_factor", 1.2)
+        self.declare_parameter("fullsoft_speed_curve_decay_factor", 0.03)
+        self.declare_parameter("fullsoft_speed_stop_distance_m", 0.30)
+        self.declare_parameter("fullsoft_speed_slow_distance_m", 0.80)
+        self.declare_parameter("fullsoft_bias_heading_limit_deg", 4.0)
+        self.declare_parameter("fullsoft_curve_evidence_low", 0.28)
+        self.declare_parameter("fullsoft_curve_evidence_high", 0.48)
+        self.declare_parameter("fullsoft_same_sign_slew_deg", 6.0)
+        self.declare_parameter("fullsoft_opposite_sign_slew_deg", 1.5)
+        self.declare_parameter("fullsoft_straight_balance_ratio_threshold", 0.18)
+        self.declare_parameter("fullsoft_straight_front_balance_ratio_threshold", 0.20)
+        self.declare_parameter("fullsoft_straight_heading_limit_deg", 8.0)
+        self.declare_parameter("fullsoft_straight_activation_heading_deg", 18.0)
+        self.declare_parameter("fullsoft_straight_min_front_clearance_m", 0.45)
+        self.declare_parameter("fullsoft_straight_support_heading_threshold_deg", 4.0)
+        self.declare_parameter("fullsoft_curve_preview_heading_limit_deg", 10.0)
+        self.declare_parameter("fullsoft_curve_preview_support_heading_deg", 1.6)
+        self.declare_parameter("fullsoft_curve_preview_min_cycles", 4)
+        self.declare_parameter("fullsoft_curve_preview_balance_ratio_threshold", 0.30)
+        self.declare_parameter("fullsoft_curve_entry_heading_limit_deg", 14.0)
+        self.declare_parameter("fullsoft_curve_balance_ratio_threshold", 0.65)
+        self.declare_parameter("fullsoft_curve_support_heading_deg", 18.0)
+        self.declare_parameter("fullsoft_curve_progress_exponent", 2.4)
 
     def _create_reset_client(self):
         try:
@@ -991,6 +1099,8 @@ class ReconMappingNode(Node):
         return "reverse"
 
     def _is_curve_recovery_context(self, command: ReconCommand) -> bool:
+        if command.nav_mode == "fullsoft_follow" and abs(command.target_heading_deg) >= 8.0:
+            return True
         if command.nav_mode in {"curve_entry", "curve_follow", "curve_exit"}:
             return True
 
@@ -1002,7 +1112,14 @@ class ReconMappingNode(Node):
 
         if command.active_heading_source in {
             "curve_entry_guard",
+            "fullsoft_bias_blend",
+            "fullsoft_curve_preview",
+            "fullsoft_curve_ramp",
             "corridor_center",
+            "fullsoft_continuity_gate",
+            "fullsoft_max_space",
+            "fullsoft_corner_adjust",
+            "fullsoft_straight_gate",
             "front_turn",
             "reference_blend",
             "reference_centerline",
@@ -1600,6 +1717,56 @@ class ReconMappingNode(Node):
                 "trajectory_min_radius_m": self._navigator._trajectory_min_radius_m,
                 "trajectory_curve_heading_limit_deg": (
                     self._navigator._trajectory_curve_heading_limit_deg
+                ),
+                "fullsoft_field_of_view_deg": self._navigator._fullsoft_field_of_view_deg,
+                "fullsoft_convolution_size": self._navigator._fullsoft_convolution_size,
+                "fullsoft_avoid_corner_max_angle": (
+                    self._navigator._fullsoft_avoid_corner_max_angle
+                ),
+                "fullsoft_avoid_corner_min_distance_m": (
+                    self._navigator._fullsoft_avoid_corner_min_distance_m
+                ),
+                "fullsoft_avoid_corner_scale_factor": (
+                    self._navigator._fullsoft_avoid_corner_scale_factor
+                ),
+                "fullsoft_speed_curve_decay_factor": (
+                    self._navigator._fullsoft_speed_curve_decay_factor
+                ),
+                "fullsoft_speed_stop_distance_m": (
+                    self._navigator._fullsoft_speed_stop_distance_m
+                ),
+                "fullsoft_speed_slow_distance_m": (
+                    self._navigator._fullsoft_speed_slow_distance_m
+                ),
+                "fullsoft_bias_heading_limit_deg": (
+                    self._navigator._fullsoft_bias_heading_limit_deg
+                ),
+                "fullsoft_curve_evidence_low": (
+                    self._navigator._fullsoft_curve_evidence_low
+                ),
+                "fullsoft_curve_evidence_high": (
+                    self._navigator._fullsoft_curve_evidence_high
+                ),
+                "fullsoft_same_sign_slew_deg": (
+                    self._navigator._fullsoft_same_sign_slew_deg
+                ),
+                "fullsoft_opposite_sign_slew_deg": (
+                    self._navigator._fullsoft_opposite_sign_slew_deg
+                ),
+                "fullsoft_straight_balance_ratio_threshold": (
+                    self._navigator._fullsoft_straight_balance_ratio_threshold
+                ),
+                "fullsoft_straight_front_balance_ratio_threshold": (
+                    self._navigator._fullsoft_straight_front_balance_ratio_threshold
+                ),
+                "fullsoft_straight_heading_limit_deg": (
+                    self._navigator._fullsoft_straight_heading_limit_deg
+                ),
+                "fullsoft_straight_activation_heading_deg": (
+                    self._navigator._fullsoft_straight_activation_heading_deg
+                ),
+                "fullsoft_straight_min_front_clearance_m": (
+                    self._navigator._fullsoft_straight_min_front_clearance_m
                 ),
             },
         )

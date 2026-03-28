@@ -19,6 +19,16 @@ SOURCE_COLORS = {
     "avoidance": "#1f77b4",
     "corridor_center": "#17becf",
     "trajectory_planner": "#bcbd22",
+    "fullsoft_max_space": "#bcbd22",
+    "fullsoft_corner_adjust": "#8c564b",
+    "fullsoft_bias_blend": "#17becf",
+    "fullsoft_continuity_gate": "#ff7f0e",
+    "fullsoft_curve_preview": "#2ca02c",
+    "fullsoft_curve_ramp": "#9467bd",
+    "fullsoft_forward_gate": "#1f77b4",
+    "fullsoft_straight_gate": "#17becf",
+    "fullsoft_stop": "#d62728",
+    "fullsoft_curve": "#9467bd",
     "None": "#7f7f7f",
 }
 

@@ -164,6 +164,33 @@ apex_recon_mapping_node:
     trajectory_entry_heading_threshold_deg: 4.0
     trajectory_min_radius_m: 1.35
     trajectory_curve_heading_limit_deg: 18.0
+    fullsoft_field_of_view_deg: 180
+    fullsoft_convolution_size: 71
+    fullsoft_avoid_corner_max_angle: 8
+    fullsoft_avoid_corner_min_distance_m: 2.5
+    fullsoft_avoid_corner_scale_factor: 1.2
+    fullsoft_speed_curve_decay_factor: 0.03
+    fullsoft_speed_stop_distance_m: 0.30
+    fullsoft_speed_slow_distance_m: 0.80
+    fullsoft_bias_heading_limit_deg: 4.0
+    fullsoft_curve_evidence_low: 0.28
+    fullsoft_curve_evidence_high: 0.48
+    fullsoft_same_sign_slew_deg: 6.0
+    fullsoft_opposite_sign_slew_deg: 1.5
+    fullsoft_straight_balance_ratio_threshold: 0.18
+    fullsoft_straight_front_balance_ratio_threshold: 0.20
+    fullsoft_straight_heading_limit_deg: 8.0
+    fullsoft_straight_activation_heading_deg: 18.0
+    fullsoft_straight_min_front_clearance_m: 0.45
+    fullsoft_straight_support_heading_threshold_deg: 4.0
+    fullsoft_curve_preview_heading_limit_deg: 10.0
+    fullsoft_curve_preview_support_heading_deg: 1.6
+    fullsoft_curve_preview_min_cycles: 4
+    fullsoft_curve_preview_balance_ratio_threshold: 0.30
+    fullsoft_curve_entry_heading_limit_deg: 14.0
+    fullsoft_curve_balance_ratio_threshold: 0.65
+    fullsoft_curve_support_heading_deg: 18.0
+    fullsoft_curve_progress_exponent: 2.4
 
     enable_autostop_on_lap: true
     lap_min_duration_s: 25.0

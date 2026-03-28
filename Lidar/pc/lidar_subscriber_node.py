@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import time
 from dataclasses import dataclass
@@ -34,6 +35,63 @@ def _safe_value_by_angle(msg: LaserScan, ranges: np.ndarray, target_deg: float) 
     return _safe_value(ranges, idx)
 
 
+def _normalize_angle_deg(angle_deg: float) -> float:
+    return ((float(angle_deg) + 180.0) % 360.0) - 180.0
+
+
+def _display_angle_to_laser_angle_deg(angle_deg: float, right_positive: bool) -> float:
+    if right_positive:
+        return _normalize_angle_deg(-float(angle_deg))
+    return _normalize_angle_deg(float(angle_deg))
+
+
+def _laser_angle_to_display_angle_deg(angle_deg: float, right_positive: bool) -> float:
+    if right_positive:
+        return _normalize_angle_deg(-float(angle_deg))
+    return _normalize_angle_deg(float(angle_deg))
+
+
+def _parse_probe_angles(raw: str) -> list[float]:
+    values: list[float] = []
+    for item in str(raw).split(","):
+        token = item.strip()
+        if not token:
+            continue
+        values.append(_normalize_angle_deg(float(token)))
+    return values
+
+
+def _window_values_by_angle(
+    msg: LaserScan,
+    ranges: np.ndarray,
+    valid_mask: np.ndarray,
+    target_deg: float,
+    window_deg: float,
+) -> np.ndarray:
+    if ranges.size == 0 or msg.angle_increment == 0.0:
+        return np.empty((0,), dtype=np.float32)
+
+    angles_deg = np.degrees(
+        msg.angle_min + np.arange(ranges.size, dtype=np.float32) * msg.angle_increment
+    )
+    delta_deg = np.abs(((angles_deg - float(target_deg) + 180.0) % 360.0) - 180.0)
+    mask = valid_mask & (delta_deg <= max(0.1, float(window_deg)))
+    return ranges[mask]
+
+
+def _probe_distance_by_angle(
+    msg: LaserScan,
+    ranges: np.ndarray,
+    valid_mask: np.ndarray,
+    target_deg: float,
+    window_deg: float,
+) -> float:
+    values = _window_values_by_angle(msg, ranges, valid_mask, target_deg, window_deg)
+    if values.size == 0:
+        return 0.0
+    return float(np.median(values))
+
+
 def _wrap_angle_rad(angle: float) -> float:
     return (angle + math.pi) % (2.0 * math.pi) - math.pi
 
@@ -61,13 +119,27 @@ def _rotate_points(points: np.ndarray, angle_rad: float) -> np.ndarray:
     return points @ rot.T
 
 
+def _display_xy_from_polar(
+    angles_rad: np.ndarray,
+    ranges_m: np.ndarray,
+    *,
+    right_positive: bool,
+) -> tuple[np.ndarray, np.ndarray]:
+    x = -ranges_m * np.cos(angles_rad)
+    y = ranges_m * np.sin(angles_rad)
+    if right_positive:
+        y = -y
+    return x, y
+
+
 class PointCloudPlotter:
     """Live XY point-cloud view from LaserScan ranges."""
 
-    def __init__(self, max_range_m: float, draw_every_s: float) -> None:
+    def __init__(self, max_range_m: float, draw_every_s: float, right_positive: bool) -> None:
         self._draw_every_s = max(0.02, float(draw_every_s))
         self._last_draw = 0.0
         self._base_limit_m = max(0.5, float(max_range_m))
+        self._right_positive = bool(right_positive)
 
         try:
             import matplotlib.pyplot as plt
@@ -82,9 +154,10 @@ class PointCloudPlotter:
         self._fig, self._ax = self._plt.subplots(figsize=(7, 7))
         self._scatter = self._ax.scatter([], [], s=7, c="tab:cyan", alpha=0.85)
         self._ax.scatter([0.0], [0.0], s=35, c="tab:red", label="LiDAR")
+        y_axis_label = "y [m] (derecha+)" if self._right_positive else "y [m] (izquierda+)"
         self._ax.set_title("Live LiDAR Point Cloud (XY)")
-        self._ax.set_xlabel("x [m]")
-        self._ax.set_ylabel("y [m]")
+        self._ax.set_xlabel("x [m] (frente+)")
+        self._ax.set_ylabel(y_axis_label)
         self._ax.set_aspect("equal", adjustable="box")
         self._ax.grid(True, alpha=0.25)
         self._ax.legend(loc="upper right")
@@ -95,6 +168,8 @@ class PointCloudPlotter:
     def _set_axes_limit(self, limit_m: float) -> None:
         self._ax.set_xlim(-limit_m, limit_m)
         self._ax.set_ylim(-limit_m, limit_m)
+        if self._right_positive:
+            self._ax.invert_yaxis()
 
     def _draw(self) -> None:
         self._fig.canvas.draw_idle()
@@ -112,8 +187,11 @@ class PointCloudPlotter:
             self._draw()
             return
 
-        x = ranges * np.cos(angles)
-        y = ranges * np.sin(angles)
+        x, y = _display_xy_from_polar(
+            angles,
+            ranges,
+            right_positive=self._right_positive,
+        )
         points = np.column_stack((x, y))
         self._scatter.set_offsets(points)
 
@@ -612,14 +690,25 @@ class LidarSubscriberNode(Node):
 
         self._topic = args.topic
         self._full = args.full
+        self._right_positive = bool(args.right_positive)
         self._print_every_s = max(0.1, float(args.print_every_s))
         self._last_print = 0.0
         self._plotter: Optional[PointCloudPlotter] = None
+        self._probe_angles_deg = _parse_probe_angles(args.probe_angles_deg)
+        self._probe_window_deg = max(0.25, float(args.probe_window_deg))
+        self._snapshot_scans_target = max(0, int(args.snapshot_scans))
+        self._snapshot_output = str(args.snapshot_output).strip()
+        self._snapshot_exit = bool(args.snapshot_exit)
+        self._snapshot_sum: Optional[np.ndarray] = None
+        self._snapshot_counts: Optional[np.ndarray] = None
+        self._snapshot_scans_collected = 0
+        self._snapshot_saved = False
 
         if args.plot:
             self._plotter = PointCloudPlotter(
                 max_range_m=args.plot_max_range,
                 draw_every_s=args.plot_every_s,
+                right_positive=self._right_positive,
             )
             self.get_logger().info("Live point-cloud plotting enabled.")
 
@@ -636,6 +725,291 @@ class LidarSubscriberNode(Node):
 
         self.create_subscription(LaserScan, self._topic, self._scan_cb, qos_profile_sensor_data)
         self.get_logger().info(f"Suscrito a {self._topic}")
+        convention = "x positiva hacia delante; derecha positiva / izquierda negativa" if self._right_positive else "x positiva hacia delante; izquierda positiva / derecha negativa"
+        self.get_logger().info(f"Convencion visual: {convention}")
+        if self._probe_angles_deg:
+            probe_tokens = ", ".join(f"{angle:+.0f}" for angle in self._probe_angles_deg)
+            self.get_logger().info(
+                f"Sondas angulares activas: [{probe_tokens}] con ventana +/-{self._probe_window_deg:.1f} deg"
+            )
+        if self._snapshot_scans_target > 0:
+            self.get_logger().info(
+                f"Snapshot estatico activado: {self._snapshot_scans_target} scans"
+            )
+
+    def _probe_distance_display_angle(
+        self,
+        msg: LaserScan,
+        ranges: np.ndarray,
+        valid_mask: np.ndarray,
+        display_angle_deg: float,
+    ) -> float:
+        return _probe_distance_by_angle(
+            msg,
+            ranges,
+            valid_mask,
+            _display_angle_to_laser_angle_deg(display_angle_deg, self._right_positive),
+            self._probe_window_deg,
+        )
+
+    def _format_probe_summary(self, msg: LaserScan, ranges: np.ndarray, valid_mask: np.ndarray) -> str:
+        if not self._probe_angles_deg:
+            return ""
+
+        parts: list[str] = []
+        for angle_deg in self._probe_angles_deg:
+            distance_m = self._probe_distance_display_angle(
+                msg,
+                ranges,
+                valid_mask,
+                angle_deg,
+            )
+            if distance_m > 0.0:
+                parts.append(f"{angle_deg:+.0f}={distance_m:.3f}m")
+            else:
+                parts.append(f"{angle_deg:+.0f}=nan")
+        return " | probes[" + " ".join(parts) + "]"
+
+    def _snapshot_base_path(self) -> Path:
+        if self._snapshot_output:
+            return Path(self._snapshot_output).expanduser().resolve()
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        return (Path.cwd() / f"lidar_static_snapshot_{timestamp}").resolve()
+
+    def _save_snapshot_plot(
+        self,
+        *,
+        msg: LaserScan,
+        png_path: Path,
+        averaged_ranges: np.ndarray,
+        valid_mask: np.ndarray,
+        probe_summary: dict[str, float],
+        closest_distance_m: float,
+        closest_angle_deg: float,
+    ) -> bool:
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            self.get_logger().warning(
+                "matplotlib no esta disponible; no se pudo guardar la imagen del snapshot"
+            )
+            return False
+
+        valid_ranges = averaged_ranges[valid_mask]
+        if valid_ranges.size == 0:
+            self.get_logger().warning(
+                "Snapshot sin puntos validos; no se pudo generar la imagen"
+            )
+            return False
+
+        angles_deg = np.degrees(
+            msg.angle_min + np.arange(averaged_ranges.size, dtype=np.float32) * msg.angle_increment
+        )
+        valid_angles_rad = np.radians(angles_deg[valid_mask])
+        x, y = _display_xy_from_polar(
+            valid_angles_rad,
+            valid_ranges,
+            right_positive=self._right_positive,
+        )
+
+        fig, ax = plt.subplots(figsize=(8, 8))
+        ax.scatter(x, y, s=8, c="tab:cyan", alpha=0.80, label="LiDAR promedio")
+        ax.scatter([0.0], [0.0], s=40, c="tab:red", label="LiDAR")
+
+        max_range_m = float(np.nanpercentile(valid_ranges, 95))
+        axis_limit_m = max(1.0, max_range_m * 1.20)
+        ax.set_xlim(-axis_limit_m, axis_limit_m)
+        ax.set_ylim(-axis_limit_m, axis_limit_m)
+        if self._right_positive:
+            ax.invert_yaxis()
+        ax.set_aspect("equal", adjustable="box")
+        ax.grid(True, alpha=0.25)
+        ax.set_xlabel("x [m] (frente+)")
+        ax.set_ylabel("y [m] (derecha+)" if self._right_positive else "y [m] (izquierda+)")
+        ax.set_title(
+            "Snapshot LiDAR estatico\n"
+            f"topic={self._topic} scans={self._snapshot_scans_collected}"
+        )
+
+        for probe_key, distance_m in probe_summary.items():
+            if distance_m <= 0.0:
+                continue
+            angle_deg = float(probe_key.replace("deg", ""))
+            angle_rad = math.radians(angle_deg)
+            px_arr, py_arr = _display_xy_from_polar(
+                np.asarray([angle_rad], dtype=np.float32),
+                np.asarray([distance_m], dtype=np.float32),
+                right_positive=self._right_positive,
+            )
+            px = float(px_arr[0])
+            py = float(py_arr[0])
+            ax.plot([0.0, px], [0.0, py], linestyle="--", linewidth=1.0, alpha=0.6, color="tab:orange")
+            ax.scatter([px], [py], s=28, c="tab:orange")
+            label_dx_arr, label_dy_arr = _display_xy_from_polar(
+                np.asarray([angle_rad], dtype=np.float32),
+                np.asarray([0.05 * axis_limit_m], dtype=np.float32),
+                right_positive=self._right_positive,
+            )
+            label_dx = float(label_dx_arr[0])
+            label_dy = float(label_dy_arr[0])
+            ax.text(
+                px + label_dx,
+                py + label_dy,
+                f"{angle_deg:+.0f} deg\n{distance_m:.3f} m",
+                fontsize=8,
+                ha="center",
+                va="center",
+                bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "alpha": 0.85, "edgecolor": "0.7"},
+            )
+
+        if closest_distance_m > 0.0:
+            closest_angle_rad = math.radians(closest_angle_deg)
+            cx_arr, cy_arr = _display_xy_from_polar(
+                np.asarray([closest_angle_rad], dtype=np.float32),
+                np.asarray([closest_distance_m], dtype=np.float32),
+                right_positive=self._right_positive,
+            )
+            cx = float(cx_arr[0])
+            cy = float(cy_arr[0])
+            ax.scatter([cx], [cy], s=44, c="tab:purple", label="Punto mas cercano")
+            ax.text(
+                cx,
+                cy,
+                f"min\n{closest_distance_m:.3f} m\n{closest_angle_deg:+.0f} deg",
+                fontsize=8,
+                ha="left",
+                va="bottom",
+                bbox={"boxstyle": "round,pad=0.25", "facecolor": "#f5e6ff", "alpha": 0.90, "edgecolor": "#9b59b6"},
+            )
+
+        ax.legend(loc="upper right")
+        fig.tight_layout()
+        fig.savefig(png_path, dpi=160)
+        plt.close(fig)
+        return True
+
+    def _save_snapshot(self, msg: LaserScan) -> None:
+        if (
+            self._snapshot_saved
+            or self._snapshot_scans_target <= 0
+            or self._snapshot_sum is None
+            or self._snapshot_counts is None
+        ):
+            return
+
+        averaged_ranges = np.divide(
+            self._snapshot_sum,
+            np.maximum(self._snapshot_counts, 1),
+            dtype=np.float32,
+        )
+        averaged_ranges[self._snapshot_counts <= 0] = np.nan
+        valid_mask = np.isfinite(averaged_ranges) & (averaged_ranges > 0.0)
+        valid_ranges = averaged_ranges[valid_mask]
+
+        base_path = self._snapshot_base_path()
+        base_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path = base_path if base_path.suffix == ".json" else base_path.with_suffix(".json")
+        csv_path = base_path.with_suffix(".csv")
+        png_path = base_path.with_suffix(".png")
+
+        closest_distance_m = 0.0
+        closest_angle_deg = 0.0
+        if valid_ranges.size > 0:
+            valid_indices = np.flatnonzero(valid_mask)
+            closest_idx = int(valid_indices[int(np.argmin(valid_ranges))])
+            closest_distance_m = float(averaged_ranges[closest_idx])
+            closest_angle_deg = _laser_angle_to_display_angle_deg(
+                math.degrees(msg.angle_min + closest_idx * msg.angle_increment),
+                self._right_positive,
+            )
+
+        probe_summary: dict[str, float] = {}
+        for angle_deg in self._probe_angles_deg:
+            probe_summary[f"{angle_deg:+.0f}deg"] = self._probe_distance_display_angle(
+                msg,
+                averaged_ranges,
+                valid_mask,
+                angle_deg,
+            )
+
+        angle_values_deg = np.degrees(
+            msg.angle_min + np.arange(averaged_ranges.size, dtype=np.float32) * msg.angle_increment
+        )
+        with csv_path.open("w", encoding="utf-8") as handle:
+            handle.write("angle_deg,range_m,count\n")
+            for angle_deg, range_m, count in zip(
+                angle_values_deg.tolist(),
+                averaged_ranges.tolist(),
+                self._snapshot_counts.tolist(),
+            ):
+                range_str = "nan" if not np.isfinite(range_m) else f"{float(range_m):.6f}"
+                display_angle_deg = _laser_angle_to_display_angle_deg(
+                    angle_deg,
+                    self._right_positive,
+                )
+                handle.write(f"{display_angle_deg:.3f},{range_str},{int(count)}\n")
+
+        payload = {
+            "topic": self._topic,
+            "scans_averaged": int(self._snapshot_scans_collected),
+            "range_min_m": float(msg.range_min),
+            "range_max_m": float(msg.range_max),
+            "closest_point": {
+                "distance_m": closest_distance_m,
+                "angle_deg": closest_angle_deg,
+            },
+            "front_m": self._probe_distance_display_angle(
+                msg, averaged_ranges, valid_mask, 0.0
+            ),
+            "front_left_45_m": self._probe_distance_display_angle(
+                msg, averaged_ranges, valid_mask, -45.0
+            ),
+            "front_right_45_m": self._probe_distance_display_angle(
+                msg, averaged_ranges, valid_mask, 45.0
+            ),
+            "left_90_m": self._probe_distance_display_angle(
+                msg, averaged_ranges, valid_mask, -90.0
+            ),
+            "right_90_m": self._probe_distance_display_angle(
+                msg, averaged_ranges, valid_mask, 90.0
+            ),
+            "probes_m": probe_summary,
+        }
+        json_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        plot_saved = self._save_snapshot_plot(
+            msg=msg,
+            png_path=png_path,
+            averaged_ranges=averaged_ranges,
+            valid_mask=valid_mask,
+            probe_summary=probe_summary,
+            closest_distance_m=closest_distance_m,
+            closest_angle_deg=closest_angle_deg,
+        )
+
+        self._snapshot_saved = True
+        snapshot_targets = [str(json_path), str(csv_path)]
+        if plot_saved:
+            snapshot_targets.append(str(png_path))
+        self.get_logger().info("Snapshot guardado: %s" % " | ".join(snapshot_targets))
+        if self._snapshot_exit:
+            self.get_logger().info("Snapshot completado; cerrando subscriber.")
+            rclpy.shutdown()
+
+    def _update_snapshot(self, msg: LaserScan, ranges: np.ndarray, valid_mask: np.ndarray) -> None:
+        if self._snapshot_scans_target <= 0 or self._snapshot_saved:
+            return
+        if self._snapshot_sum is None or self._snapshot_counts is None:
+            self._snapshot_sum = np.zeros_like(ranges, dtype=np.float64)
+            self._snapshot_counts = np.zeros_like(ranges, dtype=np.int32)
+
+        self._snapshot_sum[valid_mask] += ranges[valid_mask]
+        self._snapshot_counts[valid_mask] += 1
+        self._snapshot_scans_collected += 1
+        if self._snapshot_scans_collected >= self._snapshot_scans_target:
+            self._save_snapshot(msg)
 
     def _odom_cb(self, msg: Odometry) -> None:
         if self._mapper is None:
@@ -664,6 +1038,7 @@ class LidarSubscriberNode(Node):
         if msg.range_max > 0.0 and np.isfinite(msg.range_max):
             valid_mask = valid_mask & (ranges <= float(msg.range_max))
         valid = ranges[valid_mask]
+        self._update_snapshot(msg, ranges, valid_mask)
 
         if self._plotter is not None and valid.size > 0:
             angles = msg.angle_min + np.arange(ranges.size, dtype=np.float32) * msg.angle_increment
@@ -682,9 +1057,9 @@ class LidarSubscriberNode(Node):
             self.get_logger().warning("Sin puntos validos en este scan")
             return
 
-        front = _safe_value_by_angle(msg, ranges, 0.0)
-        left = _safe_value_by_angle(msg, ranges, 90.0)
-        right = _safe_value_by_angle(msg, ranges, -90.0)
+        front = self._probe_distance_display_angle(msg, ranges, valid_mask, 0.0)
+        left = self._probe_distance_display_angle(msg, ranges, valid_mask, -90.0)
+        right = self._probe_distance_display_angle(msg, ranges, valid_mask, 90.0)
 
         summary = (
             "Puntos=%d | min=%.3fm avg=%.3fm max=%.3fm | front=%.3fm left=%.3fm right=%.3fm"
@@ -698,6 +1073,7 @@ class LidarSubscriberNode(Node):
                 right,
             )
         )
+        summary += self._format_probe_summary(msg, ranges, valid_mask)
 
         if map_state is not None:
             summary += (
@@ -737,6 +1113,38 @@ def parse_args() -> argparse.Namespace:
         "--full",
         action="store_true",
         help="Imprime el arreglo completo de 360 mediciones",
+    )
+    parser.add_argument(
+        "--right-positive",
+        action="store_true",
+        help="Usa convencion visual con derecha positiva e izquierda negativa",
+    )
+    parser.add_argument(
+        "--probe-angles-deg",
+        default="0,45,90,-45,-90,180",
+        help="Lista separada por comas de angulos a medir en consola",
+    )
+    parser.add_argument(
+        "--probe-window-deg",
+        type=float,
+        default=2.0,
+        help="Semiancho angular usado para promediar cada sonda",
+    )
+    parser.add_argument(
+        "--snapshot-scans",
+        type=int,
+        default=0,
+        help="Si es >0, promedia este numero de scans y guarda una captura estatica",
+    )
+    parser.add_argument(
+        "--snapshot-output",
+        default="",
+        help="Ruta base de salida para snapshot (.json y .csv). Si se omite, usa el directorio actual",
+    )
+    parser.add_argument(
+        "--snapshot-exit",
+        action="store_true",
+        help="Salir automaticamente al terminar el snapshot",
     )
     parser.add_argument(
         "--plot",
@@ -858,7 +1266,8 @@ def main() -> None:
     finally:
         node.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

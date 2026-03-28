@@ -151,6 +151,19 @@ def analyze_flags(rows: list[dict], config: dict, run_metadata: dict) -> dict:
     orientation_expectation = infer_orientation_expectation(run_id)
     wall_avoid_distance = safe_float(config.get("wall_avoid_distance_m")) or 0.45
     slow_distance = safe_float(config.get("slow_distance_m")) or 0.90
+    curve_nav_modes = {
+        "curve_capture",
+        "curve_entry",
+        "curve_follow",
+        "curve_exit",
+        "fullsoft_follow",
+    }
+    trajectory_curve_phases = {
+        "curve_entry",
+        "curve_follow",
+        "curve_exit",
+        "fullsoft_follow",
+    }
 
     nav_rows = [row for row in rows if safe_float(row.get("target_heading_deg")) is not None]
     direction_signs = [
@@ -228,7 +241,8 @@ def analyze_flags(rows: list[dict], config: dict, run_metadata: dict) -> dict:
 
         if 0.0 < min_side_m < wall_avoid_distance:
             near_wall_rows.append(row)
-            if row.get("active_heading_source") != "avoidance":
+            source = str(row.get("active_heading_source") or "")
+            if source != "avoidance" and not source.startswith("fullsoft_"):
                 avoidance_missing_rows.append(row)
         if desired_sign != 0 and actual_sign != 0 and desired_sign != actual_sign and front_clearance_m <= slow_distance:
             wrong_direction_rows.append(row)
@@ -241,7 +255,7 @@ def analyze_flags(rows: list[dict], config: dict, run_metadata: dict) -> dict:
         for row in nav_rows
         if row.get("curve_gate_open")
         and abs(safe_float(row.get("curve_intent_score")) or 0.0) <= 1e-6
-        and str(row.get("nav_mode")) not in {"curve_capture", "curve_entry", "curve_follow"}
+        and str(row.get("nav_mode")) not in curve_nav_modes
     ]
     wrong_sign_during_capture_rows = []
     curve_canceled_by_near_wall_rows = []
@@ -260,7 +274,7 @@ def analyze_flags(rows: list[dict], config: dict, run_metadata: dict) -> dict:
         if str(row.get("sign_veto_reason")) == "near_wall_limit_curve_veto":
             curve_canceled_by_near_wall_rows.append(row)
         if (
-            nav_mode in {"curve_capture", "curve_entry", "curve_follow"}
+            nav_mode in curve_nav_modes
             and steering_floor_deg > 0.0
             and steering_deg + 1e-6 < steering_floor_deg
         ):
@@ -268,7 +282,7 @@ def analyze_flags(rows: list[dict], config: dict, run_metadata: dict) -> dict:
         if (
             row.get("curve_gate_open")
             and gate_curve_sign != 0
-            and nav_mode not in {"curve_capture", "curve_entry", "curve_follow", "curve_exit"}
+            and nav_mode not in curve_nav_modes
             and speed_pct > 0.0
         ):
             straight_through_curve_rows.append(row)
@@ -281,10 +295,12 @@ def analyze_flags(rows: list[dict], config: dict, run_metadata: dict) -> dict:
     trajectory_curve_rows = [
         row
         for row in trajectory_rows
-        if row.get("trajectory_phase") in {"curve_entry", "curve_follow", "curve_exit"}
+        if row.get("trajectory_phase") in trajectory_curve_phases
     ]
     trajectory_follow_rows = [
-        row for row in trajectory_rows if row.get("trajectory_phase") == "curve_follow"
+        row
+        for row in trajectory_rows
+        if row.get("trajectory_phase") in {"curve_follow", "fullsoft_follow"}
     ]
     trajectory_slew_limit = (
         safe_float(config.get("trajectory_curvature_slew_per_cycle")) or 0.22
