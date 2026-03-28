@@ -60,7 +60,7 @@ write_pwm_snapshot() {
       exit 0
     fi
 
-    find /sys/class/pwm -maxdepth 2 -type f \
+    find /sys/class/pwm -maxdepth 4 -type f \
       \( -name enable -o -name period -o -name duty_cycle \) \
       | sort \
       | while read -r path; do
@@ -69,6 +69,119 @@ write_pwm_snapshot() {
           echo
         done
   } > "${output_path}"
+}
+
+read_param_value() {
+  local key="$1"
+  python3 - "${PARAMS_FILE}" "${key}" <<'PY'
+import re
+import sys
+
+params_path = sys.argv[1]
+target_key = sys.argv[2]
+pattern = re.compile(r"^\s*" + re.escape(target_key) + r"\s*:\s*(.*?)\s*$")
+
+with open(params_path, "r", encoding="utf-8") as handle:
+    for raw_line in handle:
+        line = raw_line.split("#", 1)[0].rstrip()
+        match = pattern.match(line)
+        if match:
+            print(match.group(1).strip().strip('"').strip("'"))
+            break
+PY
+}
+
+first_pwm_chip_path() {
+  find /sys/class/pwm -maxdepth 1 -type d -name 'pwmchip*' | sort | head -n 1
+}
+
+ensure_pwm_channel_dir() {
+  local chip_path="$1"
+  local channel="$2"
+  local pwm_dir="${chip_path}/pwm${channel}"
+  if [ ! -d "${pwm_dir}" ]; then
+    echo "${channel}" > "${chip_path}/export" 2>/dev/null || true
+    local waited=0
+    while [ ! -d "${pwm_dir}" ] && [ "${waited}" -lt 50 ]; do
+      sleep 0.05
+      waited=$((waited + 1))
+    done
+  fi
+  if [ -d "${pwm_dir}" ]; then
+    printf '%s\n' "${pwm_dir}"
+  fi
+}
+
+set_pwm_output_pct() {
+  local pwm_dir="$1"
+  local frequency_hz="$2"
+  local duty_cycle_pct="$3"
+  local keep_enabled="${4:-1}"
+  if [ -z "${pwm_dir}" ] || [ ! -d "${pwm_dir}" ]; then
+    return
+  fi
+  python3 - "${pwm_dir}" "${frequency_hz}" "${duty_cycle_pct}" "${keep_enabled}" <<'PY'
+import math
+import os
+import sys
+
+pwm_dir = sys.argv[1]
+frequency_hz = max(1.0, float(sys.argv[2]))
+duty_cycle_pct = max(0.0, min(100.0, float(sys.argv[3])))
+keep_enabled = int(sys.argv[4]) != 0
+
+period_ns = int(round(1.0e9 / frequency_hz))
+duty_cycle_ns = int(round(period_ns * duty_cycle_pct / 100.0))
+
+with open(os.path.join(pwm_dir, "period"), "w", encoding="utf-8") as handle:
+    handle.write(f"{period_ns}\n")
+with open(os.path.join(pwm_dir, "duty_cycle"), "w", encoding="utf-8") as handle:
+    handle.write(f"{duty_cycle_ns}\n")
+with open(os.path.join(pwm_dir, "enable"), "w", encoding="utf-8") as handle:
+    handle.write("1\n" if keep_enabled else "0\n")
+PY
+}
+
+force_motor_neutral_from_params() {
+  if [ ! -d /sys/class/pwm ]; then
+    return
+  fi
+  local chip_path channel frequency_hz neutral_dc pwm_dir
+  chip_path="$(first_pwm_chip_path)"
+  channel="$(read_param_value "motor_channel")"
+  frequency_hz="$(read_param_value "motor_frequency_hz")"
+  neutral_dc="$(read_param_value "motor_neutral_dc")"
+  pwm_dir="$(ensure_pwm_channel_dir "${chip_path}" "${channel}")"
+  if [ -n "${pwm_dir}" ]; then
+    set_pwm_output_pct "${pwm_dir}" "${frequency_hz}" "${neutral_dc}" 1
+    echo "[APEX] Forced motor neutral on ${pwm_dir} at ${neutral_dc}%"
+  fi
+}
+
+force_steering_center_from_params() {
+  if [ ! -d /sys/class/pwm ]; then
+    return
+  fi
+  local chip_path channel frequency_hz dc_min dc_max trim_dc center_dc pwm_dir
+  chip_path="$(first_pwm_chip_path)"
+  channel="$(read_param_value "steering_channel")"
+  frequency_hz="$(read_param_value "steering_frequency_hz")"
+  dc_min="$(read_param_value "steering_dc_min")"
+  dc_max="$(read_param_value "steering_dc_max")"
+  trim_dc="$(read_param_value "steering_center_trim_dc")"
+  center_dc="$(python3 - "${dc_min}" "${dc_max}" "${trim_dc}" <<'PY'
+import sys
+dc_min = float(sys.argv[1])
+dc_max = float(sys.argv[2])
+trim_dc = float(sys.argv[3])
+print((0.5 * (dc_min + dc_max)) + trim_dc)
+PY
+)"
+  pwm_dir="$(ensure_pwm_channel_dir "${chip_path}" "${channel}")"
+  if [ -n "${pwm_dir}" ]; then
+    set_pwm_output_pct "${pwm_dir}" "${frequency_hz}" "${center_dc}" 1
+    echo "[APEX] Forced steering center on ${pwm_dir} at ${center_dc}%"
+  fi
 }
 
 write_debug_metadata() {
@@ -100,29 +213,169 @@ docker_env_path.write_text(
     encoding="utf-8",
 )
 
+record_debug_enabled = os.environ.get("APEX_RECORD_DEBUG", "0") == "1"
+bundle_dir = Path(os.environ.get("APEX_DEBUG_BUNDLE_DIR", ""))
+bag_dir_raw = os.environ.get("APEX_RAW_BAG_DIR", "")
+bag_dir = Path(bag_dir_raw) if bag_dir_raw else None
+bag_expected = record_debug_enabled and bool(bag_dir_raw)
+bag_dir_present = bool(bag_dir and bag_dir.exists())
+bag_mcap_path_raw = os.environ.get("APEX_FINAL_MCAP_PATH", "")
+bag_metadata_path_raw = os.environ.get("APEX_FINAL_BAG_METADATA_PATH", "")
+bag_mcap_path = Path(bag_mcap_path_raw) if bag_mcap_path_raw else None
+bag_metadata_path = Path(bag_metadata_path_raw) if bag_metadata_path_raw else None
+docker_tail_log = Path(os.environ.get("APEX_DOCKER_TAIL_LOG", ""))
+recon_log_path = Path(os.environ.get("APEX_RECON_LOG_PATH", ""))
+params_snapshot = Path(os.environ.get("APEX_PARAMS_SNAPSHOT_PATH", ""))
+slam_params_snapshot = Path(os.environ.get("APEX_SLAM_PARAMS_SNAPSHOT_PATH", ""))
+pwm_snapshot_before = bundle_dir / "pwm_snapshot_before.txt"
+pwm_snapshot_after = bundle_dir / "pwm_snapshot_after.txt"
+
+shutdown_diag_begin_present = False
+shutdown_diag_final_present = False
+if recon_log_path.is_file():
+    with recon_log_path.open("r", encoding="utf-8", errors="ignore") as handle:
+        for raw_line in handle:
+            if not raw_line.startswith("DIAG_STOP "):
+                continue
+            try:
+                payload = json.loads(raw_line.split(" ", 1)[1])
+            except Exception:
+                continue
+            stage = payload.get("stage")
+            if stage == "begin":
+                shutdown_diag_begin_present = True
+            elif stage == "final":
+                shutdown_diag_final_present = True
+
+pwm_snapshot_before_present = pwm_snapshot_before.is_file()
+pwm_snapshot_after_present = pwm_snapshot_after.is_file()
+bag_mcap_present = bool(bag_mcap_path and bag_mcap_path.is_file())
+bag_metadata_present = bool(bag_metadata_path and bag_metadata_path.is_file())
+docker_tail_present = docker_tail_log.is_file()
+recon_log_present = recon_log_path.is_file()
+params_snapshot_present = params_snapshot.is_file()
+slam_params_snapshot_present = slam_params_snapshot.is_file()
+
+shutdown_clean = (
+    shutdown_diag_begin_present
+    and shutdown_diag_final_present
+    and pwm_snapshot_after_present
+)
+
+bundle_missing_artifacts = []
+if not pwm_snapshot_before_present:
+    bundle_missing_artifacts.append("pwm_snapshot_before.txt")
+if not pwm_snapshot_after_present:
+    bundle_missing_artifacts.append("pwm_snapshot_after.txt")
+if not shutdown_diag_begin_present:
+    bundle_missing_artifacts.append("DIAG_STOP begin")
+if not shutdown_diag_final_present:
+    bundle_missing_artifacts.append("DIAG_STOP final")
+if not docker_tail_present:
+    bundle_missing_artifacts.append("docker_tail.log")
+if not recon_log_present:
+    bundle_missing_artifacts.append("recon_diagnostic.log")
+if not params_snapshot_present:
+    bundle_missing_artifacts.append("config/apex_params.yaml")
+if not slam_params_snapshot_present:
+    bundle_missing_artifacts.append("config/apex_slam_toolbox.yaml")
+if bag_expected and not bag_dir_present:
+    bundle_missing_artifacts.append("bag/raw_debug_run")
+if bag_expected and not bag_mcap_present:
+    bundle_missing_artifacts.append("bag/debug_run.mcap")
+if bag_expected and not bag_metadata_present:
+    bundle_missing_artifacts.append("bag/metadata.yaml")
+
+bundle_complete = (
+    shutdown_clean
+    and docker_tail_present
+    and recon_log_present
+    and params_snapshot_present
+    and slam_params_snapshot_present
+    and (not bag_expected or (bag_dir_present and bag_mcap_present and bag_metadata_present))
+)
+
 metadata = {
     "run_id": os.environ.get("APEX_DEBUG_RUN_NAME", ""),
     "git_commit": os.environ.get("APEX_GIT_COMMIT", "unknown"),
     "git_dirty_count": os.environ.get("APEX_GIT_DIRTY", "unknown"),
-    "bundle_dir": os.environ.get("APEX_DEBUG_BUNDLE_DIR", ""),
-    "bag_dir": os.environ.get("APEX_RAW_BAG_DIR", ""),
-    "bag_mcap_path": os.environ.get("APEX_FINAL_MCAP_PATH", ""),
-    "bag_metadata_path": os.environ.get("APEX_FINAL_BAG_METADATA_PATH", ""),
-    "docker_tail_log": os.environ.get("APEX_DOCKER_TAIL_LOG", ""),
-    "recon_diagnostic_log": os.environ.get("APEX_RECON_LOG_PATH", ""),
-    "params_snapshot": os.environ.get("APEX_PARAMS_SNAPSHOT_PATH", ""),
-    "slam_params_snapshot": os.environ.get("APEX_SLAM_PARAMS_SNAPSHOT_PATH", ""),
+    "bundle_dir": str(bundle_dir),
+    "bag_dir": bag_dir_raw,
+    "bag_expected": bag_expected,
+    "bag_mcap_path": bag_mcap_path_raw,
+    "bag_mcap_present": bag_mcap_present,
+    "bag_metadata_path": bag_metadata_path_raw,
+    "bag_metadata_present": bag_metadata_present,
+    "docker_tail_log": str(docker_tail_log),
+    "docker_tail_present": docker_tail_present,
+    "recon_diagnostic_log": str(recon_log_path),
+    "recon_diagnostic_present": recon_log_present,
+    "params_snapshot": str(params_snapshot),
+    "params_snapshot_present": params_snapshot_present,
+    "slam_params_snapshot": str(slam_params_snapshot),
+    "slam_params_snapshot_present": slam_params_snapshot_present,
     "record_debug_enabled": os.environ.get("APEX_RECORD_DEBUG", "0"),
     "diagnostic_mode_env": os.environ.get("APEX_RECON_DIAGNOSTIC_MODE", ""),
     "steering_direction_sign_env": os.environ.get("APEX_STEERING_DIRECTION_SIGN", ""),
     "lidar_heading_offset_env": os.environ.get("APEX_LIDAR_HEADING_OFFSET_DEG", ""),
     "timestamp_utc": os.environ.get("APEX_RUN_TIMESTAMP_UTC", ""),
+    "pwm_snapshot_before_present": pwm_snapshot_before_present,
+    "pwm_snapshot_after_present": pwm_snapshot_after_present,
+    "shutdown_diag_begin_present": shutdown_diag_begin_present,
+    "shutdown_diag_final_present": shutdown_diag_final_present,
+    "shutdown_clean": shutdown_clean,
+    "bundle_complete": bundle_complete,
+    "bundle_missing_artifacts": bundle_missing_artifacts,
     "env_overrides": selected_env,
 }
 metadata_path.write_text(
     json.dumps(metadata, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",
 )
+PY
+}
+
+validate_debug_artifacts() {
+  if [ "${APEX_RECORD_DEBUG:-0}" != "1" ] || [ -z "${APEX_DEBUG_BUNDLE_DIR}" ]; then
+    return 0
+  fi
+
+  local metadata_path="${APEX_DEBUG_BUNDLE_DIR}/run_metadata.json"
+  if [ ! -f "${metadata_path}" ]; then
+    echo "[APEX][ERROR] Missing run_metadata.json in ${APEX_DEBUG_BUNDLE_DIR}"
+    return 1
+  fi
+
+  python3 - "${metadata_path}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+metadata_path = Path(sys.argv[1])
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+errors = []
+
+if not metadata.get("shutdown_clean", False):
+    errors.append("shutdown_clean=false")
+if not metadata.get("pwm_snapshot_after_present", False):
+    errors.append("pwm_snapshot_after.txt missing")
+if metadata.get("bag_expected", False) and not metadata.get("bag_mcap_present", False):
+    errors.append("bag/debug_run.mcap missing")
+if metadata.get("bag_expected", False) and not metadata.get("bag_metadata_present", False):
+    errors.append("bag/metadata.yaml missing")
+if not metadata.get("bundle_complete", False):
+    missing = metadata.get("bundle_missing_artifacts", [])
+    if missing:
+        errors.append("bundle_missing_artifacts=" + ", ".join(str(item) for item in missing))
+    else:
+        errors.append("bundle_complete=false")
+
+if errors:
+    for error in errors:
+        print(f"[APEX][ERROR] {error}")
+    sys.exit(1)
+
+print(f"[APEX] Debug bundle complete: {metadata_path.parent}")
 PY
 }
 
@@ -155,7 +408,6 @@ finalize_debug_artifacts() {
 }
 
 cleanup() {
-  write_pwm_snapshot "after"
   if [ -n "${APEX_ROSBAG_PID}" ]; then
     kill -INT "${APEX_ROSBAG_PID}" 2>/dev/null || true
     wait "${APEX_ROSBAG_PID}" 2>/dev/null || true
@@ -174,7 +426,13 @@ cleanup() {
     kill "$pid" 2>/dev/null || true
   done
   wait || true
+  force_motor_neutral_from_params
+  force_steering_center_from_params
+  write_pwm_snapshot "after"
   finalize_debug_artifacts
+  if ! validate_debug_artifacts; then
+    echo "[APEX][ERROR] Debug artifact validation failed"
+  fi
 }
 
 trap cleanup INT TERM EXIT

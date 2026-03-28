@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REMOTE_HOST="${1:-ensta@raspberrypi.local}"
+REMOTE_HOST="${1:-ensta@raspberrypi}"
 RUN_ID="${2:-latest}"
-REMOTE_ROOT="${3:-/home/ensta/Voiture-Autonome/code/APEX/ros2_ws/debug_runs}"
+REMOTE_ROOT="${3:-/home/ensta/AiAtonomousRc/APEX/ros2_ws/debug_runs}"
 LOCAL_ROOT="${4:-$(pwd)/debug_runs}"
 
 if [ "${RUN_ID}" = "latest" ]; then

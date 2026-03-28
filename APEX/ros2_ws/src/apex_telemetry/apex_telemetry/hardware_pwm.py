@@ -7,6 +7,7 @@ import errno
 import glob
 import os
 import time
+from typing import Any
 
 
 class HardwarePWM:
@@ -55,6 +56,14 @@ class HardwarePWM:
     def _write_int(self, path: str, value: int) -> None:
         self._write_text(path, f"{int(value)}\n")
 
+    @staticmethod
+    def _read_int(path: str) -> int | None:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                return int(handle.read().strip())
+        except Exception:
+            return None
+
     def set_duty_cycle(self, duty_cycle_pct: float) -> None:
         duty_cycle_pct = max(0.0, min(100.0, float(duty_cycle_pct)))
         active_ns = int(round(self._period_ns * duty_cycle_pct / 100.0))
@@ -67,8 +76,19 @@ class HardwarePWM:
             "PWM started on %s at %.3f%%" % (self._pwm_dir, float(duty_cycle_pct))
         )
 
-    def stop(self) -> None:
+    def disable(self) -> None:
         try:
             self._write_int(os.path.join(self._pwm_dir, "enable"), 0)
         except Exception:
             pass
+
+    def stop(self) -> None:
+        self.disable()
+
+    def get_state(self) -> dict[str, Any]:
+        return {
+            "pwm_dir": self._pwm_dir,
+            "period_ns": self._read_int(os.path.join(self._pwm_dir, "period")),
+            "duty_cycle_ns": self._read_int(os.path.join(self._pwm_dir, "duty_cycle")),
+            "enabled": self._read_int(os.path.join(self._pwm_dir, "enable")),
+        }
