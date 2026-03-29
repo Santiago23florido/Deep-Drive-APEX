@@ -5,5 +5,5 @@ import runpy
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(__file__).resolve().parent / "analysis" / "analyze_lidar_curve_snapshot.py"
+SCRIPT_PATH = Path(__file__).resolve().parent / "analysis" / "build_lidar_snapshot.py"
 runpy.run_path(str(SCRIPT_PATH), run_name="__main__")

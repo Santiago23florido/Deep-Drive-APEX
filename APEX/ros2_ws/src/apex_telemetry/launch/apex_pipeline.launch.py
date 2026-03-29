@@ -9,6 +9,8 @@ def generate_launch_description() -> LaunchDescription:
     params_file = LaunchConfiguration("params_file")
     serial_port = LaunchConfiguration("serial_port")
     serial_baudrate = LaunchConfiguration("serial_baudrate")
+    lidar_port = LaunchConfiguration("lidar_port")
+    lidar_baudrate = LaunchConfiguration("lidar_baudrate")
 
     serial_reader = Node(
         package="apex_telemetry",
@@ -32,6 +34,36 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[params_file],
     )
 
+    kinematics_odometry = Node(
+        package="apex_telemetry",
+        executable="kinematics_odometry_node",
+        name="kinematics_odometry_node",
+        output="screen",
+        parameters=[params_file],
+    )
+
+    lidar_node = Node(
+        package="apex_telemetry",
+        executable="rplidar_publisher_node",
+        name="apex_rplidar_publisher",
+        output="screen",
+        parameters=[
+            params_file,
+            {
+                "port": lidar_port,
+                "baudrate": lidar_baudrate,
+            },
+        ],
+    )
+
+    laser_tf_node = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="base_to_laser_tf",
+        output="screen",
+        arguments=["0.18", "0.0", "0.12", "0.0", "0.0", "0.0", "base_link", "laser"],
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -42,7 +74,12 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument("serial_port", default_value="/dev/ttyACM0"),
             DeclareLaunchArgument("serial_baudrate", default_value="115200"),
+            DeclareLaunchArgument("lidar_port", default_value="/dev/ttyUSB0"),
+            DeclareLaunchArgument("lidar_baudrate", default_value="115200"),
             serial_reader,
             kinematics_estimator,
+            kinematics_odometry,
+            lidar_node,
+            laser_tf_node,
         ]
     )

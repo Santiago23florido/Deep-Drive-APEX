@@ -11,11 +11,30 @@ import rclpy
 from geometry_msgs.msg import PointStamped, Vector3Stamped
 from rclpy.node import Node
 from rclpy.time import Time
+from sensor_msgs.msg import Imu
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 
 GRAVITY_MPS2 = 9.80665
+
+
+def _rpy_to_quat(roll_rad: float, pitch_rad: float, yaw_rad: float) -> tuple[float, float, float, float]:
+    half_roll = 0.5 * roll_rad
+    half_pitch = 0.5 * pitch_rad
+    half_yaw = 0.5 * yaw_rad
+    cr = math.cos(half_roll)
+    sr = math.sin(half_roll)
+    cp = math.cos(half_pitch)
+    sp = math.sin(half_pitch)
+    cy = math.cos(half_yaw)
+    sy = math.sin(half_yaw)
+    return (
+        (sr * cp * cy) - (cr * sp * sy),
+        (cr * sp * cy) + (sr * cp * sy),
+        (cr * cp * sy) - (sr * sp * cy),
+        (cr * cp * cy) + (sr * sp * sy),
+    )
 
 
 class KinematicsEstimatorNode(Node):
@@ -31,6 +50,7 @@ class KinematicsEstimatorNode(Node):
         self.declare_parameter("position_topic", "/apex/kinematics/position")
         self.declare_parameter("angular_velocity_topic", "/apex/kinematics/angular_velocity")
         self.declare_parameter("heading_topic", "/apex/kinematics/heading")
+        self.declare_parameter("corrected_imu_topic", "/apex/imu/data_corrected")
         self.declare_parameter("frame_id", "base_link")
         self.declare_parameter("use_message_time", True)
         self.declare_parameter("max_dt_s", 0.1)
@@ -52,6 +72,14 @@ class KinematicsEstimatorNode(Node):
         self.declare_parameter("status_topic", "/apex/kinematics/status")
         self.declare_parameter("startup_static_calibration_enabled", True)
         self.declare_parameter("startup_static_calibration_duration_s", 2.5)
+        self.declare_parameter("calibration_accel_stddev_threshold_mps2", 0.08)
+        self.declare_parameter("calibration_gyro_stddev_threshold_rps", 0.015)
+        self.declare_parameter("calibration_gravity_norm_tolerance_mps2", 0.35)
+        self.declare_parameter("calibration_best_effort_enabled", True)
+        self.declare_parameter("calibration_max_total_duration_s", 6.0)
+        self.declare_parameter("calibration_fallback_accel_stddev_threshold_mps2", 0.22)
+        self.declare_parameter("calibration_fallback_gyro_stddev_threshold_rps", 0.035)
+        self.declare_parameter("calibration_fallback_gravity_norm_tolerance_mps2", 0.80)
         self.declare_parameter("stationary_accel_threshold_mps2", 0.10)
         self.declare_parameter("stationary_gyro_threshold_rps", 0.02)
         self.declare_parameter("stationary_speed_threshold_mps", 0.05)
@@ -87,11 +115,39 @@ class KinematicsEstimatorNode(Node):
         self._gyro_bias_y = float(self.get_parameter("gyro_bias_y").value)
         self._gyro_bias_z = float(self.get_parameter("gyro_bias_z").value)
         self._status_topic = str(self.get_parameter("status_topic").value)
+        self._calibration_accel_stddev_threshold_mps2 = max(
+            0.0, float(self.get_parameter("calibration_accel_stddev_threshold_mps2").value)
+        )
+        self._calibration_gyro_stddev_threshold_rps = max(
+            0.0, float(self.get_parameter("calibration_gyro_stddev_threshold_rps").value)
+        )
+        self._calibration_gravity_norm_tolerance_mps2 = max(
+            0.0, float(self.get_parameter("calibration_gravity_norm_tolerance_mps2").value)
+        )
         self._startup_static_calibration_enabled = bool(
             self.get_parameter("startup_static_calibration_enabled").value
         )
         self._startup_static_calibration_duration_s = max(
             0.0, float(self.get_parameter("startup_static_calibration_duration_s").value)
+        )
+        self._calibration_best_effort_enabled = bool(
+            self.get_parameter("calibration_best_effort_enabled").value
+        )
+        self._calibration_max_total_duration_s = max(
+            self._startup_static_calibration_duration_s,
+            float(self.get_parameter("calibration_max_total_duration_s").value),
+        )
+        self._calibration_fallback_accel_stddev_threshold_mps2 = max(
+            self._calibration_accel_stddev_threshold_mps2,
+            float(self.get_parameter("calibration_fallback_accel_stddev_threshold_mps2").value),
+        )
+        self._calibration_fallback_gyro_stddev_threshold_rps = max(
+            self._calibration_gyro_stddev_threshold_rps,
+            float(self.get_parameter("calibration_fallback_gyro_stddev_threshold_rps").value),
+        )
+        self._calibration_fallback_gravity_norm_tolerance_mps2 = max(
+            self._calibration_gravity_norm_tolerance_mps2,
+            float(self.get_parameter("calibration_fallback_gravity_norm_tolerance_mps2").value),
         )
         self._stationary_accel_threshold_mps2 = max(
             0.0, float(self.get_parameter("stationary_accel_threshold_mps2").value)
@@ -125,6 +181,7 @@ class KinematicsEstimatorNode(Node):
         position_topic = str(self.get_parameter("position_topic").value)
         angular_velocity_topic = str(self.get_parameter("angular_velocity_topic").value)
         heading_topic = str(self.get_parameter("heading_topic").value)
+        corrected_imu_topic = str(self.get_parameter("corrected_imu_topic").value)
 
         self._sub = self.create_subscription(Vector3Stamped, input_topic, self._accel_callback, 50)
         self._gyro_sub = self.create_subscription(
@@ -135,6 +192,7 @@ class KinematicsEstimatorNode(Node):
         self._pub_pos = self.create_publisher(PointStamped, position_topic, 20)
         self._pub_ang_vel = self.create_publisher(Vector3Stamped, angular_velocity_topic, 20)
         self._pub_heading = self.create_publisher(Vector3Stamped, heading_topic, 20)
+        self._pub_corrected_imu = self.create_publisher(Imu, corrected_imu_topic, 20)
         self._pub_status = self.create_publisher(String, self._status_topic, 20)
         self._reset_srv = self.create_service(Trigger, "reset_kinematics", self._handle_reset)
         self._recalibrate_srv = self.create_service(
@@ -162,10 +220,17 @@ class KinematicsEstimatorNode(Node):
         self._calibration_active = False
         self._calibration_complete = not self._startup_static_calibration_enabled
         self._calibration_start_time: Optional[Time] = None
+        self._calibration_overall_start_time: Optional[Time] = None
         self._calibration_accel_sum = [0.0, 0.0, 0.0]
         self._calibration_gyro_sum = [0.0, 0.0, 0.0]
+        self._calibration_accel_sum_sq = [0.0, 0.0, 0.0]
+        self._calibration_gyro_sum_sq = [0.0, 0.0, 0.0]
         self._calibration_accel_count = 0
         self._calibration_gyro_count = 0
+        self._calibration_accel_stddev_mps2 = 0.0
+        self._calibration_gyro_stddev_rps = 0.0
+        self._calibration_retry_count = 0
+        self._calibration_best_effort_used = False
         self._level_roll_rad = 0.0
         self._level_pitch_rad = 0.0
         self._session_accel_bias_x = 0.0
@@ -177,6 +242,9 @@ class KinematicsEstimatorNode(Node):
         self._session_gravity_mps2 = GRAVITY_MPS2
         self._raw_accel_planar_mps2 = 0.0
         self._corrected_accel_planar_mps2 = 0.0
+        self._corr_ax_body = 0.0
+        self._corr_ay_body = 0.0
+        self._corr_az_body = 0.0
         self._stationary_detected = False
         self._stationary_candidate_started_at: Optional[Time] = None
         self._zupt_applied = False
@@ -208,21 +276,37 @@ class KinematicsEstimatorNode(Node):
         return 0.0 if abs(value) < self._gyro_deadband else value
 
     def _begin_static_calibration(self, reason: str) -> None:
+        preserve_overall_window = reason in {"quality_retry", "nonfinite_calibration_retry"}
         self._reset_state_vectors()
         self._calibration_active = True
         self._calibration_complete = False
         self._calibration_start_time = None
+        if not preserve_overall_window:
+            self._calibration_overall_start_time = None
+            self._calibration_retry_count = 0
+            self._calibration_best_effort_used = False
+        else:
+            self._calibration_retry_count += 1
         self._calibration_accel_sum = [0.0, 0.0, 0.0]
         self._calibration_gyro_sum = [0.0, 0.0, 0.0]
+        self._calibration_accel_sum_sq = [0.0, 0.0, 0.0]
+        self._calibration_gyro_sum_sq = [0.0, 0.0, 0.0]
         self._calibration_accel_count = 0
         self._calibration_gyro_count = 0
+        self._calibration_accel_stddev_mps2 = 0.0
+        self._calibration_gyro_stddev_rps = 0.0
         self._stationary_detected = True
         self._zupt_applied = True
         self._velocity_decay_active = False
         self._odom_translation_confidence = 0.0
         self.get_logger().info(
-            "Static calibration started (%s, %.2fs)"
-            % (reason, self._startup_static_calibration_duration_s)
+            "Static calibration started (%s, %.2fs window, %.2fs max total, retry=%d)"
+            % (
+                reason,
+                self._startup_static_calibration_duration_s,
+                self._calibration_max_total_duration_s,
+                self._calibration_retry_count,
+            )
         )
 
     def _reset_state_vectors(self) -> None:
@@ -244,6 +328,9 @@ class KinematicsEstimatorNode(Node):
         self._yaw_rate = 0.0
         self._raw_accel_planar_mps2 = 0.0
         self._corrected_accel_planar_mps2 = 0.0
+        self._corr_ax_body = 0.0
+        self._corr_ay_body = 0.0
+        self._corr_az_body = 0.0
         self._stationary_candidate_started_at = None
 
     @staticmethod
@@ -316,7 +403,10 @@ class KinematicsEstimatorNode(Node):
             return False
         if self._calibration_start_time is None:
             return False
+        if self._calibration_overall_start_time is None:
+            self._calibration_overall_start_time = self._calibration_start_time
         elapsed_s = (now_t - self._calibration_start_time).nanoseconds * 1e-9
+        total_elapsed_s = (now_t - self._calibration_overall_start_time).nanoseconds * 1e-9
         if elapsed_s < self._startup_static_calibration_duration_s:
             return False
         if self._calibration_accel_count < 10 or self._calibration_gyro_count < 10:
@@ -328,6 +418,71 @@ class KinematicsEstimatorNode(Node):
         mean_gx = self._calibration_gyro_sum[0] / float(self._calibration_gyro_count)
         mean_gy = self._calibration_gyro_sum[1] / float(self._calibration_gyro_count)
         mean_gz = self._calibration_gyro_sum[2] / float(self._calibration_gyro_count)
+        accel_var = [
+            max(
+                0.0,
+                (self._calibration_accel_sum_sq[index] / float(self._calibration_accel_count))
+                - (mean_val * mean_val),
+            )
+            for index, mean_val in enumerate((mean_ax, mean_ay, mean_az))
+        ]
+        gyro_var = [
+            max(
+                0.0,
+                (self._calibration_gyro_sum_sq[index] / float(self._calibration_gyro_count))
+                - (mean_val * mean_val),
+            )
+            for index, mean_val in enumerate((mean_gx, mean_gy, mean_gz))
+        ]
+        self._calibration_accel_stddev_mps2 = float(
+            math.sqrt(sum(accel_var) / float(len(accel_var)))
+        )
+        self._calibration_gyro_stddev_rps = float(
+            math.sqrt(sum(gyro_var) / float(len(gyro_var)))
+        )
+        gravity_norm_mps2 = math.sqrt((mean_ax * mean_ax) + (mean_ay * mean_ay) + (mean_az * mean_az))
+        strict_reject = (
+            self._calibration_accel_stddev_mps2 > self._calibration_accel_stddev_threshold_mps2
+            or self._calibration_gyro_stddev_rps > self._calibration_gyro_stddev_threshold_rps
+            or abs(gravity_norm_mps2 - GRAVITY_MPS2) > self._calibration_gravity_norm_tolerance_mps2
+        )
+        fallback_ok = (
+            self._calibration_accel_stddev_mps2
+            <= self._calibration_fallback_accel_stddev_threshold_mps2
+            and self._calibration_gyro_stddev_rps
+            <= self._calibration_fallback_gyro_stddev_threshold_rps
+            and abs(gravity_norm_mps2 - GRAVITY_MPS2)
+            <= self._calibration_fallback_gravity_norm_tolerance_mps2
+        )
+        if strict_reject:
+            if (
+                self._calibration_best_effort_enabled
+                and total_elapsed_s >= self._calibration_max_total_duration_s
+                and fallback_ok
+            ):
+                self._calibration_best_effort_used = True
+                self.get_logger().warning(
+                    "Static calibration accepted in best-effort mode after %.2fs "
+                    "(accel_std=%.4f gyro_std=%.5f gravity_norm=%.4f)"
+                    % (
+                        total_elapsed_s,
+                        self._calibration_accel_stddev_mps2,
+                        self._calibration_gyro_stddev_rps,
+                        gravity_norm_mps2,
+                    )
+                )
+            else:
+                self.get_logger().warning(
+                    "Static calibration rejected (accel_std=%.4f gyro_std=%.5f gravity_norm=%.4f total=%.2fs); retrying"
+                    % (
+                        self._calibration_accel_stddev_mps2,
+                        self._calibration_gyro_stddev_rps,
+                        gravity_norm_mps2,
+                        total_elapsed_s,
+                    )
+                )
+                self._begin_static_calibration("quality_retry")
+                return False
 
         adjusted_ax = mean_ax - self._bias_x
         adjusted_ay = mean_ay - self._bias_y
@@ -396,9 +551,14 @@ class KinematicsEstimatorNode(Node):
             return
         if self._calibration_start_time is None:
             self._calibration_start_time = now_t
+        if self._calibration_overall_start_time is None:
+            self._calibration_overall_start_time = now_t
         self._calibration_accel_sum[0] += ax
         self._calibration_accel_sum[1] += ay
         self._calibration_accel_sum[2] += az
+        self._calibration_accel_sum_sq[0] += ax * ax
+        self._calibration_accel_sum_sq[1] += ay * ay
+        self._calibration_accel_sum_sq[2] += az * az
         self._calibration_accel_count += 1
 
     def _calibration_collect_gyro(self, gx: float, gy: float, gz: float, now_t: Time) -> None:
@@ -406,9 +566,14 @@ class KinematicsEstimatorNode(Node):
             return
         if self._calibration_start_time is None:
             self._calibration_start_time = now_t
+        if self._calibration_overall_start_time is None:
+            self._calibration_overall_start_time = now_t
         self._calibration_gyro_sum[0] += gx
         self._calibration_gyro_sum[1] += gy
         self._calibration_gyro_sum[2] += gz
+        self._calibration_gyro_sum_sq[0] += gx * gx
+        self._calibration_gyro_sum_sq[1] += gy * gy
+        self._calibration_gyro_sum_sq[2] += gz * gz
         self._calibration_gyro_count += 1
 
     def _correct_accel_sample(
@@ -436,6 +601,9 @@ class KinematicsEstimatorNode(Node):
             corrected_az,
         )
         corrected_ax, corrected_ay = self._rotate_planar_mount(corrected_ax, corrected_ay)
+        self._corr_ax_body = float(corrected_ax)
+        self._corr_ay_body = float(corrected_ay)
+        self._corr_az_body = float(corrected_az)
         return float(corrected_ax), float(corrected_ay), float(corrected_az)
 
     def _apply_gravity_compensation(self, ax: float, ay: float, az: float) -> tuple[float, float, float]:
@@ -612,6 +780,8 @@ class KinematicsEstimatorNode(Node):
         payload = {
             "calibration_active": self._calibration_active,
             "calibration_complete": self._calibration_complete,
+            "calibration_retry_count": self._calibration_retry_count,
+            "calibration_best_effort_used": self._calibration_best_effort_used,
             "stationary_detected": self._stationary_detected,
             "zupt_applied": self._zupt_applied,
             "velocity_decay_active": self._velocity_decay_active,
@@ -625,6 +795,8 @@ class KinematicsEstimatorNode(Node):
             "planar_mount_yaw_deg": self._planar_mount_yaw_deg,
             "session_gravity_mps2": self._finite_or_zero(self._session_gravity_mps2),
             "effective_gyro_bias_z": self._finite_or_zero(self._gyro_bias_z + self._session_gyro_bias_z),
+            "calibration_accel_stddev_mps2": self._finite_or_zero(self._calibration_accel_stddev_mps2),
+            "calibration_gyro_stddev_rps": self._finite_or_zero(self._calibration_gyro_stddev_rps),
             "calibration_accel_samples": self._calibration_accel_count,
             "calibration_gyro_samples": self._calibration_gyro_count,
         }
@@ -876,6 +1048,35 @@ class KinematicsEstimatorNode(Node):
         heading_msg.vector.y = 0.0
         heading_msg.vector.z = self._finite_or_zero(self._yaw)
         self._pub_heading.publish(heading_msg)
+
+        qx, qy, qz, qw = _rpy_to_quat(
+            self._finite_or_zero(self._level_roll_rad),
+            self._finite_or_zero(self._level_pitch_rad),
+            self._finite_or_zero(self._yaw),
+        )
+        imu_msg = Imu()
+        imu_msg.header.stamp = stamp
+        imu_msg.header.frame_id = self._frame_id
+        imu_msg.orientation.x = qx
+        imu_msg.orientation.y = qy
+        imu_msg.orientation.z = qz
+        imu_msg.orientation.w = qw
+        imu_msg.orientation_covariance[0] = 0.01
+        imu_msg.orientation_covariance[4] = 0.01
+        imu_msg.orientation_covariance[8] = 0.04
+        imu_msg.angular_velocity.x = self._finite_or_zero(self._f_gx)
+        imu_msg.angular_velocity.y = self._finite_or_zero(self._f_gy)
+        imu_msg.angular_velocity.z = self._finite_or_zero(self._yaw_rate)
+        imu_msg.angular_velocity_covariance[0] = 0.01
+        imu_msg.angular_velocity_covariance[4] = 0.01
+        imu_msg.angular_velocity_covariance[8] = 0.02
+        imu_msg.linear_acceleration.x = self._finite_or_zero(self._corr_ax_body)
+        imu_msg.linear_acceleration.y = self._finite_or_zero(self._corr_ay_body)
+        imu_msg.linear_acceleration.z = self._finite_or_zero(self._corr_az_body)
+        imu_msg.linear_acceleration_covariance[0] = 0.02
+        imu_msg.linear_acceleration_covariance[4] = 0.02
+        imu_msg.linear_acceleration_covariance[8] = 0.04
+        self._pub_corrected_imu.publish(imu_msg)
 
     def _handle_reset(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         self._reset_state_vectors()
