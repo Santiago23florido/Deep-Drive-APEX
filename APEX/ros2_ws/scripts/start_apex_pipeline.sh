@@ -18,6 +18,9 @@ PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_params.yaml"
 PIDS=()
 ENABLE_KINEMATICS="${APEX_ENABLE_KINEMATICS:-1}"
 ENABLE_IMU_LIDAR_FUSION="${APEX_ENABLE_IMU_LIDAR_FUSION:-0}"
+ENABLE_CURVE_ENTRY_PLANNER="${APEX_ENABLE_CURVE_ENTRY_PLANNER:-0}"
+ENABLE_PATH_TRACKER="${APEX_ENABLE_PATH_TRACKER:-0}"
+ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
 
 read_param_value() {
   local key="$1"
@@ -181,6 +184,33 @@ else
   echo "[APEX] Online IMU+LiDAR fusion disabled for this run"
 fi
 
+if [[ "${ENABLE_CURVE_ENTRY_PLANNER}" == "1" ]]; then
+  python3 -m apex_telemetry.perception.curve_entry_path_planner_node \
+    --ros-args \
+    --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
+else
+  echo "[APEX] Curve-entry planner disabled for this run"
+fi
+
+if [[ "${ENABLE_PATH_TRACKER}" == "1" ]]; then
+  python3 -m apex_telemetry.control.curve_path_tracker_node \
+    --ros-args \
+    --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
+else
+  echo "[APEX] Curve path tracker disabled for this run"
+fi
+
+if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
+  python3 -m apex_telemetry.actuation.cmd_vel_to_apex_actuation_node \
+    --ros-args \
+    --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
+else
+  echo "[APEX] CmdVel actuation bridge disabled for this run"
+fi
+
 ros2 run tf2_ros static_transform_publisher \
   --x "${APEX_LIDAR_X_M:-0.18}" \
   --y "${APEX_LIDAR_Y_M:-0.0}" \
@@ -192,14 +222,30 @@ ros2 run tf2_ros static_transform_publisher \
   --child-frame-id "${APEX_LIDAR_FRAME:-laser}" &
 PIDS+=("$!")
 
-if [[ "${ENABLE_KINEMATICS}" == "1" && "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
-  echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR + raw odometry + online fusion)"
-elif [[ "${ENABLE_KINEMATICS}" == "1" ]]; then
-  echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR + raw odometry)"
-elif [[ "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
-  echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR + online fusion)"
-else
-  echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR)"
+PIPELINE_FEATURES=("Nano raw" "LiDAR")
+if [[ "${ENABLE_KINEMATICS}" == "1" ]]; then
+  PIPELINE_FEATURES+=("raw odometry")
 fi
+if [[ "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
+  PIPELINE_FEATURES+=("online fusion")
+fi
+if [[ "${ENABLE_CURVE_ENTRY_PLANNER}" == "1" ]]; then
+  PIPELINE_FEATURES+=("curve planner")
+fi
+if [[ "${ENABLE_PATH_TRACKER}" == "1" ]]; then
+  PIPELINE_FEATURES+=("path tracker")
+fi
+if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
+  PIPELINE_FEATURES+=("cmd_vel bridge")
+fi
+PIPELINE_FEATURE_SUMMARY=""
+for FEATURE in "${PIPELINE_FEATURES[@]}"; do
+  if [[ -z "${PIPELINE_FEATURE_SUMMARY}" ]]; then
+    PIPELINE_FEATURE_SUMMARY="${FEATURE}"
+  else
+    PIPELINE_FEATURE_SUMMARY="${PIPELINE_FEATURE_SUMMARY} + ${FEATURE}"
+  fi
+done
+echo "[APEX] Minimal raw pipeline started (${PIPELINE_FEATURE_SUMMARY})"
 
 wait -n "${PIDS[@]}"

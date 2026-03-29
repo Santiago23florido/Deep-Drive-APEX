@@ -23,6 +23,9 @@ export APEX_RECORD_DEBUG=0
 export APEX_SKIP_BUILD="${APEX_SKIP_BUILD:-1}"
 export APEX_ENABLE_KINEMATICS="${APEX_ENABLE_KINEMATICS:-1}"
 export APEX_ENABLE_IMU_LIDAR_FUSION="${APEX_ENABLE_IMU_LIDAR_FUSION:-0}"
+export APEX_ENABLE_CURVE_ENTRY_PLANNER="${APEX_ENABLE_CURVE_ENTRY_PLANNER:-0}"
+export APEX_ENABLE_PATH_TRACKER="${APEX_ENABLE_PATH_TRACKER:-0}"
+export APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
 
 if [[ "${APEX_NANO_PREFLIGHT:-1}" == "1" ]]; then
   if ! "${NANO_PREFLIGHT_SCRIPT}"; then
@@ -98,5 +101,23 @@ fi
 if [[ "${APEX_ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
   require_topic /apex/estimation/status || {
     postcheck_fail "Missing /apex/estimation/status in raw-capture mode"
+  }
+fi
+
+if [[ "${APEX_ENABLE_CURVE_ENTRY_PLANNER}" == "1" ]]; then
+  require_topic /apex/planning/curve_entry_status || {
+    postcheck_fail "Missing /apex/planning/curve_entry_status in raw-capture mode"
+  }
+fi
+
+if [[ "${APEX_ENABLE_PATH_TRACKER}" == "1" ]]; then
+  require_topic /apex/tracking/status || {
+    postcheck_fail "Missing /apex/tracking/status in raw-capture mode"
+  }
+fi
+
+if [[ "${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
+  require_topic /apex/vehicle/drive_bridge_status || {
+    postcheck_fail "Missing /apex/vehicle/drive_bridge_status in raw-capture mode"
   }
 fi

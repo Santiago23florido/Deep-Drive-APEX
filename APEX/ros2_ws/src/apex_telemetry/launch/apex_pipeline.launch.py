@@ -13,6 +13,9 @@ def generate_launch_description() -> LaunchDescription:
     lidar_port = LaunchConfiguration("lidar_port")
     lidar_baudrate = LaunchConfiguration("lidar_baudrate")
     enable_imu_lidar_fusion = LaunchConfiguration("enable_imu_lidar_fusion")
+    enable_curve_entry_planner = LaunchConfiguration("enable_curve_entry_planner")
+    enable_path_tracker = LaunchConfiguration("enable_path_tracker")
+    enable_cmdvel_actuation_bridge = LaunchConfiguration("enable_cmdvel_actuation_bridge")
 
     serial_reader = Node(
         package="apex_telemetry",
@@ -75,6 +78,33 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(enable_imu_lidar_fusion),
     )
 
+    curve_entry_path_planner = Node(
+        package="apex_telemetry",
+        executable="curve_entry_path_planner_node",
+        name="curve_entry_path_planner_node",
+        output="screen",
+        parameters=[params_file],
+        condition=IfCondition(enable_curve_entry_planner),
+    )
+
+    curve_path_tracker = Node(
+        package="apex_telemetry",
+        executable="curve_path_tracker_node",
+        name="curve_path_tracker_node",
+        output="screen",
+        parameters=[params_file],
+        condition=IfCondition(enable_path_tracker),
+    )
+
+    cmdvel_actuation_bridge = Node(
+        package="apex_telemetry",
+        executable="cmd_vel_to_apex_actuation_node",
+        name="cmd_vel_to_apex_actuation_node",
+        output="screen",
+        parameters=[params_file],
+        condition=IfCondition(enable_cmdvel_actuation_bridge),
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -88,11 +118,17 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("lidar_port", default_value="/dev/ttyUSB0"),
             DeclareLaunchArgument("lidar_baudrate", default_value="115200"),
             DeclareLaunchArgument("enable_imu_lidar_fusion", default_value="false"),
+            DeclareLaunchArgument("enable_curve_entry_planner", default_value="false"),
+            DeclareLaunchArgument("enable_path_tracker", default_value="false"),
+            DeclareLaunchArgument("enable_cmdvel_actuation_bridge", default_value="false"),
             serial_reader,
             kinematics_estimator,
             kinematics_odometry,
             lidar_node,
             laser_tf_node,
             imu_lidar_planar_fusion,
+            curve_entry_path_planner,
+            curve_path_tracker,
+            cmdvel_actuation_bridge,
         ]
     )
