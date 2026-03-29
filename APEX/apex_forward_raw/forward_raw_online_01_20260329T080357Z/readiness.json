@@ -1,0 +1,16 @@
+{
+  "ready": true,
+  "elapsed_s": 2.884221717999992,
+  "imu": {
+    "count": 7,
+    "required": 5,
+    "first_receipt_offset_s": 2.7715706309999746,
+    "last_receipt_offset_s": 2.8803961859999845
+  },
+  "lidar": {
+    "count": 39,
+    "required": 3,
+    "first_receipt_offset_s": 0.08263161399997898,
+    "last_receipt_offset_s": 2.8451396419999924
+  }
+}
