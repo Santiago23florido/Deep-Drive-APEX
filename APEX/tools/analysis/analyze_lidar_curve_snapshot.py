@@ -275,13 +275,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--snapshot-right-positive",
         action="store_true",
-        default=True,
-        help="Interpret the snapshot display angles as derecha+ / izquierda- (default).",
+        default=False,
+        help="Interpret the snapshot display angles as derecha+ / izquierda-.",
     )
     parser.add_argument(
         "--snapshot-left-positive",
         action="store_true",
-        help="Interpret the snapshot display angles as izquierda+ / derecha-.",
+        help="Interpret the snapshot display angles as izquierda+ / derecha- (default).",
     )
     parser.add_argument("--x-bin-m", type=float, default=0.05, help="Bin width along x")
     parser.add_argument("--fit-x-min-m", type=float, default=-0.75, help="Start x of straight fit")

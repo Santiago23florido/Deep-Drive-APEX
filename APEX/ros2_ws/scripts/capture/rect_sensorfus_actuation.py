@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 THIS_FILE = Path(__file__).resolve()
-APEX_PYTHON_ROOT = THIS_FILE.parents[1] / "src" / "apex_telemetry"
+APEX_PYTHON_ROOT = THIS_FILE.parents[2] / "src" / "apex_telemetry"
 if str(APEX_PYTHON_ROOT) not in sys.path:
     sys.path.insert(0, str(APEX_PYTHON_ROOT))
 

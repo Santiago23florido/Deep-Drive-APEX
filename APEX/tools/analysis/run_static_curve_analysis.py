@@ -31,11 +31,20 @@ def main() -> None:
     run_dir = Path(args.run_dir).expanduser().resolve()
     snapshot_path = run_dir / "lidar_snapshot.csv"
     output_prefix = run_dir / "lidar_snapshot"
+    legacy_prefix = run_dir / "lidar_snapshot_leftpos"
 
-    build_cmd = [sys.executable, str(BUILD_SNAPSHOT_SCRIPT), "--run-dir", str(run_dir)]
-    if args.scan_index is not None:
-        build_cmd.extend(["--scan-index", str(args.scan_index)])
-    subprocess.run(build_cmd, check=True)
+    for suffix in ("_curve_analysis.png", "_curve_analysis.json"):
+        legacy_path = legacy_prefix.with_name(legacy_prefix.name + suffix)
+        if legacy_path.exists():
+            legacy_path.unlink()
+
+    if not snapshot_path.exists():
+        build_cmd = [sys.executable, str(BUILD_SNAPSHOT_SCRIPT), "--run-dir", str(run_dir)]
+        if args.scan_index is not None:
+            build_cmd.extend(["--scan-index", str(args.scan_index)])
+        subprocess.run(build_cmd, check=True)
+    elif snapshot_path.stat().st_size <= 0:
+        raise SystemExit(f"Snapshot exists but is empty: {snapshot_path}")
 
     analyze_cmd = [
         sys.executable,

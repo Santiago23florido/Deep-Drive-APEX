@@ -11,6 +11,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, LaserScan
 
 
@@ -62,8 +63,18 @@ class RectSensorCaptureNode(Node):
             ]
         )
 
-        self.create_subscription(Imu, imu_topic, self._imu_callback, 200)
-        self.create_subscription(LaserScan, scan_topic, self._scan_callback, 50)
+        self.create_subscription(
+            Imu,
+            imu_topic,
+            self._imu_callback,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            LaserScan,
+            scan_topic,
+            self._scan_callback,
+            qos_profile_sensor_data,
+        )
         self.create_timer(0.1, self._tick)
 
         self.get_logger().info(

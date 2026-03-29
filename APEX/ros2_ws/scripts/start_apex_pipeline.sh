@@ -4,7 +4,9 @@ set -euo pipefail
 export AMENT_TRACE_SETUP_FILES="${AMENT_TRACE_SETUP_FILES:-}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
+set +u
 source /opt/ros/jazzy/setup.bash
+set -u
 
 export PYTHONPATH="/work/ros2_ws/src/apex_telemetry:${PYTHONPATH:-}"
 APEX_VENV_SITEPKG="$(echo /opt/apex_venv/lib/python*/site-packages)"
@@ -14,6 +16,7 @@ fi
 
 PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_params.yaml"
 PIDS=()
+ENABLE_KINEMATICS="${APEX_ENABLE_KINEMATICS:-1}"
 
 read_param_value() {
   local key="$1"
@@ -147,15 +150,19 @@ python3 -m apex_telemetry.imu.nano_accel_serial_node \
   -p baudrate:="${APEX_BAUDRATE:-115200}" &
 PIDS+=("$!")
 
-python3 -m apex_telemetry.odometry.kinematics_estimator_node \
-  --ros-args \
-  --params-file "${PARAMS_FILE}" &
-PIDS+=("$!")
+if [[ "${ENABLE_KINEMATICS}" == "1" ]]; then
+  python3 -m apex_telemetry.odometry.kinematics_estimator_node \
+    --ros-args \
+    --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
 
-python3 -m apex_telemetry.odometry.kinematics_odometry_node \
-  --ros-args \
-  --params-file "${PARAMS_FILE}" &
-PIDS+=("$!")
+  python3 -m apex_telemetry.odometry.kinematics_odometry_node \
+    --ros-args \
+    --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
+else
+  echo "[APEX] Kinematics/raw odometry disabled for this run"
+fi
 
 python3 -m apex_telemetry.perception.rplidar_publisher_node \
   --ros-args \
@@ -175,6 +182,10 @@ ros2 run tf2_ros static_transform_publisher \
   --child-frame-id "${APEX_LIDAR_FRAME:-laser}" &
 PIDS+=("$!")
 
-echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR + raw odometry)"
+if [[ "${ENABLE_KINEMATICS}" == "1" ]]; then
+  echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR + raw odometry)"
+else
+  echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR)"
+fi
 
 wait -n "${PIDS[@]}"

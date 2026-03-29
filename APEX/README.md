@@ -78,6 +78,22 @@ Archivos generados en Raspberry:
 - `ros2_ws/apex_rect_sensorfus/<run>/lidar_points.csv`
 - `ros2_ws/apex_rect_sensorfus/<run>/pwm_trace.csv`
 
+## Curva estática aislada
+
+Captura solo LiDAR, sin movimiento ni actuation:
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/capture/apex_static_curve_capture.sh \
+  --run-id curva_estatica_01 \
+  --capture-duration-s 4.0
+```
+
+Archivos generados en Raspberry:
+- `ros2_ws/apex_static_curve/<run>/lidar_points.csv`
+- `ros2_ws/apex_static_curve/<run>/lidar_snapshot.csv`
+- `ros2_ws/apex_static_curve/<run>/capture.log`
+
 ## Traer al PC
 
 ```bash
@@ -104,7 +120,7 @@ Construir el snapshot y generar directamente la imagen/json:
 ```bash
 cd /home/santiago/AiAtonomousRc/APEX
 python3 ./tools/analysis/run_static_curve_analysis.py \
-  --run-dir ./apex_rect_sensorfus/curva_estatica_01_YYYYMMDDTHHMMSSZ
+  --run-dir ./apex_static_curve/curva_estatica_01_YYYYMMDDTHHMMSSZ
 ```
 
 Archivos generados:
