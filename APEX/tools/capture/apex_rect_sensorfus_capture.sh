@@ -23,6 +23,8 @@ STEERING_DEG="${APEX_RECT_SENSORFUS_STEERING_DEG:-0.0}"
 PRE_ARM_NEUTRAL_S="${APEX_RECT_SENSORFUS_PRE_ARM_NEUTRAL_S:-0.8}"
 SYSFS_MONITOR_SAMPLE_DT_S="${APEX_RECT_SENSORFUS_SYSFS_MONITOR_SAMPLE_DT_S:-0.02}"
 RUN_ID="${APEX_RECT_SENSORFUS_RUN_ID:-rect_capture}"
+RECORD_ONLINE_FUSION="${APEX_RECT_SENSORFUS_RECORD_ONLINE_FUSION:-0}"
+COMPARE_ONLINE_FUSION="${APEX_RECT_SENSORFUS_COMPARE_ONLINE_FUSION:-0}"
 
 usage() {
   cat <<'EOF'
@@ -274,8 +276,32 @@ monitor_duration_s = max(
 print(f"{monitor_duration_s:.3f}")
 PY
 )"
+DEFAULT_ONLINE_FUSION_RECORDER_DURATION_S="$(python3 - "${CAPTURE_DURATION_S}" "${CAPTURE_WARMUP_S}" "${PRE_ARM_NEUTRAL_S}" "${DRIVE_DELAY_S}" "${LAUNCH_DURATION_S}" "${DRIVE_DURATION_S}" <<'PY'
+import sys
+
+capture_duration_s = float(sys.argv[1])
+capture_warmup_s = float(sys.argv[2])
+pre_arm_neutral_s = float(sys.argv[3])
+drive_delay_s = float(sys.argv[4])
+launch_duration_s = float(sys.argv[5])
+drive_duration_s = float(sys.argv[6])
+minimum_window_s = (
+    capture_warmup_s
+    + pre_arm_neutral_s
+    + drive_delay_s
+    + launch_duration_s
+    + drive_duration_s
+    + 1.50
+)
+print(f"{max(capture_duration_s + 1.50, minimum_window_s):.3f}")
+PY
+)"
+ONLINE_FUSION_RECORDER_DURATION_S="${APEX_RECT_SENSORFUS_ONLINE_FUSION_RECORDER_DURATION_S:-${DEFAULT_ONLINE_FUSION_RECORDER_DURATION_S}}"
 
 finalize_bundle_artifacts() {
+  if [[ -n "${ONLINE_FUSION_RECORDER_PID:-}" ]]; then
+    wait "${ONLINE_FUSION_RECORDER_PID}" 2>/dev/null || true
+  fi
   if [[ -n "${SYSFS_MONITOR_PID:-}" ]]; then
     wait "${SYSFS_MONITOR_PID}" 2>/dev/null || true
   fi
@@ -285,6 +311,11 @@ finalize_bundle_artifacts() {
     python3 "${APEX_ROOT}/tools/analysis/analyze_forward_raw_capture.py" \
       --run-dir "${HOST_RUN_DIR}" \
       > "${HOST_RUN_DIR}/debug_summary.txt" 2>&1 || true
+  fi
+  if [[ "${COMPARE_ONLINE_FUSION}" == "1" && -f "${APEX_ROOT}/tools/analysis/compare_online_offline_fusion.py" ]]; then
+    python3 "${APEX_ROOT}/tools/analysis/compare_online_offline_fusion.py" \
+      --run-dir "${HOST_RUN_DIR}" \
+      > "${HOST_RUN_DIR}/analysis_sensor_fusion_comparison.log" 2>&1 || true
   fi
 }
 
@@ -310,6 +341,9 @@ cleanup() {
   if [[ -n "${CAPTURE_PID:-}" ]]; then
     wait "${CAPTURE_PID}" 2>/dev/null || true
   fi
+  if [[ -n "${ONLINE_FUSION_RECORDER_PID:-}" ]]; then
+    wait "${ONLINE_FUSION_RECORDER_PID}" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -326,6 +360,9 @@ cat > "${HOST_RUN_DIR}/capture_meta.json" <<EOF
   "pre_arm_neutral_s": ${PRE_ARM_NEUTRAL_S},
   "sysfs_monitor_sample_dt_s": ${SYSFS_MONITOR_SAMPLE_DT_S},
   "sysfs_monitor_duration_s": ${MONITOR_DURATION_S},
+  "record_online_fusion": ${RECORD_ONLINE_FUSION},
+  "compare_online_fusion": ${COMPARE_ONLINE_FUSION},
+  "online_fusion_recorder_duration_s": ${ONLINE_FUSION_RECORDER_DURATION_S},
   "capture_duration_s": ${CAPTURE_DURATION_S},
   "drive_delay_s": ${DRIVE_DELAY_S},
   "drive_duration_s": ${DRIVE_DURATION_S},
@@ -377,6 +414,31 @@ then
   exit 1
 fi
 
+if [[ "${RECORD_ONLINE_FUSION}" == "1" ]]; then
+  if ! docker exec "${CONTAINER_NAME}" /bin/bash -lc \
+    "source '${ROS_SETUP_SCRIPT}' && timeout '${READY_TIMEOUT_S}'s ros2 topic echo /apex/estimation/status --once" \
+    > "${HOST_RUN_DIR}/online_fusion_ready.log" 2>&1
+  then
+    echo "[APEX][ERROR] Online fusion topic /apex/estimation/status is not available. Restart apex_pipeline with APEX_ENABLE_IMU_LIDAR_FUSION=1." >&2
+    if [[ -f "${HOST_RUN_DIR}/online_fusion_ready.log" ]]; then
+      tail -n 80 "${HOST_RUN_DIR}/online_fusion_ready.log" >&2 || true
+    fi
+    write_pwm_snapshot "${HOST_RUN_DIR}/pwm_snapshot_after.txt"
+    exit 1
+  fi
+fi
+
+if [[ "${RECORD_ONLINE_FUSION}" == "1" ]]; then
+  docker exec "${CONTAINER_NAME}" /bin/bash -lc \
+    "source '${ROS_SETUP_SCRIPT}' && python3 /work/ros2_ws/scripts/capture/record_online_fusion_estimate.py \
+      --odom-topic /apex/odometry/imu_lidar_fused \
+      --status-topic /apex/estimation/status \
+      --output-dir '${CONTAINER_RUN_DIR}/analysis_sensor_fusion_online' \
+      --duration-s '${ONLINE_FUSION_RECORDER_DURATION_S}'" \
+    > "${HOST_RUN_DIR}/online_fusion_record.log" 2>&1 &
+  ONLINE_FUSION_RECORDER_PID=$!
+fi
+
 docker exec "${CONTAINER_NAME}" /bin/bash -lc \
   "source '${ROS_SETUP_SCRIPT}' && python3 /work/ros2_ws/scripts/capture/record_rect_sensorfus_capture.py \
     --imu-output '${CONTAINER_RUN_DIR}/imu_raw.csv' \
@@ -425,4 +487,11 @@ if [[ -f "${HOST_RUN_DIR}/analysis/summary.md" ]]; then
   echo "  ${HOST_RUN_DIR}/analysis/summary.md"
   echo "  ${HOST_RUN_DIR}/analysis/flags.json"
   echo "  ${HOST_RUN_DIR}/analysis/pwm_timeline.csv"
+fi
+if [[ -f "${HOST_RUN_DIR}/analysis_sensor_fusion_online/online_fusion_trajectory.csv" ]]; then
+  echo "  ${HOST_RUN_DIR}/analysis_sensor_fusion_online/online_fusion_trajectory.csv"
+  echo "  ${HOST_RUN_DIR}/analysis_sensor_fusion_online/online_fusion_summary.json"
+fi
+if [[ -f "${HOST_RUN_DIR}/analysis_sensor_fusion_comparison/online_vs_offline_summary.json" ]]; then
+  echo "  ${HOST_RUN_DIR}/analysis_sensor_fusion_comparison/online_vs_offline_summary.json"
 fi

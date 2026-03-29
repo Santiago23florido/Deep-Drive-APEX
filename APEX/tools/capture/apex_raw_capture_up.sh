@@ -22,6 +22,7 @@ export APEX_ENABLE_RECON_MAPPING=0
 export APEX_RECORD_DEBUG=0
 export APEX_SKIP_BUILD="${APEX_SKIP_BUILD:-1}"
 export APEX_ENABLE_KINEMATICS="${APEX_ENABLE_KINEMATICS:-1}"
+export APEX_ENABLE_IMU_LIDAR_FUSION="${APEX_ENABLE_IMU_LIDAR_FUSION:-0}"
 
 if [[ "${APEX_NANO_PREFLIGHT:-1}" == "1" ]]; then
   if ! "${NANO_PREFLIGHT_SCRIPT}"; then
@@ -91,5 +92,11 @@ require_topic /lidar/scan_localization || {
 if [[ "${APEX_ENABLE_KINEMATICS}" == "1" ]]; then
   require_topic /apex/odometry/imu_raw || {
     postcheck_fail "Missing /apex/odometry/imu_raw in raw-capture mode"
+  }
+fi
+
+if [[ "${APEX_ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
+  require_topic /apex/estimation/status || {
+    postcheck_fail "Missing /apex/estimation/status in raw-capture mode"
   }
 fi

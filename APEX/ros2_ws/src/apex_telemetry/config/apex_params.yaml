@@ -103,6 +103,33 @@ apex_rplidar_publisher:
     range_min: 0.05
     range_max: 12.0
 
+imu_lidar_planar_fusion_node:
+  ros__parameters:
+    imu_topic: "/apex/imu/data_raw"
+    scan_topic: "/lidar/scan_localization"
+    odom_topic: "/apex/odometry/imu_lidar_fused"
+    path_topic: "/apex/estimation/path"
+    status_topic: "/apex/estimation/status"
+    odom_frame_id: "odom_imu_lidar_fused"
+    child_frame_id: "base_link"
+    publish_tf: false
+    status_publish_rate_hz: 2.0
+    path_max_poses: 4000
+    median_window: 5
+    ema_alpha: 0.25
+    static_window_s: 0.4
+    static_search_s: 2.0
+    velocity_decay_tau_s: 1.1
+    submap_window_scans: 6
+    point_stride: 2
+    max_correspondence_m: 0.35
+    initial_scan_count_min: 4
+    max_initial_alignment_scans: 6
+    corridor_bin_m: 0.10
+    low_confidence_residual_m: 0.16
+    min_valid_correspondence_count: 14
+    max_scan_optimization_evals: 80
+
 apex_vehicle:
   ros__parameters:
     steering_channel: 1

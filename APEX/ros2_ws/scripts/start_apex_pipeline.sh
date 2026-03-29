@@ -17,6 +17,7 @@ fi
 PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_params.yaml"
 PIDS=()
 ENABLE_KINEMATICS="${APEX_ENABLE_KINEMATICS:-1}"
+ENABLE_IMU_LIDAR_FUSION="${APEX_ENABLE_IMU_LIDAR_FUSION:-0}"
 
 read_param_value() {
   local key="$1"
@@ -171,6 +172,15 @@ python3 -m apex_telemetry.perception.rplidar_publisher_node \
   -p "baudrate:=${APEX_LIDAR_BAUDRATE:-115200}" &
 PIDS+=("$!")
 
+if [[ "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
+  python3 -m apex_telemetry.estimation.imu_lidar_planar_fusion_node \
+    --ros-args \
+    --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
+else
+  echo "[APEX] Online IMU+LiDAR fusion disabled for this run"
+fi
+
 ros2 run tf2_ros static_transform_publisher \
   --x "${APEX_LIDAR_X_M:-0.18}" \
   --y "${APEX_LIDAR_Y_M:-0.0}" \
@@ -182,8 +192,12 @@ ros2 run tf2_ros static_transform_publisher \
   --child-frame-id "${APEX_LIDAR_FRAME:-laser}" &
 PIDS+=("$!")
 
-if [[ "${ENABLE_KINEMATICS}" == "1" ]]; then
+if [[ "${ENABLE_KINEMATICS}" == "1" && "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
+  echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR + raw odometry + online fusion)"
+elif [[ "${ENABLE_KINEMATICS}" == "1" ]]; then
   echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR + raw odometry)"
+elif [[ "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
+  echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR + online fusion)"
 else
   echo "[APEX] Minimal raw pipeline started (Nano raw + LiDAR)"
 fi

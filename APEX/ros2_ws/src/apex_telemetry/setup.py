@@ -43,6 +43,7 @@ setup(
             "kinematics_estimator_node = apex_telemetry.odometry.kinematics_estimator_node:main",
             "kinematics_odometry_node = apex_telemetry.odometry.kinematics_odometry_node:main",
             "rplidar_publisher_node = apex_telemetry.perception.rplidar_publisher_node:main",
+            "imu_lidar_planar_fusion_node = apex_telemetry.estimation.imu_lidar_planar_fusion_node:main",
         ],
     },
 )

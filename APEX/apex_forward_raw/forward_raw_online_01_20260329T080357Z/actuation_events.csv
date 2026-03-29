@@ -1,0 +1,5 @@
+t_s,monotonic_s,event,motor_speed_pct,motor_pwm_dc_pct,motor_enabled
+3.0006301989999997,477.876183965,pre_arm_neutral_done,0.0,7.5,1
+3.0013084280000157,477.876862194,drive_delay_start,0.0,7.5,1
+3.001769457000023,477.877323223,drive_pulse_start,20.0,8.0,1
+5.002838531999998,479.878392298,return_to_neutral,0.0,7.5,0
