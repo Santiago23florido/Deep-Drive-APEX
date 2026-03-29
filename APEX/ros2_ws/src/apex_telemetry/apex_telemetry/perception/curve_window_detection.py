@@ -23,6 +23,11 @@ class CurveWindowDetectionConfig:
     opposite_continuation_min_m: float = 0.10
     front_closure_x_window_m: float = 0.12
     front_closure_min_points: int = 6
+    second_corridor_target_depth_m: float = 0.12
+    second_corridor_target_depth_min_m: float = 0.10
+    second_corridor_target_depth_max_m: float = 0.15
+    inner_vertex_clearance_m: float = 0.12
+    curve_apex_width_fraction: float = 0.40
 
 
 @dataclass
@@ -79,6 +84,13 @@ class CurveWindowTrajectory:
     entry_center_y_m: float
     target_x_m: float
     target_y_m: float
+    entry_line_center_x_m: float
+    entry_line_center_y_m: float
+    second_corridor_axis_x: float
+    second_corridor_axis_y: float
+    target_depth_into_second_corridor_m: float
+    target_clearance_inner_m: float
+    target_clearance_outer_m: float
 
 
 @dataclass
@@ -554,12 +566,60 @@ def _bezier_curve(
     return samples[:, 0], samples[:, 1]
 
 
+def _normalize_xy(dx_m: float, dy_m: float) -> tuple[float, float]:
+    norm = float(math.hypot(dx_m, dy_m))
+    if norm <= 1.0e-9:
+        return 1.0, 0.0
+    return float(dx_m / norm), float(dy_m / norm)
+
+
+def _catmull_rom_chain(
+    points_xy: list[tuple[float, float]],
+    *,
+    samples_per_segment: int = 24,
+) -> tuple[np.ndarray, np.ndarray]:
+    control = np.asarray(points_xy, dtype=np.float64)
+    if control.ndim != 2 or control.shape[0] < 2 or control.shape[1] != 2:
+        raise ValueError("Catmull-Rom curve requires at least 2 planar points")
+    if control.shape[0] == 2:
+        line = np.linspace(control[0], control[1], max(8, samples_per_segment), dtype=np.float64)
+        return line[:, 0], line[:, 1]
+
+    padded = np.vstack([control[0], control, control[-1]])
+    samples: list[np.ndarray] = []
+    samples_per_segment = int(max(8, samples_per_segment))
+    for index in range(control.shape[0] - 1):
+        p0 = padded[index]
+        p1 = padded[index + 1]
+        p2 = padded[index + 2]
+        p3 = padded[index + 3]
+        t_values = np.linspace(
+            0.0,
+            1.0,
+            samples_per_segment,
+            endpoint=(index == (control.shape[0] - 2)),
+            dtype=np.float64,
+        )
+        t2 = t_values * t_values
+        t3 = t2 * t_values
+        segment = 0.5 * (
+            (2.0 * p1)
+            + ((-p0 + p2) * t_values[:, None])
+            + ((2.0 * p0) - (5.0 * p1) + (4.0 * p2) - p3) * t2[:, None]
+            + ((-p0) + (3.0 * p1) - (3.0 * p2) + p3) * t3[:, None]
+        )
+        samples.append(segment)
+    chain = np.vstack(samples)
+    return chain[:, 0], chain[:, 1]
+
+
 def _build_trajectory_plan(
     *,
     candidate: CurveWindowCandidate,
     left_profile: SideProfile,
     right_profile: SideProfile,
     axis_limit_m: float,
+    config: CurveWindowDetectionConfig,
 ) -> CurveWindowTrajectory:
     same_profile = left_profile if candidate.side_name == "left" else right_profile
     opposite_profile = right_profile if candidate.side_name == "left" else left_profile
@@ -579,50 +639,162 @@ def _build_trajectory_plan(
 
     entry_same_wall_y_m = _fit_y_at(same_profile, candidate.entry_x_m)
     entry_center_y_m = corridor_center_y(candidate.entry_x_m, same_side_y_m=entry_same_wall_y_m)
+    centerline_mid_x_m = min(
+        max(preturn_x_m + 0.08, 0.72 * candidate.entry_x_m),
+        max(preturn_x_m + 0.04, candidate.entry_x_m - 0.05),
+    )
+    centerline_mid_y_m = corridor_center_y(centerline_mid_x_m)
+
+    straight_hold_x_m = min(
+        max(0.10, 0.50 * candidate.entry_x_m),
+        max(0.10, candidate.entry_x_m - 0.20),
+    )
+    straight_hold_y_m = corridor_center_y(straight_hold_x_m)
+    corridor_axis_x, corridor_axis_y = _normalize_xy(
+        max(1.0e-3, straight_hold_x_m - start_x_m),
+        straight_hold_y_m - start_y_m,
+    )
+    second_corridor_axis_guess_x, second_corridor_axis_guess_y = _normalize_xy(
+        -(candidate.side_sign * corridor_axis_y),
+        candidate.side_sign * corridor_axis_x,
+    )
 
     if candidate.gap_only_opening:
         width_m = max(candidate.window_width_m, 0.40)
-        mouth_mid_x_m = candidate.entry_x_m + 0.5 * width_m
-        entry_track_y_m = entry_same_wall_y_m + candidate.side_sign * min(0.05, 0.05 * width_m)
-        target_x_m = mouth_mid_x_m
-        target_y_m = entry_same_wall_y_m + candidate.side_sign * min(0.55, 0.42 * width_m)
-    else:
-        entry_track_y_m = candidate.entry_y_m + (
-            candidate.side_sign * 0.06 * max(candidate.entry_width_m, candidate.straight_width_m)
+        target_depth_m = max(
+            config.second_corridor_target_depth_min_m,
+            min(
+                config.second_corridor_target_depth_m,
+                config.second_corridor_target_depth_max_m,
+            ),
         )
-        target_x_m = max(candidate.entry_x_m + 0.18, candidate.first_curve_x_m + 0.12)
-        target_x_m = min(target_x_m, max(candidate.entry_x_m + 0.18, axis_limit_m * 0.80))
+        outer_clearance_m = max(
+            0.10,
+            min(
+                0.20,
+                max(config.inner_vertex_clearance_m, 0.12 + (0.03 * min(1.0, width_m))),
+            ),
+        )
+        target_x_m = min(
+            candidate.entry_x_m + (0.68 * width_m),
+            candidate.opposite_wall_visible_until_x_m - 0.18,
+        )
+        target_x_m = max(target_x_m, candidate.entry_x_m + 0.30)
+
         opposite_target_y_m = _fit_y_at(opposite_profile, target_x_m)
-
-        if candidate.curve_point_count > 0:
-            same_target_y_m = candidate.first_curve_y_m
+        same_target_fit_y_m = _fit_y_at(same_profile, target_x_m)
+        target_y_m = same_target_fit_y_m - (candidate.side_sign * outer_clearance_m)
+        if candidate.side_sign > 0:
+            target_y_m = max(target_y_m, opposite_target_y_m + config.inner_vertex_clearance_m)
         else:
-            same_target_y_m = _fit_y_at(same_profile, candidate.entry_x_m) + (
-                candidate.side_sign * max(0.12, 0.16 * max(candidate.straight_width_m, 0.5))
-            )
+            target_y_m = min(target_y_m, opposite_target_y_m - config.inner_vertex_clearance_m)
 
-        inside_bias_m = min(0.16, 0.18 * max(candidate.entry_width_m, candidate.straight_width_m))
-        target_y_m = same_target_y_m + candidate.side_sign * inside_bias_m
-        if candidate.side_sign < 0:
-            target_y_m = min(target_y_m, opposite_target_y_m - 0.22 * max(candidate.entry_width_m, 0.4))
+        straight_hold_x_m = min(
+            max(0.12, 0.28 * target_x_m),
+            max(0.12, target_x_m - 0.85),
+        )
+        straight_hold_y_m = corridor_center_y(straight_hold_x_m)
+
+        preturn_x_m = min(
+            max(straight_hold_x_m + 0.16, candidate.entry_x_m + 0.22 * width_m),
+            max(straight_hold_x_m + 0.12, target_x_m - 0.48),
+        )
+        preturn_y_m = corridor_center_y(min(candidate.entry_x_m, preturn_x_m))
+
+        apex_x_m = min(
+            max(preturn_x_m + 0.12, candidate.entry_x_m + 0.48 * width_m),
+            max(preturn_x_m + 0.10, target_x_m - 0.16),
+        )
+        apex_y_m = target_y_m - (candidate.side_sign * 0.03)
+
+        axis_x, axis_y = second_corridor_axis_guess_x, second_corridor_axis_guess_y
+        entry_line_center_x_m = target_x_m - (target_depth_m * axis_x)
+        entry_line_center_y_m = target_y_m - (target_depth_m * axis_y)
+
+        left_normal_x, left_normal_y = -axis_y, axis_x
+        right_normal_x, right_normal_y = axis_y, -axis_x
+        if candidate.side_sign > 0:
+            outer_normal_x, outer_normal_y = right_normal_x, right_normal_y
         else:
-            target_y_m = max(target_y_m, opposite_target_y_m + 0.22 * max(candidate.entry_width_m, 0.4))
+            outer_normal_x, outer_normal_y = left_normal_x, left_normal_y
 
-    if candidate.gap_only_opening:
+        alignment_lead_m = max(
+            target_depth_m + 0.06,
+            min(0.22, 0.12 + (0.04 * min(1.8, width_m))),
+        )
+        alignment_entry_x_m = entry_line_center_x_m - (alignment_lead_m * axis_x)
+        alignment_entry_y_m = entry_line_center_y_m - (alignment_lead_m * axis_y)
+        final_pre_target_x_m = target_x_m - (0.50 * target_depth_m * axis_x)
+        final_pre_target_y_m = target_y_m - (0.50 * target_depth_m * axis_y)
+
+        entry_delta_x_m = entry_line_center_x_m - straight_hold_x_m
+        entry_delta_y_m = entry_line_center_y_m - straight_hold_y_m
+        outer_bias_1_m = max(
+            0.08,
+            min(
+                0.16,
+                width_m * max(0.18, min(0.50, 0.70 * config.curve_apex_width_fraction)) * 0.24,
+            ),
+        )
+        outer_bias_2_m = max(
+            0.04,
+            min(
+                0.10,
+                width_m * max(0.10, min(0.35, 0.45 * config.curve_apex_width_fraction)) * 0.18,
+            ),
+        )
+        curve_mid_1_x_m = (
+            straight_hold_x_m
+            + (0.38 * entry_delta_x_m)
+            + (outer_bias_1_m * outer_normal_x)
+        )
+        curve_mid_1_y_m = (
+            straight_hold_y_m
+            + (0.38 * entry_delta_y_m)
+            + (outer_bias_1_m * outer_normal_y)
+        )
+        curve_mid_2_x_m = (
+            straight_hold_x_m
+            + (0.72 * entry_delta_x_m)
+            + (outer_bias_2_m * outer_normal_x)
+        )
+        curve_mid_2_y_m = (
+            straight_hold_y_m
+            + (0.72 * entry_delta_y_m)
+            + (outer_bias_2_m * outer_normal_y)
+        )
+
         control_points = [
             (start_x_m, start_y_m),
-            (max(0.10, 0.55 * candidate.entry_x_m), start_y_m),
-            (candidate.entry_x_m + 0.38 * width_m, entry_track_y_m),
+            (straight_hold_x_m, straight_hold_y_m),
+            (curve_mid_1_x_m, curve_mid_1_y_m),
+            (curve_mid_2_x_m, curve_mid_2_y_m),
+            (alignment_entry_x_m, alignment_entry_y_m),
+            (entry_line_center_x_m, entry_line_center_y_m),
+            (final_pre_target_x_m, final_pre_target_y_m),
             (target_x_m, target_y_m),
         ]
+        traj_x_m, traj_y_m = _catmull_rom_chain(control_points, samples_per_segment=18)
+        target_clearance_inner_m = abs(target_y_m - opposite_target_y_m)
+        target_clearance_outer_m = abs(same_target_fit_y_m - target_y_m)
     else:
+        target_x_m = candidate.entry_x_m
+        target_y_m = entry_center_y_m
+        entry_line_center_x_m = target_x_m
+        entry_line_center_y_m = target_y_m
+        axis_x, axis_y = 1.0, 0.0
+        target_depth_m = 0.0
+        opposite_target_y_m = _fit_y_at(opposite_profile, target_x_m)
+        same_target_fit_y_m = _fit_y_at(same_profile, target_x_m)
+        target_clearance_inner_m = abs(target_y_m - opposite_target_y_m)
+        target_clearance_outer_m = abs(same_target_fit_y_m - target_y_m)
         control_points = [
             (start_x_m, start_y_m),
             (preturn_x_m, preturn_y_m),
-            (candidate.entry_x_m, entry_track_y_m),
+            (centerline_mid_x_m, centerline_mid_y_m),
             (target_x_m, target_y_m),
         ]
-    traj_x_m, traj_y_m = _bezier_curve(control_points, num_samples=90)
+        traj_x_m, traj_y_m = _catmull_rom_chain(control_points, samples_per_segment=24)
     return CurveWindowTrajectory(
         x_m=traj_x_m,
         y_m=traj_y_m,
@@ -630,6 +802,13 @@ def _build_trajectory_plan(
         entry_center_y_m=entry_center_y_m,
         target_x_m=target_x_m,
         target_y_m=target_y_m,
+        entry_line_center_x_m=entry_line_center_x_m,
+        entry_line_center_y_m=entry_line_center_y_m,
+        second_corridor_axis_x=axis_x,
+        second_corridor_axis_y=axis_y,
+        target_depth_into_second_corridor_m=target_depth_m,
+        target_clearance_inner_m=target_clearance_inner_m,
+        target_clearance_outer_m=target_clearance_outer_m,
     )
 
 
@@ -716,6 +895,7 @@ def detect_curve_window_points(
             left_profile=left_profile,
             right_profile=right_profile,
             axis_limit_m=axis_limit_m,
+            config=config,
         )
 
     return CurveWindowDetectionResult(
@@ -772,6 +952,13 @@ def detection_result_to_dict(result: CurveWindowDetectionResult) -> dict[str, An
             {
                 "curve_window_target_x_m": float(result.trajectory.target_x_m),
                 "curve_window_target_y_m": float(result.trajectory.target_y_m),
+                "curve_window_entry_line_center_x_m": float(result.trajectory.entry_line_center_x_m),
+                "curve_window_entry_line_center_y_m": float(result.trajectory.entry_line_center_y_m),
+                "curve_window_second_corridor_axis_x": float(result.trajectory.second_corridor_axis_x),
+                "curve_window_second_corridor_axis_y": float(result.trajectory.second_corridor_axis_y),
+                "curve_window_target_depth_into_second_corridor_m": float(result.trajectory.target_depth_into_second_corridor_m),
+                "curve_window_target_clearance_inner_m": float(result.trajectory.target_clearance_inner_m),
+                "curve_window_target_clearance_outer_m": float(result.trajectory.target_clearance_outer_m),
             }
         )
     return payload
@@ -845,6 +1032,12 @@ def curve_window_result_summary(result: CurveWindowDetectionResult) -> dict[str,
         "score": 0.0,
         "target_x_m": 0.0,
         "target_y_m": 0.0,
+        "entry_line_center_x_m": 0.0,
+        "entry_line_center_y_m": 0.0,
+        "second_corridor_axis_xy": [1.0, 0.0],
+        "target_depth_into_second_corridor_m": 0.0,
+        "target_clearance_inner_m": 0.0,
+        "target_clearance_outer_m": 0.0,
         "anchor_points_xy_m": [],
         "path_xy_m": [],
     }
@@ -872,6 +1065,17 @@ def curve_window_result_summary(result: CurveWindowDetectionResult) -> dict[str,
             {
                 "target_x_m": float(trajectory.target_x_m),
                 "target_y_m": float(trajectory.target_y_m),
+                "entry_line_center_x_m": float(trajectory.entry_line_center_x_m),
+                "entry_line_center_y_m": float(trajectory.entry_line_center_y_m),
+                "second_corridor_axis_xy": [
+                    float(trajectory.second_corridor_axis_x),
+                    float(trajectory.second_corridor_axis_y),
+                ],
+                "target_depth_into_second_corridor_m": float(
+                    trajectory.target_depth_into_second_corridor_m
+                ),
+                "target_clearance_inner_m": float(trajectory.target_clearance_inner_m),
+                "target_clearance_outer_m": float(trajectory.target_clearance_outer_m),
                 "anchor_points_xy_m": [
                     [float(x_m), float(y_m)] for x_m, y_m in trajectory.anchor_points
                 ],

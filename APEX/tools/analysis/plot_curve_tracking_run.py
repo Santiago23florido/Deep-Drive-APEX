@@ -126,6 +126,11 @@ def _plot_run(
     curve_summary = planner_status.get("curve_summary") or {}
     planner_pose = planner_status.get("planner_pose") or {}
     target_pose = summary.get("target_pose") or planner_status.get("target_pose") or {}
+    entry_line_center_pose = planner_status.get("entry_line_center_pose") or {}
+    second_corridor_axis_xy = planner_status.get("second_corridor_axis_xy") or {}
+    target_depth_into_second_corridor_m = planner_status.get(
+        "target_depth_into_second_corridor_m"
+    )
 
     corridor_width_m = float(curve_summary.get("window_width_m") or 0.8)
     corridor_width_m = max(0.25, min(2.5, corridor_width_m))
@@ -273,6 +278,100 @@ def _plot_run(
             label="Pose al planificar",
             zorder=7,
         )
+    if entry_line_center_pose:
+        entry_center_xy = np.asarray(
+            [
+                float(entry_line_center_pose.get("x_m", 0.0)),
+                float(entry_line_center_pose.get("y_m", 0.0)),
+            ],
+            dtype=np.float64,
+        )
+        axis_xy = np.asarray(
+            [
+                float(second_corridor_axis_xy.get("x", 0.0)),
+                float(second_corridor_axis_xy.get("y", 0.0)),
+            ],
+            dtype=np.float64,
+        )
+        axis_norm = float(np.linalg.norm(axis_xy))
+        if axis_norm > 1.0e-9:
+            axis_xy /= axis_norm
+            entry_normal_xy = np.asarray([-axis_xy[1], axis_xy[0]], dtype=np.float64)
+            line_half_width_m = max(0.18, 0.45 * corridor_width_m)
+            line_xy = np.vstack(
+                [
+                    entry_center_xy - (line_half_width_m * entry_normal_xy),
+                    entry_center_xy + (line_half_width_m * entry_normal_xy),
+                ]
+            )
+            axis_xy_plot = np.vstack(
+                [
+                    entry_center_xy,
+                    entry_center_xy + (0.32 * axis_xy),
+                ]
+            )
+            ax.plot(
+                line_xy[:, 0],
+                line_xy[:, 1],
+                color="#9467bd",
+                linestyle="--",
+                linewidth=1.6,
+                label="Entry line",
+                zorder=6,
+            )
+            ax.plot(
+                axis_xy_plot[:, 0],
+                axis_xy_plot[:, 1],
+                color="#9467bd",
+                linestyle="-.",
+                linewidth=1.4,
+                label="Eje segundo corredor",
+                zorder=6,
+            )
+            ax.scatter(
+                [entry_center_xy[0]],
+                [entry_center_xy[1]],
+                c="#9467bd",
+                s=42,
+                marker="s",
+                label="Centro entry line",
+                zorder=7,
+            )
+            if target_pose:
+                target_xy = np.asarray(
+                    [
+                        float(target_pose.get("x_m", 0.0)),
+                        float(target_pose.get("y_m", 0.0)),
+                    ],
+                    dtype=np.float64,
+                )
+                ax.plot(
+                    [entry_center_xy[0], target_xy[0]],
+                    [entry_center_xy[1], target_xy[1]],
+                    color="#ff7f0e",
+                    linestyle="--",
+                    linewidth=1.2,
+                    alpha=0.85,
+                    zorder=6,
+                )
+                if target_depth_into_second_corridor_m is not None:
+                    text_xy = 0.5 * (entry_center_xy + target_xy)
+                    ax.text(
+                        float(text_xy[0]),
+                        float(text_xy[1]),
+                        f"depth={float(target_depth_into_second_corridor_m):.2f} m",
+                        fontsize=8,
+                        color="#7a4b00",
+                        ha="left",
+                        va="bottom",
+                        bbox={
+                            "boxstyle": "round,pad=0.20",
+                            "facecolor": "white",
+                            "edgecolor": "#d9a441",
+                            "alpha": 0.8,
+                        },
+                        zorder=8,
+                    )
     if target_pose:
         ax.scatter(
             [float(target_pose.get("x_m", 0.0))],
@@ -297,6 +396,12 @@ def _plot_run(
         all_points.append(
             np.asarray([[float(target_pose.get("x_m", 0.0)), float(target_pose.get("y_m", 0.0))]])
         )
+    if entry_line_center_pose:
+        all_points.append(
+            np.asarray(
+                [[float(entry_line_center_pose.get("x_m", 0.0)), float(entry_line_center_pose.get("y_m", 0.0))]]
+            )
+        )
     stack = np.vstack(all_points)
     pad_x = max(0.15, 0.08 * float(np.max(stack[:, 0]) - np.min(stack[:, 0]) + 1e-6))
     pad_y = max(0.15, 0.08 * float(np.max(stack[:, 1]) - np.min(stack[:, 1]) + 1e-6))
@@ -315,6 +420,10 @@ def _plot_run(
     goal_distance_m = summary.get("goal_distance_m")
     if goal_distance_m is not None:
         info_lines.append(f"distancia final a objetivo: {float(goal_distance_m):.3f} m")
+    if target_depth_into_second_corridor_m is not None:
+        info_lines.append(
+            f"depth target 2do corredor: {float(target_depth_into_second_corridor_m):.2f} m"
+        )
     final_error_yaw_deg = summary.get("final_error_yaw_deg")
     if final_error_yaw_deg is not None:
         info_lines.append(f"error final yaw: {float(final_error_yaw_deg):.2f} deg")

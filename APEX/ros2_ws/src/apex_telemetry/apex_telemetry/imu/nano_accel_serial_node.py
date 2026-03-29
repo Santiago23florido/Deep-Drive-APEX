@@ -242,6 +242,11 @@ class NanoAccelSerialNode(Node):
                 ser.baudrate = self._baudrate
                 ser.timeout = self._serial_timeout_s
                 ser.write_timeout = self._serial_timeout_s
+                if not self._connect_toggle_dtr:
+                    try:
+                        ser.dtr = False
+                    except Exception:
+                        pass
                 ser.open()
                 self.get_logger().info(
                     "Connected to Arduino serial %s @ %d"

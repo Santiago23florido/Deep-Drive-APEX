@@ -68,6 +68,8 @@ class CurvePathTrackerNode(Node):
         self.declare_parameter("goal_line_stop_margin_m", 0.00)
         self.declare_parameter("goal_line_activation_tail_points", 8)
         self.declare_parameter("max_path_deviation_m", 0.45)
+        self.declare_parameter("angular_cmd_ema_alpha", 0.25)
+        self.declare_parameter("progress_index_backtrack_tolerance_points", 0)
         self.declare_parameter("startup_ramp_duration_s", 1.5)
         self.declare_parameter("startup_speed_scale_min", 0.65)
         self.declare_parameter("low_confidence_abort_hold_s", 0.75)
@@ -126,6 +128,12 @@ class CurvePathTrackerNode(Node):
         self._max_path_deviation_m = max(
             self._goal_tolerance_m, float(self.get_parameter("max_path_deviation_m").value)
         )
+        self._angular_cmd_ema_alpha = max(
+            0.0, min(1.0, float(self.get_parameter("angular_cmd_ema_alpha").value))
+        )
+        self._progress_index_backtrack_tolerance_points = max(
+            0, int(self.get_parameter("progress_index_backtrack_tolerance_points").value)
+        )
         self._startup_ramp_duration_s = max(
             0.0, float(self.get_parameter("startup_ramp_duration_s").value)
         )
@@ -173,6 +181,8 @@ class CurvePathTrackerNode(Node):
         self._terminal_cause: str | None = None
         self._tracking_started_monotonic: float | None = None
         self._low_conf_since_monotonic: float | None = None
+        self._progress_index: int | None = None
+        self._filtered_angular_z_rps: float = 0.0
         self._status_payload: dict[str, object] = {
             "state": self._state,
             "terminal": False,
@@ -202,6 +212,8 @@ class CurvePathTrackerNode(Node):
         self._path_points_xy = np.asarray(points, dtype=np.float64)
         self._path_yaw = np.asarray(yaw, dtype=np.float64)
         self._path_s = np.zeros((self._path_points_xy.shape[0],), dtype=np.float64)
+        self._progress_index = None
+        self._filtered_angular_z_rps = 0.0
         if self._path_points_xy.shape[0] > 1:
             diffs = np.diff(self._path_points_xy, axis=0)
             segment_lengths = np.hypot(diffs[:, 0], diffs[:, 1])
@@ -258,6 +270,7 @@ class CurvePathTrackerNode(Node):
             return
         self._terminal_cause = cause
         self._state = cause
+        self._filtered_angular_z_rps = 0.0
         self._publish_cmd(0.0, 0.0)
         self.get_logger().warn(f"Curve path tracking terminated: {cause}")
 
@@ -324,6 +337,7 @@ class CurvePathTrackerNode(Node):
                 "cause": None,
             }
             self._publish_cmd(0.0, 0.0)
+            self._filtered_angular_z_rps = 0.0
             self._publish_status()
             return
 
@@ -335,6 +349,7 @@ class CurvePathTrackerNode(Node):
                 "cause": None,
             }
             self._publish_cmd(0.0, 0.0)
+            self._filtered_angular_z_rps = 0.0
             self._publish_status()
             return
 
@@ -352,6 +367,7 @@ class CurvePathTrackerNode(Node):
                 "planner_state": planner_state,
             }
             self._publish_cmd(0.0, 0.0)
+            self._filtered_angular_z_rps = 0.0
             self._publish_status()
             return
 
@@ -365,6 +381,7 @@ class CurvePathTrackerNode(Node):
                 "armed": self._armed,
             }
             self._publish_cmd(0.0, 0.0)
+            self._filtered_angular_z_rps = 0.0
             self._publish_status()
             return
 
@@ -393,6 +410,8 @@ class CurvePathTrackerNode(Node):
 
         if self._tracking_started_monotonic is None:
             self._tracking_started_monotonic = now_monotonic
+            self._progress_index = None
+            self._filtered_angular_z_rps = 0.0
         elif (now_monotonic - self._tracking_started_monotonic) >= self._global_timeout_s:
             self._set_terminal("timeout")
 
@@ -413,10 +432,20 @@ class CurvePathTrackerNode(Node):
         rear_xy, rear_yaw = self._rear_axle_pose()
         deltas = self._path_points_xy - rear_xy.reshape(1, 2)
         distances = np.hypot(deltas[:, 0], deltas[:, 1])
-        nearest_index = int(np.argmin(distances))
-        path_deviation_m = float(distances[nearest_index])
-        if path_deviation_m > self._max_path_deviation_m:
+        raw_nearest_index = int(np.argmin(distances))
+        raw_path_deviation_m = float(distances[raw_nearest_index])
+        if raw_path_deviation_m > self._max_path_deviation_m:
             self._set_terminal("aborted_path_loss")
+        if self._progress_index is None:
+            self._progress_index = raw_nearest_index
+        else:
+            min_progress_index = max(
+                0,
+                self._progress_index - self._progress_index_backtrack_tolerance_points,
+            )
+            self._progress_index = max(min_progress_index, raw_nearest_index)
+        nearest_index = int(self._progress_index)
+        path_deviation_m = float(distances[nearest_index])
 
         goal_point = self._path_points_xy[-1]
         goal_yaw_rad = float(self._path_yaw[-1])
@@ -439,7 +468,8 @@ class CurvePathTrackerNode(Node):
         goal_yaw_error_rad = abs(
             _normalize_angle(goal_yaw_rad - float(rear_yaw))
         )
-        if goal_line_crossed:
+        goal_line_alignment_ready = goal_yaw_error_rad <= self._goal_yaw_tolerance_rad
+        if goal_line_crossed and goal_line_alignment_ready:
             self._set_terminal("goal_line_crossed")
         elif goal_distance_m <= self._goal_tolerance_m and goal_yaw_error_rad <= self._goal_yaw_tolerance_rad:
             self._set_terminal("goal_reached")
@@ -454,6 +484,7 @@ class CurvePathTrackerNode(Node):
                 "goal_line_projection_m": goal_line_projection_m,
                 "goal_line_lateral_error_m": goal_line_lateral_error_m,
                 "goal_line_crossed": goal_line_crossed,
+                "goal_line_alignment_ready": goal_line_alignment_ready,
             }
             self._publish_cmd(0.0, 0.0)
             self._publish_status()
@@ -535,7 +566,22 @@ class CurvePathTrackerNode(Node):
             min_linear_speed_mps if goal_distance_m > self._goal_tolerance_m else 0.0,
             min(self._max_linear_speed_mps, linear_x_mps),
         )
-        angular_z_rps = linear_x_mps * curvature
+        raw_angular_z_rps = linear_x_mps * curvature
+        if linear_x_mps <= 1.0e-6 or abs(raw_angular_z_rps) <= 1.0e-6:
+            angular_z_rps = raw_angular_z_rps
+            self._filtered_angular_z_rps = raw_angular_z_rps
+        elif abs(self._filtered_angular_z_rps) <= 1.0e-6:
+            angular_z_rps = raw_angular_z_rps
+            self._filtered_angular_z_rps = raw_angular_z_rps
+        else:
+            angular_z_rps = (
+                (self._angular_cmd_ema_alpha * raw_angular_z_rps)
+                + ((1.0 - self._angular_cmd_ema_alpha) * self._filtered_angular_z_rps)
+            )
+            self._filtered_angular_z_rps = angular_z_rps
+        filtered_curvature_m_inv = (
+            angular_z_rps / linear_x_mps if abs(linear_x_mps) > 1.0e-6 else 0.0
+        )
 
         self._state = "tracking"
         self._status_payload = {
@@ -548,21 +594,27 @@ class CurvePathTrackerNode(Node):
             "planner_ready": bool(self._planning_status.get("ready", False)),
             "fusion_state": self._fusion_status.get("state"),
             "fusion_confidence": confidence,
+            "raw_closest_path_index": raw_nearest_index,
             "closest_path_index": nearest_index,
+            "progress_index": nearest_index,
             "target_path_index": target_index,
             "goal_distance_m": goal_distance_m,
             "goal_yaw_error_rad": goal_yaw_error_rad,
             "goal_line_projection_m": goal_line_projection_m,
             "goal_line_lateral_error_m": goal_line_lateral_error_m,
             "goal_line_crossed": goal_line_crossed,
+            "goal_line_alignment_ready": goal_line_alignment_ready,
+            "raw_path_deviation_m": raw_path_deviation_m,
             "path_deviation_m": path_deviation_m,
             "startup_ramp_scale": startup_ramp_scale,
             "lookahead_m": lookahead_actual_m,
             "curvature_m_inv": curvature,
+            "filtered_curvature_m_inv": filtered_curvature_m_inv,
             "curvature_speed_limit_mps": curvature_speed_limit_mps,
             "lateral_accel_speed_limit_mps": lateral_accel_speed_limit_mps,
             "goal_speed_limit_mps": goal_speed_limit_mps,
             "cmd_linear_x_mps": linear_x_mps,
+            "raw_cmd_angular_z_rps": raw_angular_z_rps,
             "cmd_angular_z_rps": angular_z_rps,
             "rear_axle_pose": {
                 "x_m": float(rear_xy[0]),

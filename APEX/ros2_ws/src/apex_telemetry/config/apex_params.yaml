@@ -4,10 +4,10 @@ nano_accel_serial_node:
     baudrate: 115200
     serial_timeout_s: 0.5
     reconnect_delay_s: 1.0
-    connect_toggle_dtr: true
-    connect_dtr_low_s: 0.2
-    connect_settle_s: 2.0
-    flush_input_on_connect: true
+    connect_toggle_dtr: false
+    connect_dtr_low_s: 0.0
+    connect_settle_s: 0.1
+    flush_input_on_connect: false
     log_no_data_every_s: 5.0
     frame_id: "imu_link"
     topic: "/apex/imu/acceleration/raw"
@@ -154,6 +154,12 @@ curve_entry_path_planner_node:
     path_resample_step_m: 0.04
     path_smoothing_alpha: 0.22
     path_smoothing_max_iterations: 120
+    terminal_heading_tail_length_m: 0.22
+    second_corridor_target_depth_m: 0.12
+    second_corridor_target_depth_min_m: 0.10
+    second_corridor_target_depth_max_m: 0.15
+    inner_vertex_clearance_m: 0.12
+    curve_apex_width_fraction: 0.40
     status_publish_rate_hz: 2.0
 
 curve_path_tracker_node:
@@ -178,10 +184,12 @@ curve_path_tracker_node:
     max_lateral_accel_mps2: 0.08
     slowdown_distance_m: 0.55
     goal_tolerance_m: 0.18
-    goal_yaw_tolerance_rad: 0.35
+    goal_yaw_tolerance_rad: 0.26
     goal_line_stop_margin_m: 0.00
     goal_line_activation_tail_points: 8
     max_path_deviation_m: 0.45
+    angular_cmd_ema_alpha: 0.25
+    progress_index_backtrack_tolerance_points: 0
     startup_ramp_duration_s: 1.5
     startup_speed_scale_min: 0.65
     low_confidence_abort_hold_s: 0.75

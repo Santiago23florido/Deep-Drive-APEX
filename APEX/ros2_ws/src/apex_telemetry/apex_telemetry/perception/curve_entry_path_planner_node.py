@@ -23,6 +23,7 @@ from sensor_msgs.msg import LaserScan
 from std_msgs.msg import String
 
 from .curve_window_detection import (
+    CurveWindowDetectionConfig,
     curve_window_result_summary,
     detect_curve_window_points,
     scan_ranges_to_forward_left_xy,
@@ -156,6 +157,52 @@ def _smooth_path_to_curvature_limit(
     return smoothed_xy, float(np.max(curvature)) if curvature.size else 0.0
 
 
+def _enforce_terminal_heading(
+    *,
+    path_xy: np.ndarray,
+    terminal_heading_rad: float,
+    tail_length_m: float,
+) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64).copy()
+    if path_xy.shape[0] < 3 or tail_length_m <= 1.0e-6:
+        return path_xy
+
+    diffs = np.diff(path_xy, axis=0)
+    seg_lengths = np.hypot(diffs[:, 0], diffs[:, 1])
+    cumulative_s = np.concatenate([[0.0], np.cumsum(seg_lengths)])
+    total_length_m = float(cumulative_s[-1])
+    if total_length_m <= 1.0e-9:
+        return path_xy
+
+    tail_length_m = min(float(tail_length_m), total_length_m)
+    tail_start_s = total_length_m - tail_length_m
+    start_index = int(np.searchsorted(cumulative_s, tail_start_s, side="left"))
+    start_index = min(max(1, start_index), path_xy.shape[0] - 2)
+
+    terminal_dir_xy = np.asarray(
+        [math.cos(terminal_heading_rad), math.sin(terminal_heading_rad)],
+        dtype=np.float64,
+    )
+    end_point_xy = path_xy[-1].copy()
+    distances_to_end = total_length_m - cumulative_s[start_index:]
+    original_tail_xy = path_xy[start_index:].copy()
+    straight_tail_xy = end_point_xy.reshape(1, 2) - (
+        distances_to_end.reshape(-1, 1) * terminal_dir_xy.reshape(1, 2)
+    )
+    if original_tail_xy.shape[0] <= 1:
+        path_xy[-1] = end_point_xy
+        return path_xy
+
+    blend_t = np.linspace(0.0, 1.0, original_tail_xy.shape[0], dtype=np.float64)
+    blend_w = (blend_t * blend_t) * (3.0 - (2.0 * blend_t))
+    path_xy[start_index:] = (
+        ((1.0 - blend_w).reshape(-1, 1) * original_tail_xy)
+        + (blend_w.reshape(-1, 1) * straight_tail_xy)
+    )
+    path_xy[-1] = end_point_xy
+    return path_xy
+
+
 class CurveEntryPathPlannerNode(Node):
     def __init__(self) -> None:
         super().__init__("curve_entry_path_planner_node")
@@ -182,6 +229,12 @@ class CurveEntryPathPlannerNode(Node):
         self.declare_parameter("path_resample_step_m", 0.04)
         self.declare_parameter("path_smoothing_alpha", 0.22)
         self.declare_parameter("path_smoothing_max_iterations", 120)
+        self.declare_parameter("terminal_heading_tail_length_m", 0.22)
+        self.declare_parameter("second_corridor_target_depth_m", 0.12)
+        self.declare_parameter("second_corridor_target_depth_min_m", 0.10)
+        self.declare_parameter("second_corridor_target_depth_max_m", 0.15)
+        self.declare_parameter("inner_vertex_clearance_m", 0.12)
+        self.declare_parameter("curve_apex_width_fraction", 0.40)
         self.declare_parameter("status_publish_rate_hz", 2.0)
 
         self._scan_topic = str(self.get_parameter("scan_topic").value)
@@ -233,6 +286,26 @@ class CurveEntryPathPlannerNode(Node):
         )
         self._path_smoothing_max_iterations = max(
             0, int(self.get_parameter("path_smoothing_max_iterations").value)
+        )
+        self._terminal_heading_tail_length_m = max(
+            0.05, float(self.get_parameter("terminal_heading_tail_length_m").value)
+        )
+        self._detection_config = CurveWindowDetectionConfig(
+            second_corridor_target_depth_m=float(
+                self.get_parameter("second_corridor_target_depth_m").value
+            ),
+            second_corridor_target_depth_min_m=float(
+                self.get_parameter("second_corridor_target_depth_min_m").value
+            ),
+            second_corridor_target_depth_max_m=float(
+                self.get_parameter("second_corridor_target_depth_max_m").value
+            ),
+            inner_vertex_clearance_m=float(
+                self.get_parameter("inner_vertex_clearance_m").value
+            ),
+            curve_apex_width_fraction=float(
+                self.get_parameter("curve_apex_width_fraction").value
+            ),
         )
         self._max_path_curvature_m_inv = (
             self._path_curvature_limit_scale
@@ -358,6 +431,8 @@ class CurveEntryPathPlannerNode(Node):
         local_path_xy: np.ndarray,
         base_pose_xy: np.ndarray,
         base_yaw_rad: float,
+        terminal_heading_rad: float | None = None,
+        terminal_heading_tail_length_m: float = 0.0,
     ) -> tuple[Path, PoseStamped, np.ndarray, dict[str, float]]:
         lidar_origin_xy = base_pose_xy + (_rotation(base_yaw_rad) @ self._lidar_offset)
         world_path_xy = (local_path_xy @ _rotation(base_yaw_rad).T) + lidar_origin_xy
@@ -402,6 +477,16 @@ class CurveEntryPathPlannerNode(Node):
             resample_step_m=self._path_resample_step_m,
             smoothing_alpha=self._path_smoothing_alpha,
             max_iterations=self._path_smoothing_max_iterations,
+        )
+        if terminal_heading_rad is not None:
+            world_path_xy = _enforce_terminal_heading(
+                path_xy=world_path_xy,
+                terminal_heading_rad=float(terminal_heading_rad),
+                tail_length_m=float(terminal_heading_tail_length_m),
+            )
+        actual_curvature = np.abs(_estimate_path_curvature(world_path_xy))
+        path_max_curvature_m_inv = (
+            float(np.max(actual_curvature)) if actual_curvature.size else 0.0
         )
 
         path_msg = Path()
@@ -459,7 +544,11 @@ class CurveEntryPathPlannerNode(Node):
         snapshot_ranges[~np.isfinite(snapshot_ranges)] = 0.0
 
         points_x_m, points_y_m, _ = scan_ranges_to_forward_left_xy(snapshot_ranges)
-        detection = detect_curve_window_points(points_x_m, points_y_m)
+        detection = detect_curve_window_points(
+            points_x_m,
+            points_y_m,
+            config=self._detection_config,
+        )
         if not detection.valid or detection.trajectory is None:
             self._fail(
                 "no_curve_detected",
@@ -470,15 +559,44 @@ class CurveEntryPathPlannerNode(Node):
             return
 
         local_path_xy = np.column_stack([detection.trajectory.x_m, detection.trajectory.y_m])
+        planner_pose_xy = np.asarray(
+            [self._latest_odom["x_m"], self._latest_odom["y_m"]],
+            dtype=np.float64,
+        )
+        planner_yaw_rad = float(self._latest_odom["yaw_rad"])
+        world_rot = _rotation(planner_yaw_rad)
+        lidar_origin_xy = planner_pose_xy + (world_rot @ self._lidar_offset)
+        entry_line_center_local_xy = np.asarray(
+            [
+                detection.trajectory.entry_line_center_x_m,
+                detection.trajectory.entry_line_center_y_m,
+            ],
+            dtype=np.float64,
+        )
+        entry_line_center_world_xy = (world_rot @ entry_line_center_local_xy) + lidar_origin_xy
+        second_corridor_axis_world_xy = world_rot @ np.asarray(
+            [
+                detection.trajectory.second_corridor_axis_x,
+                detection.trajectory.second_corridor_axis_y,
+            ],
+            dtype=np.float64,
+        )
         path_msg, target_msg, tracking_origin_xy, path_metrics = self._build_world_path(
             stamp_sec=int(msg.header.stamp.sec),
             stamp_nanosec=int(msg.header.stamp.nanosec),
             local_path_xy=local_path_xy,
-            base_pose_xy=np.asarray(
-                [self._latest_odom["x_m"], self._latest_odom["y_m"]],
-                dtype=np.float64,
+            base_pose_xy=planner_pose_xy,
+            base_yaw_rad=planner_yaw_rad,
+            terminal_heading_rad=float(
+                math.atan2(
+                    second_corridor_axis_world_xy[1],
+                    second_corridor_axis_world_xy[0],
+                )
             ),
-            base_yaw_rad=float(self._latest_odom["yaw_rad"]),
+            terminal_heading_tail_length_m=max(
+                self._terminal_heading_tail_length_m,
+                detection.trajectory.target_depth_into_second_corridor_m + 0.04,
+            ),
         )
 
         summary = curve_window_result_summary(detection)
@@ -505,12 +623,12 @@ class CurveEntryPathPlannerNode(Node):
             "planner_pose": {
                 "x_m": float(self._latest_odom["x_m"]),
                 "y_m": float(self._latest_odom["y_m"]),
-                "yaw_rad": float(self._latest_odom["yaw_rad"]),
+                "yaw_rad": planner_yaw_rad,
             },
             "tracking_origin_pose": {
                 "x_m": float(tracking_origin_xy[0]),
                 "y_m": float(tracking_origin_xy[1]),
-                "yaw_rad": float(self._latest_odom["yaw_rad"]),
+                "yaw_rad": planner_yaw_rad,
             },
             "path_start_pose": {
                 "x_m": float(path_msg.poses[0].pose.position.x),
@@ -527,6 +645,29 @@ class CurveEntryPathPlannerNode(Node):
                 "y_m": float(target_msg.pose.position.y),
                 "yaw_rad": float(target_yaw_rad),
             },
+            "entry_line_center_pose": {
+                "x_m": float(entry_line_center_world_xy[0]),
+                "y_m": float(entry_line_center_world_xy[1]),
+                "yaw_rad": float(
+                    math.atan2(
+                        second_corridor_axis_world_xy[1],
+                        second_corridor_axis_world_xy[0],
+                    )
+                ),
+            },
+            "second_corridor_axis_xy": {
+                "x": float(second_corridor_axis_world_xy[0]),
+                "y": float(second_corridor_axis_world_xy[1]),
+            },
+            "target_depth_into_second_corridor_m": float(
+                detection.trajectory.target_depth_into_second_corridor_m
+            ),
+            "target_clearance_inner_m": float(
+                detection.trajectory.target_clearance_inner_m
+            ),
+            "target_clearance_outer_m": float(
+                detection.trajectory.target_clearance_outer_m
+            ),
             "curve_summary": summary,
             "path_metrics": path_metrics,
             "local_lidar_target": {
