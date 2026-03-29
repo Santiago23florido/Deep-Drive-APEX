@@ -14,6 +14,7 @@ nano_accel_serial_node:
     gyro_topic: "/apex/imu/angular_velocity/raw"
     imu_topic: "/apex/imu/data_raw"
     publish_imu_topic: true
+    allow_legacy_3axis_lines: false
     log_every_n_invalid: 25
     log_every_n_no_gyro: 100
 
@@ -76,11 +77,45 @@ kinematics_odometry_node:
     use_velocity_heading: true
     min_speed_for_heading_mps: 0.05
 
+lidar_relative_odometry_node:
+  ros__parameters:
+    scan_topic: "/lidar/scan_localization"
+    odom_topic: "/apex/lidar/relative_odom"
+    pose_topic: "/apex/lidar/pose_local"
+    status_topic: "/apex/kinematics/status"
+    odom_frame_id: "odom_lidar_local"
+    child_frame_id: "laser"
+    min_usable_range_m: 0.08
+    max_usable_range_m: 8.0
+    max_points: 160
+    max_iterations: 12
+    max_correspondence_distance_m: 0.12
+    max_step_translation_m: 0.08
+    max_step_yaw_rad: 0.06
+    min_valid_points: 40
+    min_match_count: 24
+    min_match_ratio: 0.24
+    max_rmse_m: 0.045
+    quality_error_scale_m: 0.024
+    min_quality: 0.20
+    min_translation_observable_m: 0.012
+    min_rotation_observable_rad: 0.01
+    min_consecutive_observable_updates: 2
+    status_timeout_s: 0.75
+    status_motion_release_accel_mps2: 0.08
+    status_motion_release_speed_mps: 0.04
+    status_motion_release_yaw_rate_rps: 0.03
+    nominal_covariance_x_m2: 0.01
+    nominal_covariance_y_m2: 0.01
+    nominal_covariance_yaw_rad2: 0.04
+    invalid_covariance_scale: 50.0
+    stale_twist_covariance_scale: 25.0
+
 imu_lidar_planar_fusion_node:
   ros__parameters:
-    accel_topic: "/apex/imu/acceleration/raw"
-    gyro_topic: "/apex/imu/angular_velocity/raw"
-    lidar_pose_topic: "/apex/lidar/pose_local"
+    accel_topic: "/apex/kinematics/acceleration"
+    gyro_topic: "/apex/kinematics/angular_velocity"
+    lidar_relative_odom_topic: "/apex/lidar/relative_odom"
     status_topic: "/apex/kinematics/status"
     odom_topic: "/odometry/filtered"
     fusion_status_topic: "/apex/odometry/fusion_status"
@@ -89,10 +124,12 @@ imu_lidar_planar_fusion_node:
     publish_rate_hz: 50.0
     publish_tf: false
     use_message_time: true
+    accel_input_is_world_frame: true
+    gyro_input_is_corrected: true
     planar_mount_yaw_deg: -90.0
-    accel_bias_x: 0.302
-    accel_bias_y: 0.490
-    gyro_bias_z: -0.050
+    accel_bias_x: 0.0
+    accel_bias_y: 0.0
+    gyro_bias_z: 0.0
     max_dt_s: 0.05
     max_planar_accel_mps2: 4.5
     max_speed_mps: 2.5
@@ -110,16 +147,17 @@ imu_lidar_planar_fusion_node:
     lidar_position_gain: 0.35
     lidar_yaw_gain: 0.75
     lidar_velocity_gain: 0.80
-    lidar_low_motion_position_gain: 0.03
-    lidar_low_motion_velocity_gain: 0.05
     lidar_min_translation_delta_m: 0.01
     lidar_min_translation_speed_mps: 0.06
-    lidar_motion_override_speed_mps: 0.12
     lidar_reacquire_ramp_s: 0.40
     lidar_reacquire_position_gain_start: 0.12
     lidar_reacquire_velocity_gain_start: 0.20
     innovation_bias_gain: 0.10
     gyro_bias_gain: 0.08
+    lidar_relative_valid_quality_min: 0.08
+    lidar_relative_nominal_covariance_x_m2: 0.01
+    lidar_relative_nominal_covariance_y_m2: 0.01
+    lidar_relative_nominal_yaw_covariance_rad2: 0.04
     base_pose_covariance_x_m2: 0.02
     base_pose_covariance_y_m2: 0.02
     base_yaw_covariance_rad2: 0.03
@@ -128,7 +166,7 @@ imu_lidar_planar_fusion_node:
 
 lidar_pose_bridge:
   ros__parameters:
-    scan_topic: "/lidar/scan"
+    scan_topic: "/lidar/scan_localization"
     pose_topic: "/apex/lidar/pose_local"
     pose_frame_id: "odom_lidar_local"
     base_frame_id: "base_link"
@@ -145,6 +183,10 @@ apex_rplidar_publisher:
     port: "/dev/ttyUSB0"
     baudrate: 115200
     topic: "/lidar/scan"
+    localization_topic: "/lidar/scan_localization"
+    max_buf_meas: 2000
+    localization_samples: 360
+    localization_missing_as_inf: true
     frame_id: "laser"
     heading_offset_deg: 91
     fov_filter_deg: 360

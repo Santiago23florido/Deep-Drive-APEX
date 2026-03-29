@@ -523,6 +523,7 @@ start_debug_bag_recording() {
     --output "${APEX_RAW_BAG_DIR}" \
     --topics \
     /lidar/scan \
+    /lidar/scan_localization \
     /odom \
     /tf \
     /tf_static \
@@ -541,6 +542,7 @@ start_debug_bag_recording() {
     /apex/odometry/imu_raw \
     /apex/odometry/imu_yaw_only \
     /apex/odometry/fusion_status \
+    /apex/lidar/relative_odom \
     /apex/lidar/pose_local \
     /odometry/filtered &
   APEX_ROSBAG_PID="$!"
@@ -565,9 +567,6 @@ KINEMATICS_ODOM_ARGS=(
   --ros-args
   --params-file "${PARAMS_FILE}"
 )
-if [ "${APEX_ENABLE_LOCAL_ODOM_FUSION:-1}" = "1" ]; then
-  KINEMATICS_ODOM_ARGS+=(-p "publish_tf:=false")
-fi
 python3 -m apex_telemetry.kinematics_odometry_node "${KINEMATICS_ODOM_ARGS[@]}" &
 PIDS+=("$!")
 

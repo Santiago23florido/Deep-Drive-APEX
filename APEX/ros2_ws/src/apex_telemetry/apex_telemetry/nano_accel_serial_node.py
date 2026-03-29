@@ -40,6 +40,7 @@ class NanoAccelSerialNode(Node):
         self.declare_parameter("gyro_topic", "/apex/imu/angular_velocity/raw")
         self.declare_parameter("imu_topic", "/apex/imu/data_raw")
         self.declare_parameter("publish_imu_topic", True)
+        self.declare_parameter("allow_legacy_3axis_lines", False)
         self.declare_parameter("log_every_n_invalid", 25)
         self.declare_parameter("log_every_n_no_gyro", 100)
 
@@ -58,6 +59,9 @@ class NanoAccelSerialNode(Node):
         self._log_every_n_invalid = max(1, int(self.get_parameter("log_every_n_invalid").value))
         self._log_every_n_no_gyro = max(1, int(self.get_parameter("log_every_n_no_gyro").value))
         self._publish_imu_topic = bool(self.get_parameter("publish_imu_topic").value)
+        self._allow_legacy_3axis_lines = bool(
+            self.get_parameter("allow_legacy_3axis_lines").value
+        )
 
         self._accel_pub = self.create_publisher(
             Vector3Stamped,
@@ -123,6 +127,8 @@ class NanoAccelSerialNode(Node):
                 if not all(math.isfinite(v) for v in (ax, ay, az, gx, gy, gz)):
                     return None
                 return (ax, ay, az, gx, gy, gz, True)
+            if not self._allow_legacy_3axis_lines:
+                return None
             if not all(math.isfinite(v) for v in (ax, ay, az)):
                 return None
             return (ax, ay, az, 0.0, 0.0, 0.0, False)

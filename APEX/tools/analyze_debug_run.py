@@ -1410,6 +1410,8 @@ def write_odom_drift_artifact(bundle_dir: Path, output_dir: Path) -> tuple[dict[
         "kinematics_status": [],
         "imu_raw_odom_pose": [],
         "imu_raw_odom_speed": [],
+        "lidar_relative_odom_pose": [],
+        "lidar_relative_odom_speed": [],
         "lidar_local_pose": [],
         "fused_odom_pose": [],
         "fused_odom_speed": [],
@@ -1564,6 +1566,34 @@ def write_odom_drift_artifact(bundle_dir: Path, output_dir: Path) -> tuple[dict[
             )
             continue
 
+        if topic_name == "/apex/lidar/relative_odom":
+            msg = deserialize_message(data, Odometry)
+            yaw_rad = _yaw_from_quat(
+                float(msg.pose.pose.orientation.x),
+                float(msg.pose.pose.orientation.y),
+                float(msg.pose.pose.orientation.z),
+                float(msg.pose.pose.orientation.w),
+            )
+            speed_mps = math.hypot(float(msg.twist.twist.linear.x), float(msg.twist.twist.linear.y))
+            series["lidar_relative_odom_pose"].append(
+                {
+                    "time_s": time_s,
+                    "x_m": float(msg.pose.pose.position.x),
+                    "y_m": float(msg.pose.pose.position.y),
+                    "yaw_rad": float(yaw_rad),
+                }
+            )
+            series["lidar_relative_odom_speed"].append(
+                {
+                    "time_s": time_s,
+                    "vx_mps": float(msg.twist.twist.linear.x),
+                    "vy_mps": float(msg.twist.twist.linear.y),
+                    "speed_mps": float(speed_mps),
+                    "yaw_rate_rps": float(msg.twist.twist.angular.z),
+                }
+            )
+            continue
+
         if topic_name == "/apex/odometry/imu_raw":
             msg = deserialize_message(data, Odometry)
             yaw_rad = _yaw_from_quat(
@@ -1631,11 +1661,18 @@ def write_odom_drift_artifact(bundle_dir: Path, output_dir: Path) -> tuple[dict[
                     {
                         "time_s": time_s,
                         "lidar_pose_fresh": bool(payload.get("lidar_pose_fresh", False)),
+                        "lidar_relative_valid": bool(payload.get("lidar_relative_valid", False)),
+                        "lidar_relative_quality": float(
+                            payload.get("lidar_relative_quality", 0.0) or 0.0
+                        ),
                         "last_lidar_translation_observable": bool(
                             payload.get("last_lidar_translation_observable", False)
                         ),
                         "lidar_position_update_suppressed": bool(
-                            payload.get("lidar_position_update_suppressed", False)
+                            payload.get(
+                                "prediction_only_active",
+                                payload.get("lidar_position_update_suppressed", False),
+                            )
                         ),
                         "last_lidar_position_gain": float(
                             payload.get("last_lidar_position_gain", 0.0) or 0.0
@@ -1644,6 +1681,9 @@ def write_odom_drift_artifact(bundle_dir: Path, output_dir: Path) -> tuple[dict[
                             payload.get("last_lidar_velocity_gain", 0.0) or 0.0
                         ),
                         "last_lidar_delta_m": float(payload.get("last_lidar_delta_m", 0.0) or 0.0),
+                        "last_lidar_delta_yaw_deg": float(
+                            payload.get("last_lidar_delta_yaw_deg", 0.0) or 0.0
+                        ),
                         "last_lidar_speed_mps": float(
                             payload.get("last_lidar_speed_mps", 0.0) or 0.0
                         ),
@@ -1718,6 +1758,7 @@ def write_odom_drift_artifact(bundle_dir: Path, output_dir: Path) -> tuple[dict[
     kin_speed_stats = _series_speed_stats(series["kinematics_velocity"], "speed_mps")
     odom_speed_stats = _series_speed_stats(odom_speed_samples, "speed_mps")
     imu_raw_odom_metrics = _pose_metrics(series["imu_raw_odom_pose"])
+    lidar_relative_odom_metrics = _pose_metrics(series["lidar_relative_odom_pose"])
     lidar_local_metrics = _pose_metrics(series["lidar_local_pose"])
     fused_odom_metrics = _pose_metrics(series["fused_odom_pose"])
     fusion_status_samples = series["fusion_status"]
@@ -1781,6 +1822,7 @@ def write_odom_drift_artifact(bundle_dir: Path, output_dir: Path) -> tuple[dict[
         "odom_pose": odom_pose_metrics,
         "odom_speed": odom_speed_stats,
         "imu_raw_odom_pose": imu_raw_odom_metrics,
+        "lidar_relative_odom_pose": lidar_relative_odom_metrics,
         "lidar_local_pose": lidar_local_metrics,
         "fused_odom_pose": fused_odom_metrics,
         "tf_odom_base_link": tf_odom_metrics,
@@ -1792,6 +1834,15 @@ def write_odom_drift_artifact(bundle_dir: Path, output_dir: Path) -> tuple[dict[
             fusion_status_samples,
             lambda sample: sample["last_lidar_translation_observable"],
         ),
+        "lidar_relative_valid_ratio": _mean_true_ratio(
+            fusion_status_samples,
+            lambda sample: sample["lidar_relative_valid"],
+        ),
+        "lidar_relative_quality_mean": float(
+            mean(sample["lidar_relative_quality"] for sample in fusion_status_samples)
+        )
+        if fusion_status_samples
+        else None,
         "lidar_fresh_but_unobservable_ratio": _mean_true_ratio(
             fusion_status_samples,
             lambda sample: sample["lidar_pose_fresh"] and not sample["last_lidar_translation_observable"],

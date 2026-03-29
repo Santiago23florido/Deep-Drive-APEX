@@ -8,7 +8,7 @@ import math
 from typing import Dict, Optional, Tuple
 
 import rclpy
-from geometry_msgs.msg import PoseWithCovarianceStamped, TransformStamped, Vector3Stamped
+from geometry_msgs.msg import TransformStamped, Vector3Stamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.time import Time
@@ -57,7 +57,7 @@ class ImuLidarPlanarFusionNode(Node):
 
         self.declare_parameter("accel_topic", "/apex/imu/acceleration/raw")
         self.declare_parameter("gyro_topic", "/apex/imu/angular_velocity/raw")
-        self.declare_parameter("lidar_pose_topic", "/apex/lidar/pose_local")
+        self.declare_parameter("lidar_relative_odom_topic", "/apex/lidar/relative_odom")
         self.declare_parameter("status_topic", "/apex/kinematics/status")
         self.declare_parameter("odom_topic", "/odometry/filtered")
         self.declare_parameter("fusion_status_topic", "/apex/odometry/fusion_status")
@@ -66,6 +66,8 @@ class ImuLidarPlanarFusionNode(Node):
         self.declare_parameter("publish_rate_hz", 50.0)
         self.declare_parameter("publish_tf", False)
         self.declare_parameter("use_message_time", True)
+        self.declare_parameter("accel_input_is_world_frame", True)
+        self.declare_parameter("gyro_input_is_corrected", True)
         self.declare_parameter("planar_mount_yaw_deg", -90.0)
         self.declare_parameter("accel_bias_x", 0.0)
         self.declare_parameter("accel_bias_y", 0.0)
@@ -87,16 +89,17 @@ class ImuLidarPlanarFusionNode(Node):
         self.declare_parameter("lidar_position_gain", 0.35)
         self.declare_parameter("lidar_yaw_gain", 0.75)
         self.declare_parameter("lidar_velocity_gain", 0.8)
-        self.declare_parameter("lidar_low_motion_position_gain", 0.03)
-        self.declare_parameter("lidar_low_motion_velocity_gain", 0.05)
         self.declare_parameter("lidar_min_translation_delta_m", 0.01)
         self.declare_parameter("lidar_min_translation_speed_mps", 0.06)
-        self.declare_parameter("lidar_motion_override_speed_mps", 0.12)
         self.declare_parameter("lidar_reacquire_ramp_s", 0.40)
         self.declare_parameter("lidar_reacquire_position_gain_start", 0.12)
         self.declare_parameter("lidar_reacquire_velocity_gain_start", 0.20)
         self.declare_parameter("innovation_bias_gain", 0.10)
         self.declare_parameter("gyro_bias_gain", 0.08)
+        self.declare_parameter("lidar_relative_valid_quality_min", 0.08)
+        self.declare_parameter("lidar_relative_nominal_covariance_x_m2", 0.01)
+        self.declare_parameter("lidar_relative_nominal_covariance_y_m2", 0.01)
+        self.declare_parameter("lidar_relative_nominal_yaw_covariance_rad2", 0.04)
         self.declare_parameter("base_pose_covariance_x_m2", 0.02)
         self.declare_parameter("base_pose_covariance_y_m2", 0.02)
         self.declare_parameter("base_yaw_covariance_rad2", 0.03)
@@ -105,7 +108,7 @@ class ImuLidarPlanarFusionNode(Node):
 
         self._accel_topic = str(self.get_parameter("accel_topic").value)
         self._gyro_topic = str(self.get_parameter("gyro_topic").value)
-        self._lidar_pose_topic = str(self.get_parameter("lidar_pose_topic").value)
+        self._lidar_relative_odom_topic = str(self.get_parameter("lidar_relative_odom_topic").value)
         self._status_topic = str(self.get_parameter("status_topic").value)
         self._odom_topic = str(self.get_parameter("odom_topic").value)
         self._fusion_status_topic = str(self.get_parameter("fusion_status_topic").value)
@@ -114,6 +117,12 @@ class ImuLidarPlanarFusionNode(Node):
         self._publish_rate_hz = max(5.0, float(self.get_parameter("publish_rate_hz").value))
         self._publish_tf = bool(self.get_parameter("publish_tf").value)
         self._use_message_time = bool(self.get_parameter("use_message_time").value)
+        self._accel_input_is_world_frame = bool(
+            self.get_parameter("accel_input_is_world_frame").value
+        )
+        self._gyro_input_is_corrected = bool(
+            self.get_parameter("gyro_input_is_corrected").value
+        )
         self._planar_mount_yaw_rad = math.radians(
             float(self.get_parameter("planar_mount_yaw_deg").value)
         )
@@ -159,20 +168,11 @@ class ImuLidarPlanarFusionNode(Node):
         self._lidar_velocity_gain = _clamp(
             float(self.get_parameter("lidar_velocity_gain").value), 0.0, 1.0
         )
-        self._lidar_low_motion_position_gain = _clamp(
-            float(self.get_parameter("lidar_low_motion_position_gain").value), 0.0, 1.0
-        )
-        self._lidar_low_motion_velocity_gain = _clamp(
-            float(self.get_parameter("lidar_low_motion_velocity_gain").value), 0.0, 1.0
-        )
         self._lidar_min_translation_delta_m = max(
             0.0, float(self.get_parameter("lidar_min_translation_delta_m").value)
         )
         self._lidar_min_translation_speed_mps = max(
             0.0, float(self.get_parameter("lidar_min_translation_speed_mps").value)
-        )
-        self._lidar_motion_override_speed_mps = max(
-            0.0, float(self.get_parameter("lidar_motion_override_speed_mps").value)
         )
         self._lidar_reacquire_ramp_s = max(
             0.0, float(self.get_parameter("lidar_reacquire_ramp_s").value)
@@ -187,6 +187,18 @@ class ImuLidarPlanarFusionNode(Node):
             0.0, float(self.get_parameter("innovation_bias_gain").value)
         )
         self._gyro_bias_gain = max(0.0, float(self.get_parameter("gyro_bias_gain").value))
+        self._lidar_relative_valid_quality_min = _clamp(
+            float(self.get_parameter("lidar_relative_valid_quality_min").value), 0.0, 1.0
+        )
+        self._lidar_relative_nominal_cov_x = max(
+            1e-6, float(self.get_parameter("lidar_relative_nominal_covariance_x_m2").value)
+        )
+        self._lidar_relative_nominal_cov_y = max(
+            1e-6, float(self.get_parameter("lidar_relative_nominal_covariance_y_m2").value)
+        )
+        self._lidar_relative_nominal_yaw_cov = max(
+            1e-6, float(self.get_parameter("lidar_relative_nominal_yaw_covariance_rad2").value)
+        )
         self._base_pose_cov_x = max(
             1e-6, float(self.get_parameter("base_pose_covariance_x_m2").value)
         )
@@ -213,6 +225,7 @@ class ImuLidarPlanarFusionNode(Node):
         self._bay = 0.0
         self._bgz = 0.0
         self._calibration_complete = False
+        self._calibration_active = False
         self._stationary_detected = False
         self._velocity_decay_active = False
         self._odom_translation_confidence = 0.0
@@ -229,12 +242,15 @@ class ImuLidarPlanarFusionNode(Node):
         self._last_lidar_velocity: Tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._last_lidar_innovation: Tuple[float, float, float] = (0.0, 0.0, 0.0)
         self._last_lidar_delta_m = 0.0
+        self._last_lidar_delta_yaw = 0.0
         self._last_lidar_speed_mps = 0.0
         self._last_lidar_translation_observable = False
         self._lidar_position_update_suppressed = False
         self._last_lidar_position_gain = self._lidar_position_gain
         self._last_lidar_yaw_gain = self._lidar_yaw_gain
         self._last_lidar_velocity_gain = self._lidar_velocity_gain
+        self._last_lidar_relative_valid = False
+        self._last_lidar_relative_quality = 0.0
         self._lidar_observable_since: Optional[Time] = None
         self._imu_samples_processed = 0
         self._lidar_updates_applied = 0
@@ -244,9 +260,7 @@ class ImuLidarPlanarFusionNode(Node):
 
         self.create_subscription(Vector3Stamped, self._accel_topic, self._accel_cb, 50)
         self.create_subscription(Vector3Stamped, self._gyro_topic, self._gyro_cb, 50)
-        self.create_subscription(
-            PoseWithCovarianceStamped, self._lidar_pose_topic, self._lidar_pose_cb, 20
-        )
+        self.create_subscription(Odometry, self._lidar_relative_odom_topic, self._lidar_odom_cb, 20)
         self.create_subscription(String, self._status_topic, self._status_cb, 20)
 
         self._odom_pub = self.create_publisher(Odometry, self._odom_topic, 20)
@@ -255,15 +269,51 @@ class ImuLidarPlanarFusionNode(Node):
         self.create_timer(1.0 / self._publish_rate_hz, self._publish_outputs)
 
         self.get_logger().info(
-            "ImuLidarPlanarFusionNode started (accel=%s gyro=%s lidar=%s status=%s odom=%s)"
+            "ImuLidarPlanarFusionNode started (accel=%s gyro=%s lidar_relative=%s status=%s odom=%s)"
             % (
                 self._accel_topic,
                 self._gyro_topic,
-                self._lidar_pose_topic,
+                self._lidar_relative_odom_topic,
                 self._status_topic,
                 self._odom_topic,
             )
         )
+
+    def _reset_fusion_state(self, reason: str) -> None:
+        self._x = 0.0
+        self._y = 0.0
+        self._vx = 0.0
+        self._vy = 0.0
+        self._yaw = 0.0
+        self._yaw_rate = 0.0
+        self._bax = 0.0
+        self._bay = 0.0
+        self._bgz = 0.0
+        self._velocity_decay_active = False
+        self._odom_translation_confidence = 0.0
+        self._launch_started_at = None
+        self._last_imu_time = None
+        self._latest_imu_receipt = None
+        self._last_lidar_pose = None
+        self._last_lidar_receipt = None
+        self._last_lidar_velocity = (0.0, 0.0, 0.0)
+        self._last_lidar_innovation = (0.0, 0.0, 0.0)
+        self._last_lidar_delta_m = 0.0
+        self._last_lidar_delta_yaw = 0.0
+        self._last_lidar_speed_mps = 0.0
+        self._last_lidar_translation_observable = False
+        self._lidar_position_update_suppressed = False
+        self._last_lidar_position_gain = self._lidar_position_gain
+        self._last_lidar_yaw_gain = self._lidar_yaw_gain
+        self._last_lidar_velocity_gain = self._lidar_velocity_gain
+        self._last_lidar_relative_valid = False
+        self._last_lidar_relative_quality = 0.0
+        self._lidar_observable_since = None
+        self._imu_samples_processed = 0
+        self._lidar_updates_applied = 0
+        self._pending_accel.clear()
+        self._pending_gyro.clear()
+        self.get_logger().info("Fusion state reset (%s)." % reason)
 
     def _status_is_fresh(self, now_t: Time) -> bool:
         if self._last_status_receipt is None:
@@ -313,9 +363,11 @@ class ImuLidarPlanarFusionNode(Node):
 
         now_t = self.get_clock().now()
         prev_stationary = self._stationary_detected
+        prev_calibration_active = self._calibration_active
 
         self._last_status_payload = payload
         self._last_status_receipt = now_t
+        self._calibration_active = bool(payload.get("calibration_active", False))
         self._calibration_complete = bool(payload.get("calibration_complete", False))
         self._stationary_detected = bool(payload.get("stationary_detected", False))
         self._velocity_decay_active = bool(payload.get("velocity_decay_active", False))
@@ -331,6 +383,9 @@ class ImuLidarPlanarFusionNode(Node):
         mount_yaw_deg = payload.get("planar_mount_yaw_deg")
         if mount_yaw_deg is not None:
             self._planar_mount_yaw_rad = math.radians(float(mount_yaw_deg))
+
+        if self._calibration_active and not prev_calibration_active:
+            self._reset_fusion_state("calibration_active")
 
         if prev_stationary and not self._stationary_detected:
             self._launch_started_at = now_t
@@ -362,12 +417,21 @@ class ImuLidarPlanarFusionNode(Node):
         if dt <= 0.0 or dt > self._max_dt_s:
             return
 
-        adj_ax = raw_ax - self._base_accel_bias_x
-        adj_ay = raw_ay - self._base_accel_bias_y
-        accel_body_meas_x, accel_body_meas_y = _rotate_planar(
-            adj_ax, adj_ay, self._planar_mount_yaw_rad
-        )
-        yaw_rate_meas = raw_gz - self._base_gyro_bias_z
+        if self._accel_input_is_world_frame:
+            accel_world_meas_x = raw_ax
+            accel_world_meas_y = raw_ay
+        else:
+            adj_ax = raw_ax - self._base_accel_bias_x
+            adj_ay = raw_ay - self._base_accel_bias_y
+            accel_body_meas_x, accel_body_meas_y = _rotate_planar(
+                adj_ax, adj_ay, self._planar_mount_yaw_rad
+            )
+            accel_world_meas_x, accel_world_meas_y = _rotate_planar(
+                accel_body_meas_x,
+                accel_body_meas_y,
+                self._yaw + (0.5 * self._yaw_rate * dt),
+            )
+        yaw_rate_meas = raw_gz if self._gyro_input_is_corrected else (raw_gz - self._base_gyro_bias_z)
 
         status_motion_override = self._status_motion_override_active(now_t)
         stationary_detected = (
@@ -381,8 +445,8 @@ class ImuLidarPlanarFusionNode(Node):
 
         if stationary_detected:
             alpha = self._stationary_bias_alpha
-            self._bax = ((1.0 - alpha) * self._bax) + (alpha * accel_body_meas_x)
-            self._bay = ((1.0 - alpha) * self._bay) + (alpha * accel_body_meas_y)
+            self._bax = ((1.0 - alpha) * self._bax) + (alpha * accel_world_meas_x)
+            self._bay = ((1.0 - alpha) * self._bay) + (alpha * accel_world_meas_y)
             self._bgz = ((1.0 - alpha) * self._bgz) + (alpha * yaw_rate_meas)
             zero_decay = max(0.0, 1.0 - (self._stationary_zero_gain * dt))
             self._vx *= zero_decay
@@ -394,8 +458,8 @@ class ImuLidarPlanarFusionNode(Node):
             self._imu_samples_processed += 1
             return
 
-        accel_body_x = accel_body_meas_x - self._bax
-        accel_body_y = accel_body_meas_y - self._bay
+        accel_world_x = accel_world_meas_x - self._bax
+        accel_world_y = accel_world_meas_y - self._bay
         yaw_rate = yaw_rate_meas - self._bgz
 
         suppression_scale = 1.0
@@ -412,16 +476,13 @@ class ImuLidarPlanarFusionNode(Node):
                 self._launch_started_at = None
 
         accel_gain = suppression_scale
-        accel_mag = math.hypot(accel_body_x, accel_body_y)
+        accel_mag = math.hypot(accel_world_x, accel_world_y)
         if accel_mag > self._max_planar_accel:
             scale = self._max_planar_accel / max(accel_mag, 1e-6)
-            accel_body_x *= scale
-            accel_body_y *= scale
-        accel_body_x *= accel_gain
-        accel_body_y *= accel_gain
-
-        yaw_mid = self._yaw + (0.5 * yaw_rate * dt)
-        accel_world_x, accel_world_y = _rotate_planar(accel_body_x, accel_body_y, yaw_mid)
+            accel_world_x *= scale
+            accel_world_y *= scale
+        accel_world_x *= accel_gain
+        accel_world_y *= accel_gain
 
         self._yaw = _normalize_angle(self._yaw + (yaw_rate * dt))
         self._yaw_rate = yaw_rate
@@ -446,13 +507,43 @@ class ImuLidarPlanarFusionNode(Node):
         self._y += self._vy * dt
         self._imu_samples_processed += 1
 
-    def _lidar_pose_cb(self, msg: PoseWithCovarianceStamped) -> None:
+    def _lidar_quality_from_covariance(
+        self,
+        cov_x_m2: float,
+        cov_y_m2: float,
+        cov_yaw_rad2: float,
+    ) -> float:
+        if not (
+            math.isfinite(cov_x_m2)
+            and math.isfinite(cov_y_m2)
+            and math.isfinite(cov_yaw_rad2)
+            and cov_x_m2 > 0.0
+            and cov_y_m2 > 0.0
+            and cov_yaw_rad2 > 0.0
+        ):
+            return 0.0
+        quality_x = _clamp(self._lidar_relative_nominal_cov_x / cov_x_m2, 0.0, 1.0)
+        quality_y = _clamp(self._lidar_relative_nominal_cov_y / cov_y_m2, 0.0, 1.0)
+        quality_yaw = _clamp(self._lidar_relative_nominal_yaw_cov / cov_yaw_rad2, 0.0, 1.0)
+        return _clamp((quality_x * quality_y * quality_yaw) ** (1.0 / 3.0), 0.0, 1.0)
+
+    def _lidar_odom_cb(self, msg: Odometry) -> None:
         now_t = self.get_clock().now()
         pose_time = _stamp_to_time(self, msg.header.stamp) if self._use_message_time else now_t
         lidar_x = float(msg.pose.pose.position.x)
         lidar_y = float(msg.pose.pose.position.y)
         q = msg.pose.pose.orientation
         lidar_yaw = _quat_to_yaw(q.x, q.y, q.z, q.w)
+        cov_x = float(msg.pose.covariance[0]) if len(msg.pose.covariance) >= 1 else float("inf")
+        cov_y = float(msg.pose.covariance[7]) if len(msg.pose.covariance) >= 8 else float("inf")
+        cov_yaw = float(msg.pose.covariance[35]) if len(msg.pose.covariance) >= 36 else float("inf")
+        lidar_quality = self._lidar_quality_from_covariance(cov_x, cov_y, cov_yaw)
+        lidar_valid = (
+            lidar_quality >= self._lidar_relative_valid_quality_min
+            and math.isfinite(lidar_x)
+            and math.isfinite(lidar_y)
+            and math.isfinite(lidar_yaw)
+        )
 
         pred_x = self._x
         pred_y = self._y
@@ -466,46 +557,52 @@ class ImuLidarPlanarFusionNode(Node):
         innovation_x = lidar_x - pred_x
         innovation_y = lidar_y - pred_y
         innovation_yaw = _normalize_angle(lidar_yaw - pred_yaw)
-        position_gain = self._lidar_position_gain
-        yaw_gain = self._lidar_yaw_gain
-        velocity_gain = self._lidar_velocity_gain
-        translation_observable = True
+        position_gain = 0.0
+        yaw_gain = 0.0
+        velocity_gain = 0.0
+        translation_observable = False
         lidar_delta_m = 0.0
+        lidar_delta_yaw = 0.0
         lidar_speed_mps = 0.0
 
         if self._last_lidar_pose is None:
-            self._x = lidar_x
-            self._y = lidar_y
-            self._yaw = lidar_yaw
+            if lidar_valid:
+                self._x = lidar_x
+                self._y = lidar_y
+                self._yaw = lidar_yaw
+                position_gain = 1.0
+                yaw_gain = 1.0
+                velocity_gain = self._lidar_velocity_gain * max(lidar_quality, 0.25)
             self._last_lidar_innovation = (innovation_x, innovation_y, innovation_yaw)
             self._last_lidar_pose = (lidar_x, lidar_y, lidar_yaw, pose_time)
-            self._last_lidar_translation_observable = True
-            self._lidar_position_update_suppressed = False
-            self._last_lidar_position_gain = 1.0
-            self._last_lidar_yaw_gain = 1.0
-            self._last_lidar_velocity_gain = self._lidar_velocity_gain
+            self._last_lidar_translation_observable = False
+            self._lidar_position_update_suppressed = not lidar_valid
+            self._last_lidar_position_gain = position_gain
+            self._last_lidar_yaw_gain = yaw_gain
+            self._last_lidar_velocity_gain = velocity_gain
             self._last_lidar_delta_m = 0.0
+            self._last_lidar_delta_yaw = 0.0
             self._last_lidar_speed_mps = 0.0
-            self._lidar_observable_since = pose_time
+            self._last_lidar_relative_valid = lidar_valid
+            self._last_lidar_relative_quality = lidar_quality
+            self._lidar_observable_since = pose_time if lidar_valid else None
             return
 
         prev_x, prev_y, prev_yaw, prev_time = self._last_lidar_pose
         dt = (pose_time - prev_time).nanoseconds * 1e-9
-        if 1e-3 < dt <= 1.0:
+        if lidar_valid and 1e-3 < dt <= 1.0:
             dx = lidar_x - prev_x
             dy = lidar_y - prev_y
             dyaw = _normalize_angle(lidar_yaw - prev_yaw)
             vx_lidar = dx / dt
             vy_lidar = dy / dt
             yaw_rate_lidar = dyaw / dt
-            lidar_disp = math.hypot(dx, dy)
-            lidar_speed = math.hypot(vx_lidar, vy_lidar)
-            lidar_delta_m = lidar_disp
-            lidar_speed_mps = lidar_speed
-            pred_speed = math.hypot(pred_vx, pred_vy)
+            lidar_delta_m = math.hypot(dx, dy)
+            lidar_delta_yaw = dyaw
+            lidar_speed_mps = math.hypot(vx_lidar, vy_lidar)
             translation_observable = (
-                lidar_disp >= self._lidar_min_translation_delta_m
-                or lidar_speed >= self._lidar_min_translation_speed_mps
+                lidar_delta_m >= self._lidar_min_translation_delta_m
+                or lidar_speed_mps >= self._lidar_min_translation_speed_mps
             )
             self._last_lidar_velocity = (vx_lidar, vy_lidar, yaw_rate_lidar)
 
@@ -524,19 +621,19 @@ class ImuLidarPlanarFusionNode(Node):
                 velocity_gain = self._lidar_reacquire_velocity_gain_start + (
                     (self._lidar_velocity_gain - self._lidar_reacquire_velocity_gain_start) * ramp_alpha
                 )
+                quality_gain = max(lidar_quality, self._lidar_relative_valid_quality_min)
+                position_gain *= quality_gain
+                velocity_gain *= quality_gain
                 self._vx = pred_vx + (velocity_gain * (vx_lidar - pred_vx))
                 self._vy = pred_vy + (velocity_gain * (vy_lidar - pred_vy))
                 vel_err_world_x = pred_vx - vx_lidar
                 vel_err_world_y = pred_vy - vy_lidar
-                vel_err_body_x, vel_err_body_y = _rotate_planar(
-                    vel_err_world_x, vel_err_world_y, -lidar_yaw
-                )
                 accel_bias_limit = self._max_planar_accel * 0.5
                 bias_ax_delta = _clamp(
-                    vel_err_body_x / max(dt, 1e-3), -accel_bias_limit, accel_bias_limit
+                    vel_err_world_x / max(dt, 1e-3), -accel_bias_limit, accel_bias_limit
                 )
                 bias_ay_delta = _clamp(
-                    vel_err_body_y / max(dt, 1e-3), -accel_bias_limit, accel_bias_limit
+                    vel_err_world_y / max(dt, 1e-3), -accel_bias_limit, accel_bias_limit
                 )
                 self._bax += self._innovation_bias_gain * bias_ax_delta
                 self._bay += self._innovation_bias_gain * bias_ay_delta
@@ -547,34 +644,29 @@ class ImuLidarPlanarFusionNode(Node):
                 self._lidar_position_update_suppressed = False
             else:
                 self._lidar_observable_since = None
-                translation_observable = False
-                position_update_suppressed = pred_speed >= self._lidar_motion_override_speed_mps
-                position_gain = 0.0
-                velocity_gain = 0.0
-                self._lidar_position_update_suppressed = position_update_suppressed
+                self._lidar_position_update_suppressed = True
 
+            yaw_gain = self._lidar_yaw_gain * max(lidar_quality, 0.25)
             yaw_rate_err = pred_yaw_rate - yaw_rate_lidar
             self._bgz += self._gyro_bias_gain * yaw_rate_err
             self._bgz = _clamp(self._bgz, -2.0, 2.0)
         else:
             self._lidar_observable_since = None
-            translation_observable = False
-            position_gain = 0.0
-            velocity_gain = 0.0
             self._last_lidar_velocity = (0.0, 0.0, 0.0)
-            self._lidar_position_update_suppressed = (
-                math.hypot(pred_vx, pred_vy) >= self._lidar_motion_override_speed_mps
-            )
+            self._lidar_position_update_suppressed = True
 
         self._yaw = _normalize_angle(pred_yaw + (yaw_gain * innovation_yaw))
         self._last_lidar_innovation = (innovation_x, innovation_y, innovation_yaw)
         self._last_lidar_pose = (lidar_x, lidar_y, lidar_yaw, pose_time)
         self._last_lidar_translation_observable = translation_observable
         self._last_lidar_delta_m = lidar_delta_m
+        self._last_lidar_delta_yaw = lidar_delta_yaw
         self._last_lidar_speed_mps = lidar_speed_mps
         self._last_lidar_position_gain = position_gain
         self._last_lidar_yaw_gain = yaw_gain
         self._last_lidar_velocity_gain = velocity_gain
+        self._last_lidar_relative_valid = lidar_valid
+        self._last_lidar_relative_quality = lidar_quality
 
     def _publish_outputs(self) -> None:
         now_t = self.get_clock().now()
@@ -649,6 +741,8 @@ class ImuLidarPlanarFusionNode(Node):
                 "odom_translation_confidence": self._odom_translation_confidence,
                 "lidar_pose_fresh": lidar_pose_fresh,
                 "lidar_age_s": lidar_age_s,
+                "lidar_relative_valid": self._last_lidar_relative_valid,
+                "lidar_relative_quality": self._last_lidar_relative_quality,
                 "imu_age_s": imu_age_s,
                 "status_age_s": status_age_s,
                 "status_corrected_accel_planar_mps2": self._status_corrected_accel_planar_mps2,
@@ -673,10 +767,12 @@ class ImuLidarPlanarFusionNode(Node):
                 },
                 "last_lidar_translation_observable": self._last_lidar_translation_observable,
                 "lidar_position_update_suppressed": self._lidar_position_update_suppressed,
+                "prediction_only_active": self._lidar_position_update_suppressed,
                 "last_lidar_position_gain": self._last_lidar_position_gain,
                 "last_lidar_yaw_gain": self._last_lidar_yaw_gain,
                 "last_lidar_velocity_gain": self._last_lidar_velocity_gain,
                 "last_lidar_delta_m": self._last_lidar_delta_m,
+                "last_lidar_delta_yaw_deg": math.degrees(self._last_lidar_delta_yaw),
                 "last_lidar_speed_mps": self._last_lidar_speed_mps,
                 "last_lidar_innovation": {
                     "x_m": self._last_lidar_innovation[0],

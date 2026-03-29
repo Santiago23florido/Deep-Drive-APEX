@@ -7,6 +7,8 @@ PORT="${APEX_SERIAL_PORT:-/dev/ttyACM0}"
 CHECK_TIMEOUT_S="${APEX_NANO_CHECK_TIMEOUT_S:-6}"
 CONNECT_DTR_LOW_S="${APEX_NANO_CONNECT_DTR_LOW_S:-0.2}"
 CONNECT_SETTLE_S="${APEX_NANO_CONNECT_SETTLE_S:-2.0}"
+PASSIVE_CHECK_TIMEOUT_S="${APEX_NANO_PASSIVE_CHECK_TIMEOUT_S:-7}"
+POST_FLASH_RECOVERY_S="${APEX_NANO_POST_FLASH_RECOVERY_S:-6.0}"
 AUTOFLASH="${APEX_NANO_AUTOFLASH:-1}"
 UPLOAD_SCRIPT="${APEX_ROOT}/tools/upload_nano33_iot.sh"
 
@@ -48,16 +50,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-check_stream() {
+check_stream_pyserial() {
+  local toggle_dtr="${1}"
+  local settle_s="${2}"
   local sample
   if [[ ! -e "${PORT}" ]]; then
     echo "[APEX][ERROR] Nano serial port not found: ${PORT}" >&2
     return 1
   fi
 
+  if [[ "${toggle_dtr}" == "1" ]]; then
+    echo "[APEX] Checking Nano stream via pyserial with DTR handshake on ${PORT}"
+  else
+    echo "[APEX] Checking Nano stream via pyserial without DTR handshake on ${PORT}"
+  fi
+
   set +e
   sample="$(
-    python3 - "${PORT}" "${CHECK_TIMEOUT_S}" "${CONNECT_DTR_LOW_S}" "${CONNECT_SETTLE_S}" <<'PY' \
+    python3 - "${PORT}" "${CHECK_TIMEOUT_S}" "${CONNECT_DTR_LOW_S}" "${settle_s}" "${toggle_dtr}" <<'PY' \
       || true
 import re
 import serial
@@ -68,6 +78,7 @@ port = sys.argv[1]
 timeout_s = float(sys.argv[2])
 dtr_low_s = float(sys.argv[3])
 settle_s = float(sys.argv[4])
+toggle_dtr = sys.argv[5] == "1"
 num_re = re.compile(r"^[-+]?[0-9]*\.?[0-9]+$")
 
 try:
@@ -76,10 +87,13 @@ except Exception:
     raise SystemExit(1)
 
 try:
-    ser.setDTR(False)
-    time.sleep(max(0.0, dtr_low_s))
-    ser.reset_input_buffer()
-    ser.setDTR(True)
+    if toggle_dtr:
+        ser.setDTR(False)
+        time.sleep(max(0.0, dtr_low_s))
+        ser.reset_input_buffer()
+        ser.setDTR(True)
+    else:
+        ser.reset_input_buffer()
     time.sleep(max(0.0, settle_s))
     deadline = time.time() + max(0.5, timeout_s)
     while time.time() < deadline:
@@ -97,8 +111,45 @@ PY
   )"
   set -e
 
-  if [[ -n "${sample}" ]]; then
-    echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
+  [[ -n "${sample}" ]] || return 1
+  echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
+  return 0
+}
+
+check_stream_passive_cat() {
+  local sample
+  if [[ ! -e "${PORT}" ]]; then
+    echo "[APEX][ERROR] Nano serial port not found: ${PORT}" >&2
+    return 1
+  fi
+
+  echo "[APEX] Checking Nano stream via passive serial read on ${PORT}"
+
+  set +e
+  sample="$(
+    stty -F "${PORT}" 115200 raw -echo -echoe -echok 2>/dev/null
+    timeout "${PASSIVE_CHECK_TIMEOUT_S}s" stdbuf -oL cat "${PORT}" 2>/dev/null \
+      | awk '
+          /^INFO:/ { next }
+          /^ERROR:/ { next }
+          /^[[:space:]]*[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?,[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?,[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?,[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?,[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?,[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?[[:space:]]*$/ { print; exit }' \
+      || true
+  )"
+  set -e
+
+  [[ -n "${sample}" ]] || return 1
+  echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
+  return 0
+}
+
+check_stream() {
+  if check_stream_passive_cat; then
+    return 0
+  fi
+  if check_stream_pyserial 1 "${CONNECT_SETTLE_S}"; then
+    return 0
+  fi
+  if check_stream_pyserial 0 0.75; then
     return 0
   fi
 
@@ -122,6 +173,8 @@ fi
 
 echo "[APEX] Attempting Nano reflashing because the serial stream is missing"
 "${UPLOAD_SCRIPT}" --port "${PORT}"
+echo "[APEX] Waiting ${POST_FLASH_RECOVERY_S}s for Nano reboot after reflashing"
+sleep "${POST_FLASH_RECOVERY_S}"
 
 if check_stream; then
   exit 0

@@ -599,6 +599,7 @@ start_debug_bag_recording() {
     --output "${APEX_RAW_BAG_DIR}" \
     --topics \
     /lidar/scan \
+    /lidar/scan_localization \
     /odom \
     /tf \
     /tf_static \
@@ -616,6 +617,7 @@ start_debug_bag_recording() {
     /apex/kinematics/status \
     /apex/odometry/imu_raw \
     /apex/odometry/fusion_status \
+    /apex/lidar/relative_odom \
     /apex/lidar/pose_local \
     /odometry/filtered \
     > "${APEX_ROSBAG_LOG_PATH}" 2>&1 &
