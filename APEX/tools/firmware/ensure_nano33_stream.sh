@@ -129,7 +129,7 @@ check_stream_passive_cat() {
   set +e
   sample="$(
     stty -F "${PORT}" 115200 raw -echo -echoe -echok 2>/dev/null
-    timeout "${PASSIVE_CHECK_TIMEOUT_S}s" stdbuf -oL cat "${PORT}" 2>/dev/null \
+    timeout -k 1s "${PASSIVE_CHECK_TIMEOUT_S}s" stdbuf -oL cat "${PORT}" 2>/dev/null \
       | awk '
           /^INFO:/ { next }
           /^ERROR:/ { next }
@@ -155,7 +155,7 @@ check_stream_passive_head() {
   set +e
   sample="$(
     stty -F "${PORT}" 115200 raw -echo -echoe -echok 2>/dev/null
-    timeout "${PASSIVE_CHECK_TIMEOUT_S}s" stdbuf -oL cat "${PORT}" 2>/dev/null \
+    timeout -k 1s "${PASSIVE_CHECK_TIMEOUT_S}s" stdbuf -oL cat "${PORT}" 2>/dev/null \
       | head -n "${PASSIVE_HEAD_LINES}" \
       | awk '
           /^INFO:/ { next }
@@ -182,16 +182,16 @@ dump_serial_preview() {
 }
 
 check_stream() {
-  if check_stream_passive_cat; then
+  if check_stream_pyserial 1 "${CONNECT_SETTLE_S}"; then
+    return 0
+  fi
+  if check_stream_pyserial 0 0.75; then
     return 0
   fi
   if check_stream_passive_head; then
     return 0
   fi
-  if check_stream_pyserial 1 "${CONNECT_SETTLE_S}"; then
-    return 0
-  fi
-  if check_stream_pyserial 0 0.75; then
+  if check_stream_passive_cat; then
     return 0
   fi
 

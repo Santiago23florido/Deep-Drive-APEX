@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APEX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+export APEX_RECT_SENSORFUS_ROOT="${APEX_FORWARD_RAW_ROOT:-${APEX_ROOT}/ros2_ws/apex_forward_raw}"
+export APEX_RECT_SENSORFUS_CONTAINER_ROOT="${APEX_FORWARD_RAW_CONTAINER_ROOT:-/work/ros2_ws/apex_forward_raw}"
+export APEX_RECT_SENSORFUS_RUN_ID="${APEX_FORWARD_RAW_RUN_ID:-forward_raw}"
+export APEX_RECT_SENSORFUS_ARM_BEFORE_READY="${APEX_FORWARD_RAW_ARM_BEFORE_READY:-1}"
+export APEX_RECT_SENSORFUS_PRE_READY_NEUTRAL_HOLD_S="${APEX_FORWARD_RAW_PRE_READY_NEUTRAL_HOLD_S:-0.0}"
+export APEX_RECT_SENSORFUS_DRIVE_DELAY_S="${APEX_FORWARD_RAW_DRIVE_DELAY_S:-0.0}"
+export APEX_RECT_SENSORFUS_DRIVE_DURATION_S="${APEX_FORWARD_RAW_DRIVE_DURATION_S:-5.0}"
+export APEX_RECT_SENSORFUS_SPEED_PCT="${APEX_FORWARD_RAW_SPEED_PCT:-20.0}"
+export APEX_RECT_SENSORFUS_LAUNCH_SPEED_PCT="${APEX_FORWARD_RAW_LAUNCH_SPEED_PCT:-20.0}"
+export APEX_RECT_SENSORFUS_LAUNCH_DURATION_S="${APEX_FORWARD_RAW_LAUNCH_DURATION_S:-0.0}"
+export APEX_RECT_SENSORFUS_STEERING_DEG="${APEX_FORWARD_RAW_STEERING_DEG:-0.0}"
+export APEX_RECT_SENSORFUS_PRE_ARM_NEUTRAL_S="${APEX_FORWARD_RAW_PRE_ARM_NEUTRAL_S:-3.0}"
+
+if [[ -n "${APEX_FORWARD_RAW_CAPTURE_DURATION_S:-}" ]]; then
+  export APEX_RECT_SENSORFUS_CAPTURE_DURATION_S="${APEX_FORWARD_RAW_CAPTURE_DURATION_S}"
+else
+  export APEX_RECT_SENSORFUS_CAPTURE_DURATION_S="$(python3 - "${APEX_RECT_SENSORFUS_PRE_ARM_NEUTRAL_S}" "${APEX_RECT_SENSORFUS_DRIVE_DELAY_S}" "${APEX_RECT_SENSORFUS_LAUNCH_DURATION_S}" "${APEX_RECT_SENSORFUS_DRIVE_DURATION_S}" <<'PY'
+import sys
+
+pre_arm_neutral_s = float(sys.argv[1])
+drive_delay_s = float(sys.argv[2])
+launch_duration_s = float(sys.argv[3])
+drive_duration_s = float(sys.argv[4])
+capture_duration_s = pre_arm_neutral_s + drive_delay_s + launch_duration_s + drive_duration_s + 1.25
+print(f"{capture_duration_s:.3f}")
+PY
+)"
+fi
+
+exec "${SCRIPT_DIR}/apex_rect_sensorfus_capture.sh" "$@"

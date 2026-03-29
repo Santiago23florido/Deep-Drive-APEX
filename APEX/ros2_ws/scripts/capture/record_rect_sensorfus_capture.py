@@ -58,8 +58,10 @@ class RectSensorCaptureNode(Node):
                 "point_index",
                 "angle_rad",
                 "range_m",
-                "x_m",
-                "y_m",
+                "x_scan_m",
+                "y_scan_m",
+                "x_forward_m",
+                "y_left_m",
             ]
         )
 
@@ -113,8 +115,10 @@ class RectSensorCaptureNode(Node):
             if range_m < float(msg.range_min) or range_m > float(msg.range_max):
                 angle += float(msg.angle_increment)
                 continue
-            x_m = range_m * math.cos(angle)
-            y_m = range_m * math.sin(angle)
+            x_scan_m = range_m * math.cos(angle)
+            y_scan_m = range_m * math.sin(angle)
+            x_forward_m = -x_scan_m
+            y_left_m = y_scan_m
             self._lidar_writer.writerow(
                 [
                     stamp_sec,
@@ -123,8 +127,10 @@ class RectSensorCaptureNode(Node):
                     point_index,
                     angle,
                     range_m,
-                    x_m,
-                    y_m,
+                    x_scan_m,
+                    y_scan_m,
+                    x_forward_m,
+                    y_left_m,
                 ]
             )
             wrote_points = True

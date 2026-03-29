@@ -43,8 +43,10 @@ class StaticLidarCaptureNode(Node):
                 "point_index",
                 "angle_rad",
                 "range_m",
-                "x_m",
-                "y_m",
+                "x_scan_m",
+                "y_scan_m",
+                "x_forward_m",
+                "y_left_m",
             ]
         )
         self._snapshot_output = snapshot_output
@@ -72,8 +74,10 @@ class StaticLidarCaptureNode(Node):
         for point_index, raw_range in enumerate(msg.ranges):
             range_m = float(raw_range)
             if math.isfinite(range_m) and float(msg.range_min) <= range_m <= float(msg.range_max):
-                x_m = range_m * math.cos(angle)
-                y_m = range_m * math.sin(angle)
+                x_scan_m = range_m * math.cos(angle)
+                y_scan_m = range_m * math.sin(angle)
+                x_forward_m = -x_scan_m
+                y_left_m = y_scan_m
                 row = [
                     stamp_sec,
                     stamp_nanosec,
@@ -81,8 +85,10 @@ class StaticLidarCaptureNode(Node):
                     point_index,
                     angle,
                     range_m,
-                    x_m,
-                    y_m,
+                    x_scan_m,
+                    y_scan_m,
+                    x_forward_m,
+                    y_left_m,
                 ]
                 self._points_writer.writerow(row)
                 scan_rows.append(row)

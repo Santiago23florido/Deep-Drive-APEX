@@ -7,6 +7,12 @@ CONTAINER_NAME="${APEX_CONTAINER_NAME:-apex_pipeline}"
 ROS_SETUP_SCRIPT="${APEX_ROS_SETUP_SCRIPT:-/opt/ros/jazzy/setup.bash}"
 REMOTE_OUTPUT_ROOT="${APEX_RECT_SENSORFUS_ROOT:-${APEX_ROOT}/ros2_ws/apex_rect_sensorfus}"
 CONTAINER_OUTPUT_ROOT="${APEX_RECT_SENSORFUS_CONTAINER_ROOT:-/work/ros2_ws/apex_rect_sensorfus}"
+READY_TIMEOUT_S="${APEX_RECT_SENSORFUS_READY_TIMEOUT_S:-8.0}"
+READY_MIN_IMU_MESSAGES="${APEX_RECT_SENSORFUS_READY_MIN_IMU_MESSAGES:-5}"
+READY_MIN_SCAN_MESSAGES="${APEX_RECT_SENSORFUS_READY_MIN_SCAN_MESSAGES:-3}"
+ARM_BEFORE_READY="${APEX_RECT_SENSORFUS_ARM_BEFORE_READY:-1}"
+PRE_READY_NEUTRAL_HOLD_S="${APEX_RECT_SENSORFUS_PRE_READY_NEUTRAL_HOLD_S:-0.0}"
+CAPTURE_WARMUP_S="${APEX_RECT_SENSORFUS_CAPTURE_WARMUP_S:-0.30}"
 CAPTURE_DURATION_S="${APEX_RECT_SENSORFUS_CAPTURE_DURATION_S:-5.0}"
 DRIVE_DELAY_S="${APEX_RECT_SENSORFUS_DRIVE_DELAY_S:-1.0}"
 DRIVE_DURATION_S="${APEX_RECT_SENSORFUS_DRIVE_DURATION_S:-1.0}"
@@ -14,6 +20,8 @@ DRIVE_SPEED_PCT="${APEX_RECT_SENSORFUS_SPEED_PCT:-20.0}"
 LAUNCH_SPEED_PCT="${APEX_RECT_SENSORFUS_LAUNCH_SPEED_PCT:-35.0}"
 LAUNCH_DURATION_S="${APEX_RECT_SENSORFUS_LAUNCH_DURATION_S:-0.35}"
 STEERING_DEG="${APEX_RECT_SENSORFUS_STEERING_DEG:-0.0}"
+PRE_ARM_NEUTRAL_S="${APEX_RECT_SENSORFUS_PRE_ARM_NEUTRAL_S:-0.8}"
+SYSFS_MONITOR_SAMPLE_DT_S="${APEX_RECT_SENSORFUS_SYSFS_MONITOR_SAMPLE_DT_S:-0.02}"
 RUN_ID="${APEX_RECT_SENSORFUS_RUN_ID:-rect_capture}"
 
 usage() {
@@ -29,6 +37,7 @@ Options:
   --launch-speed-pct <pct>
   --launch-duration-s <seconds>
   --steering-deg <deg>
+  --pre-arm-neutral-s <seconds>
 EOF
 }
 
@@ -64,6 +73,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --steering-deg)
       STEERING_DEG="${2:-}"
+      shift 2
+      ;;
+    --pre-arm-neutral-s)
+      PRE_ARM_NEUTRAL_S="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -150,6 +163,7 @@ PY"
 
 set_steering_from_params() {
   local steering_deg="$1"
+  local keep_enabled="${2:-1}"
   local channel frequency_hz dc_min dc_max trim_dc direction_sign duty_cycle
   channel="$(read_param_value "steering_channel")"
   frequency_hz="$(read_param_value "steering_frequency_hz")"
@@ -172,11 +186,12 @@ signed = bounded * direction_sign
 print(center + signed * variation_per_deg)
 PY
 )"
-  set_pwm_output_pct_in_container "${channel}" "${frequency_hz}" "${duty_cycle}" 1
+  set_pwm_output_pct_in_container "${channel}" "${frequency_hz}" "${duty_cycle}" "${keep_enabled}"
 }
 
 set_motor_speed_from_params() {
   local speed_pct="$1"
+  local keep_enabled="${2:-1}"
   local channel frequency_hz dc_min dc_max neutral_dc duty_cycle
   channel="$(read_param_value "motor_channel")"
   frequency_hz="$(read_param_value "motor_frequency_hz")"
@@ -198,15 +213,34 @@ else:
 print(duty)
 PY
 )"
-  set_pwm_output_pct_in_container "${channel}" "${frequency_hz}" "${duty_cycle}" 1
+  set_pwm_output_pct_in_container "${channel}" "${frequency_hz}" "${duty_cycle}" "${keep_enabled}"
 }
 
 hold_motor_neutral() {
-  set_motor_speed_from_params 0.0
+  local keep_enabled="${1:-0}"
+  set_motor_speed_from_params 0.0 "${keep_enabled}"
 }
 
 center_steering() {
-  set_steering_from_params 0.0
+  local keep_enabled="${1:-0}"
+  set_steering_from_params 0.0 "${keep_enabled}"
+}
+
+write_pwm_snapshot() {
+  local output_path="$1"
+  docker exec "${CONTAINER_NAME}" /bin/bash -lc "
+    echo '# pwm_snapshot'
+    echo '# timestamp_utc '\"\$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+    if [ ! -d /sys/class/pwm ]; then
+      echo '/sys/class/pwm is not available'
+      exit 0
+    fi
+    find /sys/class/pwm -maxdepth 4 -type f \\( -name enable -o -name period -o -name duty_cycle \\) | sort | while read -r path; do
+      echo \"## \${path}\"
+      cat \"\${path}\" 2>/dev/null || echo '<unreadable>'
+      echo
+    done
+  " > "${output_path}" 2>&1 || true
 }
 
 CAPTURE_NAME="${RUN_ID}_$(date -u +%Y%m%dT%H%M%SZ)"
@@ -215,9 +249,64 @@ CONTAINER_RUN_DIR="${CONTAINER_OUTPUT_ROOT}/${CAPTURE_NAME}"
 CONTAINER_PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_params.yaml"
 mkdir -p "${HOST_RUN_DIR}"
 
+MONITOR_DURATION_S="$(python3 - "${READY_TIMEOUT_S}" "${PRE_READY_NEUTRAL_HOLD_S}" "${CAPTURE_DURATION_S}" "${CAPTURE_WARMUP_S}" "${PRE_ARM_NEUTRAL_S}" "${DRIVE_DELAY_S}" "${LAUNCH_DURATION_S}" "${DRIVE_DURATION_S}" <<'PY'
+import sys
+
+ready_timeout_s = float(sys.argv[1])
+pre_ready_neutral_hold_s = float(sys.argv[2])
+capture_duration_s = float(sys.argv[3])
+capture_warmup_s = float(sys.argv[4])
+pre_arm_neutral_s = float(sys.argv[5])
+drive_delay_s = float(sys.argv[6])
+launch_duration_s = float(sys.argv[7])
+drive_duration_s = float(sys.argv[8])
+monitor_duration_s = max(
+    pre_ready_neutral_hold_s + ready_timeout_s + capture_duration_s + 1.50,
+    pre_ready_neutral_hold_s
+    + ready_timeout_s
+    + capture_warmup_s
+    + pre_arm_neutral_s
+    + drive_delay_s
+    + launch_duration_s
+    + drive_duration_s
+    + 1.50,
+)
+print(f"{monitor_duration_s:.3f}")
+PY
+)"
+
+finalize_bundle_artifacts() {
+  if [[ -n "${SYSFS_MONITOR_PID:-}" ]]; then
+    wait "${SYSFS_MONITOR_PID}" 2>/dev/null || true
+  fi
+  write_pwm_snapshot "${HOST_RUN_DIR}/pwm_snapshot_after.txt"
+  docker logs --tail 120 "${CONTAINER_NAME}" > "${HOST_RUN_DIR}/docker_tail.log" 2>&1 || true
+  if [[ -f "${APEX_ROOT}/tools/analysis/analyze_forward_raw_capture.py" && -f "${HOST_RUN_DIR}/pwm_trace.csv" ]]; then
+    python3 "${APEX_ROOT}/tools/analysis/analyze_forward_raw_capture.py" \
+      --run-dir "${HOST_RUN_DIR}" \
+      > "${HOST_RUN_DIR}/debug_summary.txt" 2>&1 || true
+  fi
+}
+
+run_actuation_process() {
+  docker exec "${CONTAINER_NAME}" /bin/bash -lc \
+    "source '${ROS_SETUP_SCRIPT}' && python3 /work/ros2_ws/scripts/capture/rect_sensorfus_actuation.py \
+      --params-file '${CONTAINER_PARAMS_FILE}' \
+      --trace-output '${CONTAINER_RUN_DIR}/pwm_trace.csv' \
+      --events-output '${CONTAINER_RUN_DIR}/actuation_events.csv' \
+      --pre-arm-neutral-s '${PRE_ARM_NEUTRAL_S}' \
+      --drive-delay-s '${DRIVE_DELAY_S}' \
+      --drive-duration-s '${DRIVE_DURATION_S}' \
+      --speed-pct '${DRIVE_SPEED_PCT}' \
+      --launch-speed-pct '${LAUNCH_SPEED_PCT}' \
+      --launch-duration-s '${LAUNCH_DURATION_S}' \
+      --steering-deg '${STEERING_DEG}'" \
+    > "${HOST_RUN_DIR}/actuation.log" 2>&1
+}
+
 cleanup() {
-  hold_motor_neutral || true
-  center_steering || true
+  hold_motor_neutral 0 || true
+  center_steering 0 || true
   if [[ -n "${CAPTURE_PID:-}" ]]; then
     wait "${CAPTURE_PID}" 2>/dev/null || true
   fi
@@ -227,6 +316,16 @@ trap cleanup EXIT
 cat > "${HOST_RUN_DIR}/capture_meta.json" <<EOF
 {
   "run_id": "${CAPTURE_NAME}",
+  "actuation_mode": "forward_raw",
+  "ready_timeout_s": ${READY_TIMEOUT_S},
+  "ready_min_imu_messages": ${READY_MIN_IMU_MESSAGES},
+  "ready_min_scan_messages": ${READY_MIN_SCAN_MESSAGES},
+  "arm_before_ready": ${ARM_BEFORE_READY},
+  "pre_ready_neutral_hold_s": ${PRE_READY_NEUTRAL_HOLD_S},
+  "capture_warmup_s": ${CAPTURE_WARMUP_S},
+  "pre_arm_neutral_s": ${PRE_ARM_NEUTRAL_S},
+  "sysfs_monitor_sample_dt_s": ${SYSFS_MONITOR_SAMPLE_DT_S},
+  "sysfs_monitor_duration_s": ${MONITOR_DURATION_S},
   "capture_duration_s": ${CAPTURE_DURATION_S},
   "drive_delay_s": ${DRIVE_DELAY_S},
   "drive_duration_s": ${DRIVE_DURATION_S},
@@ -237,6 +336,47 @@ cat > "${HOST_RUN_DIR}/capture_meta.json" <<EOF
 }
 EOF
 
+if [[ "${ARM_BEFORE_READY}" == "1" ]]; then
+  hold_motor_neutral 1
+  center_steering 1
+  if python3 - "${PRE_READY_NEUTRAL_HOLD_S}" <<'PY'
+import sys
+sys.exit(0 if float(sys.argv[1]) > 0.0 else 1)
+PY
+  then
+    sleep "${PRE_READY_NEUTRAL_HOLD_S}"
+  fi
+fi
+
+write_pwm_snapshot "${HOST_RUN_DIR}/pwm_snapshot_before.txt"
+
+docker exec "${CONTAINER_NAME}" /bin/bash -lc \
+  "source '${ROS_SETUP_SCRIPT}' && python3 /work/ros2_ws/scripts/capture/monitor_pwm_sysfs.py \
+    --params-file '${CONTAINER_PARAMS_FILE}' \
+    --output '${CONTAINER_RUN_DIR}/sysfs_pwm_monitor.csv' \
+    --duration-s '${MONITOR_DURATION_S}' \
+    --sample-dt-s '${SYSFS_MONITOR_SAMPLE_DT_S}'" \
+  > "${HOST_RUN_DIR}/sysfs_monitor.log" 2>&1 &
+SYSFS_MONITOR_PID=$!
+
+if ! docker exec "${CONTAINER_NAME}" /bin/bash -lc \
+  "source '${ROS_SETUP_SCRIPT}' && python3 /work/ros2_ws/scripts/capture/wait_raw_pipeline_ready.py \
+    --imu-topic /apex/imu/data_raw \
+    --scan-topic /lidar/scan_localization \
+    --timeout-s '${READY_TIMEOUT_S}' \
+    --min-imu-messages '${READY_MIN_IMU_MESSAGES}' \
+    --min-scan-messages '${READY_MIN_SCAN_MESSAGES}' \
+    --json-output '${CONTAINER_RUN_DIR}/readiness.json'" \
+  > "${HOST_RUN_DIR}/readiness.log" 2>&1
+then
+  echo "[APEX][ERROR] Raw pipeline readiness check failed. Log: ${HOST_RUN_DIR}/readiness.log" >&2
+  if [[ -f "${HOST_RUN_DIR}/readiness.log" ]]; then
+    tail -n 80 "${HOST_RUN_DIR}/readiness.log" >&2 || true
+  fi
+  write_pwm_snapshot "${HOST_RUN_DIR}/pwm_snapshot_after.txt"
+  exit 1
+fi
+
 docker exec "${CONTAINER_NAME}" /bin/bash -lc \
   "source '${ROS_SETUP_SCRIPT}' && python3 /work/ros2_ws/scripts/capture/record_rect_sensorfus_capture.py \
     --imu-output '${CONTAINER_RUN_DIR}/imu_raw.csv' \
@@ -245,22 +385,14 @@ docker exec "${CONTAINER_NAME}" /bin/bash -lc \
   > "${HOST_RUN_DIR}/capture.log" 2>&1 &
 CAPTURE_PID=$!
 
-if ! docker exec "${CONTAINER_NAME}" /bin/bash -lc \
-  "source '${ROS_SETUP_SCRIPT}' && python3 /work/ros2_ws/scripts/capture/rect_sensorfus_actuation.py \
-    --params-file '${CONTAINER_PARAMS_FILE}' \
-    --trace-output '${CONTAINER_RUN_DIR}/pwm_trace.csv' \
-    --drive-delay-s '${DRIVE_DELAY_S}' \
-    --drive-duration-s '${DRIVE_DURATION_S}' \
-    --speed-pct '${DRIVE_SPEED_PCT}' \
-    --launch-speed-pct '${LAUNCH_SPEED_PCT}' \
-    --launch-duration-s '${LAUNCH_DURATION_S}' \
-    --steering-deg '${STEERING_DEG}'" \
-  > "${HOST_RUN_DIR}/actuation.log" 2>&1
-then
+sleep "${CAPTURE_WARMUP_S}"
+
+if ! run_actuation_process; then
   echo "[APEX][ERROR] Actuation process failed. Log: ${HOST_RUN_DIR}/actuation.log" >&2
   if [[ -f "${HOST_RUN_DIR}/actuation.log" ]]; then
     tail -n 80 "${HOST_RUN_DIR}/actuation.log" >&2 || true
   fi
+  finalize_bundle_artifacts
   exit 1
 fi
 
@@ -269,10 +401,28 @@ if ! wait "${CAPTURE_PID}"; then
   if [[ -f "${HOST_RUN_DIR}/capture.log" ]]; then
     tail -n 80 "${HOST_RUN_DIR}/capture.log" >&2 || true
   fi
+  finalize_bundle_artifacts
   exit 1
 fi
-echo "[APEX] Rect sensor capture ready: ${HOST_RUN_DIR}"
+
+finalize_bundle_artifacts
+
+echo "[APEX] Movement capture ready: ${HOST_RUN_DIR}"
 echo "[APEX] Files:"
 echo "  ${HOST_RUN_DIR}/imu_raw.csv"
 echo "  ${HOST_RUN_DIR}/lidar_points.csv"
 echo "  ${HOST_RUN_DIR}/pwm_trace.csv"
+echo "  ${HOST_RUN_DIR}/actuation_events.csv"
+echo "  ${HOST_RUN_DIR}/sysfs_pwm_monitor.csv"
+echo "  ${HOST_RUN_DIR}/readiness.log"
+echo "  ${HOST_RUN_DIR}/readiness.json"
+echo "  ${HOST_RUN_DIR}/pwm_snapshot_before.txt"
+echo "  ${HOST_RUN_DIR}/pwm_snapshot_after.txt"
+if [[ -f "${HOST_RUN_DIR}/debug_summary.txt" ]]; then
+  echo "  ${HOST_RUN_DIR}/debug_summary.txt"
+fi
+if [[ -f "${HOST_RUN_DIR}/analysis/summary.md" ]]; then
+  echo "  ${HOST_RUN_DIR}/analysis/summary.md"
+  echo "  ${HOST_RUN_DIR}/analysis/flags.json"
+  echo "  ${HOST_RUN_DIR}/analysis/pwm_timeline.csv"
+fi
