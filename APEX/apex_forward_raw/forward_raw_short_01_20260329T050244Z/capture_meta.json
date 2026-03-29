@@ -1,0 +1,20 @@
+{
+  "run_id": "forward_raw_short_01_20260329T050244Z",
+  "actuation_mode": "forward_raw",
+  "ready_timeout_s": 8.0,
+  "ready_min_imu_messages": 5,
+  "ready_min_scan_messages": 3,
+  "arm_before_ready": 1,
+  "pre_ready_neutral_hold_s": 0.0,
+  "capture_warmup_s": 0.30,
+  "pre_arm_neutral_s": 3.0,
+  "sysfs_monitor_sample_dt_s": 0.02,
+  "sysfs_monitor_duration_s": 18.750,
+  "capture_duration_s": 9.250,
+  "drive_delay_s": 0.0,
+  "drive_duration_s": 1.5,
+  "speed_pct": 40,
+  "launch_speed_pct": 40,
+  "launch_duration_s": 0.0,
+  "steering_deg": 0.0
+}

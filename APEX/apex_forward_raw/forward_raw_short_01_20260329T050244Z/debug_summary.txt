@@ -1,0 +1,10 @@
+[APEX] Timing JSON: /home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_forward_raw/forward_raw_short_01_20260329T050244Z/timing_analysis.json
+[APEX] PWM active rows: 31
+[APEX] PWM active window: 3.002s .. 4.502s (duration=1.500s)
+[APEX] PWM dt mean/max: 0.050002s / 0.050373s
+[APEX] IMU dt mean/max: 0.018001s / 0.018386s
+[APEX] LiDAR scan dt mean/max: 0.073396s / 0.077718s
+[APEX] Sysfs dt mean/max: 0.020336s / 0.023158s
+[APEX] Analysis summary: /home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_forward_raw/forward_raw_short_01_20260329T050244Z/analysis/summary.md
+[APEX] Analysis flags: /home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_forward_raw/forward_raw_short_01_20260329T050244Z/analysis/flags.json
+[APEX] PWM timeline: /home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_forward_raw/forward_raw_short_01_20260329T050244Z/analysis/pwm_timeline.csv

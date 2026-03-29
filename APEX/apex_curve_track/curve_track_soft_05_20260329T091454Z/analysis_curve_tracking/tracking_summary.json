@@ -1,0 +1,77 @@
+{
+  "run_dir": "/work/ros2_ws/apex_curve_track/curve_track_soft_05_20260329T091454Z",
+  "initial_pose": {
+    "x_m": -0.025017251734329716,
+    "y_m": -0.18089593324704303,
+    "yaw_rad": 0.08463921905287312,
+    "vx_mps": 9.642531288848647e-17,
+    "vy_mps": -1.96671977220254e-15,
+    "yaw_rate_rps": 0.0
+  },
+  "final_pose": {
+    "x_m": 2.1006425341368447,
+    "y_m": 1.0011096344481618,
+    "yaw_rad": 0.10821112105240568,
+    "vx_mps": 9.649396687801339e-17,
+    "vy_mps": -1.9681200596851365e-15,
+    "yaw_rate_rps": 0.0
+  },
+  "target_pose": {
+    "x_m": 1.6421142972071876,
+    "y_m": 1.378613381676364,
+    "yaw_rad": 1.3250437866330398
+  },
+  "final_error_x_m": 0.45852823692965705,
+  "final_error_y_m": -0.3775037472282021,
+  "final_error_yaw_deg": 69.71937611142425,
+  "goal_distance_m": 0.593933685888546,
+  "time_total_s": 7.224735736999719,
+  "end_cause": "aborted_path_loss",
+  "path_point_count": 90,
+  "trajectory_row_count": 98,
+  "planner_status": {
+    "state": "ready",
+    "ready": true,
+    "reason": "curve_path_planned",
+    "plan_frame_id": "odom_imu_lidar_fused",
+    "snapshot_scan_count": 8,
+    "path_point_count": 90,
+    "planner_pose": {
+      "x_m": -0.0019681938652597736,
+      "y_m": -0.16469051287804592,
+      "yaw_rad": 0.08585657813078049
+    },
+    "target_pose": {
+      "x_m": 1.6421142972071876,
+      "y_m": 1.378613381676364,
+      "yaw_rad": 1.3250437866330398
+    },
+    "curve_summary": {
+      "valid": true,
+      "side": "left",
+      "side_label_es": "izquierda",
+      "entry_x_m": 0.9057334419369656,
+      "entry_y_m": 0.8466373264685059,
+      "straight_end_x_m": 0.9057334419369656,
+      "window_far_wall_x_m": 2.275,
+      "window_width_m": 1.3692665580630343,
+      "same_side_gap_m": 1.2,
+      "opposite_wall_visible_until_x_m": 2.3057334419369666,
+      "score": 3.875413246450428,
+      "target_x_m": 1.5903667209684826,
+      "target_y_m": 1.396637326468506,
+      "gap_only_opening": true,
+      "heuristic_name": "gap+opposite_continuity"
+    },
+    "local_lidar_target": {
+      "x_m": 1.5903667209684826,
+      "y_m": 1.396637326468506
+    }
+  },
+  "tracker_status": {
+    "state": "aborted_path_loss",
+    "terminal": true,
+    "cause": "aborted_path_loss"
+  },
+  "bridge_status": {}
+}

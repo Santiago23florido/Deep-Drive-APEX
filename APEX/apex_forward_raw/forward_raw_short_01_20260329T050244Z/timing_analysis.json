@@ -1,0 +1,226 @@
+{
+  "run_dir": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_forward_raw/forward_raw_short_01_20260329T050244Z",
+  "pwm": {
+    "rows_total": 34,
+    "timing": {
+      "sample_count": 34,
+      "dt_mean_s": 0.060671764848483224,
+      "dt_min_s": 0.0005153700001301331,
+      "dt_max_s": 0.5009845929998846,
+      "gap_count_over_2x_mean": 1
+    },
+    "active_rows": 31,
+    "active_timing": {
+      "sample_count": 31,
+      "dt_mean_s": 0.050002085766664095,
+      "dt_min_s": 0.04080288899990592,
+      "dt_max_s": 0.05037349999997787,
+      "gap_count_over_2x_mean": 0
+    },
+    "speed_pct_values": [
+      40.0
+    ],
+    "motor_pwm_dc_pct_values": [
+      8.5
+    ],
+    "motor_enabled_values": [
+      1
+    ],
+    "phase_summary": {
+      "drive_delay": {
+        "rows": 1,
+        "timing": {
+          "sample_count": 1,
+          "dt_mean_s": null,
+          "dt_min_s": null,
+          "dt_max_s": null,
+          "gap_count_over_2x_mean": 0
+        },
+        "speed_pct_values": [
+          0.0
+        ],
+        "motor_pwm_dc_pct_values": [
+          7.5
+        ],
+        "motor_enabled_values": [
+          1
+        ],
+        "window_s": {
+          "start_s": 3.0014662209998733,
+          "end_s": 3.0014662209998733,
+          "duration_s": 0.0
+        }
+      },
+      "drive_pulse": {
+        "rows": 31,
+        "timing": {
+          "sample_count": 31,
+          "dt_mean_s": 0.050002085766664095,
+          "dt_min_s": 0.04080288899990592,
+          "dt_max_s": 0.05037349999997787,
+          "gap_count_over_2x_mean": 0
+        },
+        "speed_pct_values": [
+          40.0
+        ],
+        "motor_pwm_dc_pct_values": [
+          8.5
+        ],
+        "motor_enabled_values": [
+          1
+        ],
+        "window_s": {
+          "start_s": 3.0019815910000034,
+          "end_s": 4.502044163999926,
+          "duration_s": 1.5000625729999228
+        }
+      },
+      "pre_arm_neutral": {
+        "rows": 1,
+        "timing": {
+          "sample_count": 1,
+          "dt_mean_s": null,
+          "dt_min_s": null,
+          "dt_max_s": null,
+          "gap_count_over_2x_mean": 0
+        },
+        "speed_pct_values": [
+          0.0
+        ],
+        "motor_pwm_dc_pct_values": [
+          7.5
+        ],
+        "motor_enabled_values": [
+          1
+        ],
+        "window_s": {
+          "start_s": 3.0008605169998646,
+          "end_s": 3.0008605169998646,
+          "duration_s": 0.0
+        }
+      },
+      "return_to_neutral": {
+        "rows": 1,
+        "timing": {
+          "sample_count": 1,
+          "dt_mean_s": null,
+          "dt_min_s": null,
+          "dt_max_s": null,
+          "gap_count_over_2x_mean": 0
+        },
+        "speed_pct_values": [
+          0.0
+        ],
+        "motor_pwm_dc_pct_values": [
+          7.5
+        ],
+        "motor_enabled_values": [
+          0
+        ],
+        "window_s": {
+          "start_s": 5.003028756999811,
+          "end_s": 5.003028756999811,
+          "duration_s": 0.0
+        }
+      }
+    },
+    "active_window_s": {
+      "start_s": 3.0019815910000034,
+      "end_s": 4.502044163999926,
+      "duration_s": 1.5000625729999228
+    },
+    "active_window_monotonic_s": {
+      "start_s": 1845.309404473,
+      "end_s": 1846.809467046,
+      "duration_s": 1.5000625729999228
+    }
+  },
+  "imu": {
+    "rows_total": 403,
+    "timing": {
+      "sample_count": 403,
+      "dt_mean_s": 0.01800074743394235,
+      "dt_min_s": 0.01763439178466797,
+      "dt_max_s": 0.018385648727416992,
+      "gap_count_over_2x_mean": 0
+    }
+  },
+  "lidar": {
+    "rows_total": 10851,
+    "scan_count": 99,
+    "scan_timing": {
+      "sample_count": 99,
+      "dt_mean_s": 0.07339627888737893,
+      "dt_min_s": 0.05140852928161621,
+      "dt_max_s": 0.07771778106689453,
+      "gap_count_over_2x_mean": 0
+    },
+    "points_per_scan": {
+      "min": 102,
+      "max": 117,
+      "mean": 109.60606060606061
+    }
+  },
+  "sysfs_monitor": {
+    "rows_total": 923,
+    "timing": {
+      "sample_count": 923,
+      "dt_mean_s": 0.0203363632874185,
+      "dt_min_s": 0.019823888000018997,
+      "dt_max_s": 0.0231582779999826,
+      "gap_count_over_2x_mean": 0
+    }
+  },
+  "readiness": {
+    "ready": true,
+    "elapsed_s": 0.24597475900009158,
+    "imu": {
+      "count": 9,
+      "required": 5,
+      "first_receipt_offset_s": 0.09199566699999195,
+      "last_receipt_offset_s": 0.23534994500005268
+    },
+    "lidar": {
+      "count": 3,
+      "required": 3,
+      "first_receipt_offset_s": 0.08994894500006012,
+      "last_receipt_offset_s": 0.23087777799992182
+    }
+  },
+  "capture_meta": {
+    "run_id": "forward_raw_short_01_20260329T050244Z",
+    "actuation_mode": "forward_raw",
+    "ready_timeout_s": 8.0,
+    "ready_min_imu_messages": 5,
+    "ready_min_scan_messages": 3,
+    "arm_before_ready": 1,
+    "pre_ready_neutral_hold_s": 0.0,
+    "capture_warmup_s": 0.3,
+    "pre_arm_neutral_s": 3.0,
+    "sysfs_monitor_sample_dt_s": 0.02,
+    "sysfs_monitor_duration_s": 18.75,
+    "capture_duration_s": 9.25,
+    "drive_delay_s": 0.0,
+    "drive_duration_s": 1.5,
+    "speed_pct": 40,
+    "launch_speed_pct": 40,
+    "launch_duration_s": 0.0,
+    "steering_deg": 0.0
+  },
+  "analysis_flags": {
+    "actuation_mode": "forward_raw",
+    "readiness_passed": true,
+    "sysfs_monitor_present": true,
+    "external_pwm_overwrite_detected": false,
+    "motor_enable_dropped_during_active_window": false,
+    "actual_duty_mismatch_during_active_window": false,
+    "pwm_active_gap_detected": false,
+    "imu_gap_detected": false,
+    "lidar_gap_detected": false,
+    "active_monitor_rows": 73,
+    "mismatched_duty_samples": 0,
+    "mismatched_enable_samples": 0,
+    "pwm_duty_mismatch_threshold_ns": 5000,
+    "pwm_alignment_tolerance_s": 0.12
+  }
+}

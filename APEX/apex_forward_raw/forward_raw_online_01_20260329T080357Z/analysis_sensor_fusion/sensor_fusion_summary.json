@@ -1,0 +1,49 @@
+{
+  "run_dir": "/home/santiago/AiAtonomousRc/APEX/apex_forward_raw/forward_raw_online_01_20260329T080357Z",
+  "used_pwm": false,
+  "static_initialization": {
+    "best_effort_init": false,
+    "static_start_s": 1774771445.252832,
+    "static_end_s": 1774771445.6487248,
+    "static_sample_count": 23,
+    "bias_ax_mps2": 0.40196582608695647,
+    "bias_ay_mps2": 0.3300354347826087,
+    "bias_az_mps2": -0.0873362173913037,
+    "bias_gz_rps": -0.04390752173913043
+  },
+  "corridor_model": {
+    "width_m": 0.9509058392801757,
+    "lower_wall_coef": [
+      0.010965789287115205,
+      -0.5290863377829174
+    ],
+    "upper_wall_coef": [
+      -0.17071554145902612,
+      0.31775791000680076
+    ],
+    "alignment_yaw_rad": 0.10251529771579089,
+    "final_rotation_correction_rad": -0.1042645045895487,
+    "origin_projection_m": [
+      0.0,
+      -0.1056642138880583
+    ]
+  },
+  "quality": {
+    "median_wall_residual_m": 0.33247826357086346,
+    "median_submap_residual_m": 0.006813433514295355,
+    "high_confidence_pct": 100.0,
+    "low_confidence_scan_count": 0
+  },
+  "parameters": {
+    "median_window": 5,
+    "ema_alpha": 0.25,
+    "static_window_s": 0.4,
+    "static_search_s": 2.0,
+    "velocity_decay_tau_s": 1.1,
+    "submap_window_scans": 6,
+    "point_stride": 2,
+    "global_point_stride": 3,
+    "max_correspondence_m": 0.35,
+    "initial_scan_count": 7
+  }
+}
