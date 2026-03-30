@@ -668,26 +668,37 @@ def _build_trajectory_plan(
                 config.second_corridor_target_depth_max_m,
             ),
         )
-        outer_clearance_m = max(
-            0.10,
-            min(
-                0.20,
-                max(config.inner_vertex_clearance_m, 0.12 + (0.03 * min(1.0, width_m))),
-            ),
+        post_gap_start_x_m = candidate.entry_x_m + max(0.18, 0.50 * candidate.same_side_gap_m)
+        post_gap_mask = same_profile.x_m >= post_gap_start_x_m
+        if int(np.count_nonzero(post_gap_mask)) == 0:
+            post_gap_mask = same_profile.x_m >= (candidate.entry_x_m + 0.18)
+        post_gap_xy = np.column_stack([same_profile.x_m[post_gap_mask], same_profile.y_m[post_gap_mask]])
+        if post_gap_xy.shape[0] == 0:
+            post_gap_outer_y_m = entry_same_wall_y_m
+        elif candidate.side_sign > 0:
+            post_gap_outer_y_m = float(np.max(post_gap_xy[:, 1]))
+        else:
+            post_gap_outer_y_m = float(np.min(post_gap_xy[:, 1]))
+
+        # For gap-only openings, keep the second corridor anchored to the
+        # detected window, but lift the entry line toward the visible outer
+        # branch instead of extrapolating across the gap.
+        entry_line_lift_fraction = 0.50
+        entry_line_center_y_m = (
+            ((1.0 - entry_line_lift_fraction) * entry_same_wall_y_m)
+            + (entry_line_lift_fraction * post_gap_outer_y_m)
         )
+
         target_x_m = min(
             candidate.entry_x_m + (0.68 * width_m),
             candidate.opposite_wall_visible_until_x_m - 0.18,
         )
         target_x_m = max(target_x_m, candidate.entry_x_m + 0.30)
 
-        opposite_target_y_m = _fit_y_at(opposite_profile, target_x_m)
-        same_target_fit_y_m = _fit_y_at(same_profile, target_x_m)
-        target_y_m = same_target_fit_y_m - (candidate.side_sign * outer_clearance_m)
-        if candidate.side_sign > 0:
-            target_y_m = max(target_y_m, opposite_target_y_m + config.inner_vertex_clearance_m)
-        else:
-            target_y_m = min(target_y_m, opposite_target_y_m - config.inner_vertex_clearance_m)
+        axis_x, axis_y = second_corridor_axis_guess_x, second_corridor_axis_guess_y
+        entry_line_center_x_m = target_x_m - (target_depth_m * axis_x)
+        target_y_m = entry_line_center_y_m + (target_depth_m * axis_y)
+        target_x_m = entry_line_center_x_m + (target_depth_m * axis_x)
 
         straight_hold_x_m = min(
             max(0.12, 0.28 * target_x_m),
@@ -695,20 +706,17 @@ def _build_trajectory_plan(
         )
         straight_hold_y_m = corridor_center_y(straight_hold_x_m)
 
-        preturn_x_m = min(
-            max(straight_hold_x_m + 0.16, candidate.entry_x_m + 0.22 * width_m),
-            max(straight_hold_x_m + 0.12, target_x_m - 0.48),
+        opposite_target_y_m = _fit_y_at(opposite_profile, target_x_m)
+        same_target_outer_y_m = (
+            ((1.0 - entry_line_lift_fraction) * entry_same_wall_y_m)
+            + (entry_line_lift_fraction * post_gap_outer_y_m)
         )
-        preturn_y_m = corridor_center_y(min(candidate.entry_x_m, preturn_x_m))
-
-        apex_x_m = min(
-            max(preturn_x_m + 0.12, candidate.entry_x_m + 0.48 * width_m),
-            max(preturn_x_m + 0.10, target_x_m - 0.16),
-        )
-        apex_y_m = target_y_m - (candidate.side_sign * 0.03)
-
-        axis_x, axis_y = second_corridor_axis_guess_x, second_corridor_axis_guess_y
-        entry_line_center_x_m = target_x_m - (target_depth_m * axis_x)
+        if candidate.side_sign > 0:
+            target_y_m = max(target_y_m, opposite_target_y_m + config.inner_vertex_clearance_m)
+            target_y_m = min(target_y_m, same_target_outer_y_m + target_depth_m)
+        else:
+            target_y_m = min(target_y_m, opposite_target_y_m - config.inner_vertex_clearance_m)
+            target_y_m = max(target_y_m, same_target_outer_y_m - target_depth_m)
         entry_line_center_y_m = target_y_m - (target_depth_m * axis_y)
 
         left_normal_x, left_normal_y = -axis_y, axis_x
@@ -776,7 +784,7 @@ def _build_trajectory_plan(
         ]
         traj_x_m, traj_y_m = _catmull_rom_chain(control_points, samples_per_segment=18)
         target_clearance_inner_m = abs(target_y_m - opposite_target_y_m)
-        target_clearance_outer_m = abs(same_target_fit_y_m - target_y_m)
+        target_clearance_outer_m = abs(same_target_outer_y_m - target_y_m)
     else:
         target_x_m = candidate.entry_x_m
         target_y_m = entry_center_y_m

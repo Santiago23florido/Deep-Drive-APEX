@@ -14,13 +14,18 @@ if [ -d "${APEX_VENV_SITEPKG}" ]; then
   export PYTHONPATH="${APEX_VENV_SITEPKG}:${PYTHONPATH}"
 fi
 
-PARAMS_FILE="/work/ros2_ws/src/apex_telemetry/config/apex_params.yaml"
+PARAMS_FILE="${APEX_PARAMS_FILE:-/work/ros2_ws/src/apex_telemetry/config/apex_params.yaml}"
 PIDS=()
 ENABLE_KINEMATICS="${APEX_ENABLE_KINEMATICS:-1}"
 ENABLE_IMU_LIDAR_FUSION="${APEX_ENABLE_IMU_LIDAR_FUSION:-0}"
 ENABLE_CURVE_ENTRY_PLANNER="${APEX_ENABLE_CURVE_ENTRY_PLANNER:-0}"
 ENABLE_PATH_TRACKER="${APEX_ENABLE_PATH_TRACKER:-0}"
+ENABLE_RECOGNITION_TOUR_PLANNER="${APEX_ENABLE_RECOGNITION_TOUR_PLANNER:-0}"
+ENABLE_RECOGNITION_TOUR_TRACKER="${APEX_ENABLE_RECOGNITION_TOUR_TRACKER:-0}"
 ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
+BRIDGE_MIN_EFFECTIVE_SPEED_PCT="${APEX_BRIDGE_MIN_EFFECTIVE_SPEED_PCT:-}"
+BRIDGE_MAX_SPEED_PCT="${APEX_BRIDGE_MAX_SPEED_PCT:-}"
+BRIDGE_ACTIVE_BRAKE_ON_ZERO="${APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO:-}"
 
 read_param_value() {
   local key="$1"
@@ -202,10 +207,38 @@ else
   echo "[APEX] Curve path tracker disabled for this run"
 fi
 
-if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
-  python3 -m apex_telemetry.actuation.cmd_vel_to_apex_actuation_node \
+if [[ "${ENABLE_RECOGNITION_TOUR_PLANNER}" == "1" ]]; then
+  python3 -m apex_telemetry.perception.recognition_tour_planner_node \
     --ros-args \
     --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
+else
+  echo "[APEX] Recognition tour planner disabled for this run"
+fi
+
+if [[ "${ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
+  python3 -m apex_telemetry.control.recognition_tour_tracker_node \
+    --ros-args \
+    --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
+else
+  echo "[APEX] Recognition tour tracker disabled for this run"
+fi
+
+if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
+  CMD=(python3 -m apex_telemetry.actuation.cmd_vel_to_apex_actuation_node
+    --ros-args
+    --params-file "${PARAMS_FILE}")
+  if [[ -n "${BRIDGE_MIN_EFFECTIVE_SPEED_PCT}" ]]; then
+    CMD+=(-p "min_effective_speed_pct:=${BRIDGE_MIN_EFFECTIVE_SPEED_PCT}")
+  fi
+  if [[ -n "${BRIDGE_MAX_SPEED_PCT}" ]]; then
+    CMD+=(-p "max_speed_pct:=${BRIDGE_MAX_SPEED_PCT}")
+  fi
+  if [[ -n "${BRIDGE_ACTIVE_BRAKE_ON_ZERO}" ]]; then
+    CMD+=(-p "active_brake_on_zero:=${BRIDGE_ACTIVE_BRAKE_ON_ZERO}")
+  fi
+  "${CMD[@]}" &
   PIDS+=("$!")
 else
   echo "[APEX] CmdVel actuation bridge disabled for this run"
@@ -234,6 +267,12 @@ if [[ "${ENABLE_CURVE_ENTRY_PLANNER}" == "1" ]]; then
 fi
 if [[ "${ENABLE_PATH_TRACKER}" == "1" ]]; then
   PIPELINE_FEATURES+=("path tracker")
+fi
+if [[ "${ENABLE_RECOGNITION_TOUR_PLANNER}" == "1" ]]; then
+  PIPELINE_FEATURES+=("recognition planner")
+fi
+if [[ "${ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
+  PIPELINE_FEATURES+=("recognition tracker")
 fi
 if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
   PIPELINE_FEATURES+=("cmd_vel bridge")

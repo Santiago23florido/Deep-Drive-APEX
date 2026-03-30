@@ -34,6 +34,7 @@ class CmdVelToApexActuationNode(Node):
         self.declare_parameter("speed_pct_ramp_exp_k", 4.0)
         self.declare_parameter("speed_pct_ramp_down_per_s", 24.0)
         self.declare_parameter("steering_rate_limit_deg_per_s", 90.0)
+        self.declare_parameter("active_brake_on_zero", False)
 
         self.declare_parameter("steering_channel", 1)
         self.declare_parameter("steering_frequency_hz", 50.0)
@@ -81,6 +82,7 @@ class CmdVelToApexActuationNode(Node):
         self._steering_rate_limit_deg_per_s = max(
             0.0, float(self.get_parameter("steering_rate_limit_deg_per_s").value)
         )
+        self._active_brake_on_zero = bool(self.get_parameter("active_brake_on_zero").value)
 
         self._motor = MaverickESCMotor(
             channel=int(self.get_parameter("motor_channel").value),
@@ -152,8 +154,7 @@ class CmdVelToApexActuationNode(Node):
         if linear_x_mps <= 1e-4:
             return 0.0
         steering_rad = math.atan((self._wheelbase_m * angular_z_rps) / linear_x_mps)
-        steering_deg = math.degrees(steering_rad)
-        return max(-self._max_steering_deg, min(self._max_steering_deg, steering_deg))
+        return math.degrees(steering_rad)
 
     def _start_speed_ramp(self, *, target_speed_pct: float, now_monotonic: float) -> None:
         self._speed_ramp_start_monotonic = now_monotonic
@@ -267,13 +268,19 @@ class CmdVelToApexActuationNode(Node):
             self._speed_ramp_start_monotonic = None
             self._speed_ramp_start_pct = self._last_applied_speed_pct
             self._speed_ramp_target_pct = 0.0
-            applied_speed_pct = self._apply_rate_limit(
-                current_value=self._last_applied_speed_pct,
-                target_value=0.0,
-                rate_up_per_s=self._speed_pct_ramp_down_per_s,
-                rate_down_per_s=self._speed_pct_ramp_down_per_s,
-                dt_s=dt_s,
-            )
+            if self._active_brake_on_zero and self._last_applied_speed_pct > 1.0:
+                applied_steering_deg = 0.0
+                self._steering.set_angle_deg(0.0)
+                self._motor.brake_to_neutral()
+                applied_speed_pct = 0.0
+            else:
+                applied_speed_pct = self._apply_rate_limit(
+                    current_value=self._last_applied_speed_pct,
+                    target_value=0.0,
+                    rate_up_per_s=self._speed_pct_ramp_down_per_s,
+                    rate_down_per_s=self._speed_pct_ramp_down_per_s,
+                    dt_s=dt_s,
+                )
 
         self._steering.set_angle_deg(applied_steering_deg)
         self._motor.set_speed_pct(applied_speed_pct)

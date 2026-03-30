@@ -1,0 +1,27 @@
+{
+  "run_dir": "/work/ros2_ws/apex_curve_track/curve_track_anchor_fix_01_20260329T173137Z",
+  "initial_pose": null,
+  "final_pose": null,
+  "target_pose": null,
+  "final_error_x_m": null,
+  "final_error_y_m": null,
+  "final_error_yaw_deg": null,
+  "goal_distance_m": null,
+  "time_total_s": 22.019926123000005,
+  "end_cause": "timeout",
+  "path_point_count": 0,
+  "trajectory_row_count": 0,
+  "lidar_scan_count": 300,
+  "lidar_point_count": 34016,
+  "planner_status": {
+    "state": "waiting_static",
+    "ready": false,
+    "reason": "vehicle_not_static"
+  },
+  "tracker_status": {
+    "state": "waiting_path",
+    "terminal": false,
+    "cause": null
+  },
+  "bridge_status": {}
+}

@@ -25,6 +25,8 @@ export APEX_ENABLE_KINEMATICS="${APEX_ENABLE_KINEMATICS:-1}"
 export APEX_ENABLE_IMU_LIDAR_FUSION="${APEX_ENABLE_IMU_LIDAR_FUSION:-0}"
 export APEX_ENABLE_CURVE_ENTRY_PLANNER="${APEX_ENABLE_CURVE_ENTRY_PLANNER:-0}"
 export APEX_ENABLE_PATH_TRACKER="${APEX_ENABLE_PATH_TRACKER:-0}"
+export APEX_ENABLE_RECOGNITION_TOUR_PLANNER="${APEX_ENABLE_RECOGNITION_TOUR_PLANNER:-0}"
+export APEX_ENABLE_RECOGNITION_TOUR_TRACKER="${APEX_ENABLE_RECOGNITION_TOUR_TRACKER:-0}"
 export APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
 
 if [[ "${APEX_NANO_PREFLIGHT:-1}" == "1" ]]; then
@@ -113,6 +115,18 @@ fi
 if [[ "${APEX_ENABLE_PATH_TRACKER}" == "1" ]]; then
   require_topic /apex/tracking/status || {
     postcheck_fail "Missing /apex/tracking/status in raw-capture mode"
+  }
+fi
+
+if [[ "${APEX_ENABLE_RECOGNITION_TOUR_PLANNER}" == "1" ]]; then
+  require_topic /apex/planning/recognition_tour_status || {
+    postcheck_fail "Missing /apex/planning/recognition_tour_status in raw-capture mode"
+  }
+fi
+
+if [[ "${APEX_ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
+  require_topic /apex/tracking/recognition_tour_status || {
+    postcheck_fail "Missing /apex/tracking/recognition_tour_status in raw-capture mode"
   }
 fi
 

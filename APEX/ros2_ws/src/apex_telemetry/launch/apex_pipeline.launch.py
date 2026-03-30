@@ -15,6 +15,8 @@ def generate_launch_description() -> LaunchDescription:
     enable_imu_lidar_fusion = LaunchConfiguration("enable_imu_lidar_fusion")
     enable_curve_entry_planner = LaunchConfiguration("enable_curve_entry_planner")
     enable_path_tracker = LaunchConfiguration("enable_path_tracker")
+    enable_recognition_tour_planner = LaunchConfiguration("enable_recognition_tour_planner")
+    enable_recognition_tour_tracker = LaunchConfiguration("enable_recognition_tour_tracker")
     enable_cmdvel_actuation_bridge = LaunchConfiguration("enable_cmdvel_actuation_bridge")
 
     serial_reader = Node(
@@ -96,6 +98,24 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(enable_path_tracker),
     )
 
+    recognition_tour_planner = Node(
+        package="apex_telemetry",
+        executable="recognition_tour_planner_node",
+        name="recognition_tour_planner_node",
+        output="screen",
+        parameters=[params_file],
+        condition=IfCondition(enable_recognition_tour_planner),
+    )
+
+    recognition_tour_tracker = Node(
+        package="apex_telemetry",
+        executable="recognition_tour_tracker_node",
+        name="recognition_tour_tracker_node",
+        output="screen",
+        parameters=[params_file],
+        condition=IfCondition(enable_recognition_tour_tracker),
+    )
+
     cmdvel_actuation_bridge = Node(
         package="apex_telemetry",
         executable="cmd_vel_to_apex_actuation_node",
@@ -120,6 +140,8 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("enable_imu_lidar_fusion", default_value="false"),
             DeclareLaunchArgument("enable_curve_entry_planner", default_value="false"),
             DeclareLaunchArgument("enable_path_tracker", default_value="false"),
+            DeclareLaunchArgument("enable_recognition_tour_planner", default_value="false"),
+            DeclareLaunchArgument("enable_recognition_tour_tracker", default_value="false"),
             DeclareLaunchArgument("enable_cmdvel_actuation_bridge", default_value="false"),
             serial_reader,
             kinematics_estimator,
@@ -129,6 +151,8 @@ def generate_launch_description() -> LaunchDescription:
             imu_lidar_planar_fusion,
             curve_entry_path_planner,
             curve_path_tracker,
+            recognition_tour_planner,
+            recognition_tour_tracker,
             cmdvel_actuation_bridge,
         ]
     )

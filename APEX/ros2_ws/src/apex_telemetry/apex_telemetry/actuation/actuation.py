@@ -40,15 +40,20 @@ class SteeringServo:
 
     def set_angle_deg(self, angle_deg: float) -> None:
         self._requested_angle_deg = float(angle_deg)
-        bounded = max(-self._limit_deg, min(self._limit_deg, self._requested_angle_deg))
-        signed_angle_deg = bounded * self._direction_sign
+        requested_angle_deg = self._requested_angle_deg
+        signed_angle_deg = requested_angle_deg * self._direction_sign
         duty_cycle = self._dc_center + signed_angle_deg * self._variation_per_deg
+        duty_cycle = max(self._dc_min, min(self._dc_max, duty_cycle))
+        if abs(self._variation_per_deg) > 1.0e-9:
+            clamped_signed_angle_deg = (duty_cycle - self._dc_center) / self._variation_per_deg
+        else:
+            clamped_signed_angle_deg = 0.0
         self._pwm.set_duty_cycle(duty_cycle)
-        self._pre_sign_angle_deg = bounded
+        self._pre_sign_angle_deg = requested_angle_deg
         self._post_sign_angle_deg = signed_angle_deg
-        self._clamped_angle_deg = signed_angle_deg
+        self._clamped_angle_deg = clamped_signed_angle_deg
         self._last_duty_cycle_pct = duty_cycle
-        self._current_angle_deg = signed_angle_deg
+        self._current_angle_deg = clamped_signed_angle_deg
 
     def center(self) -> None:
         self.set_angle_deg(0.0)
@@ -155,6 +160,16 @@ class MaverickESCMotor:
 
     def stop(self) -> None:
         self.hold_neutral(disable_pwm=False)
+
+    def brake_to_neutral(self) -> None:
+        self._pwm.set_duty_cycle(self._reverse_brake_dc)
+        self._last_duty_cycle_pct = self._reverse_brake_dc
+        time.sleep(self._reverse_brake_hold_s)
+        self._pwm.set_duty_cycle(self._neutral_dc)
+        self._last_duty_cycle_pct = self._neutral_dc
+        time.sleep(self._reverse_neutral_hold_s)
+        self._in_reverse_mode = False
+        self._speed_pct = 0.0
 
     def _enter_reverse_mode(self) -> None:
         self._logger.info(
