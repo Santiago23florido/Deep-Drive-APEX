@@ -35,6 +35,27 @@ PLANNER_FAILURE_STATES = {
 }
 
 
+def _estimate_path_curvature(path_xy: np.ndarray) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    point_count = path_xy.shape[0]
+    curvature = np.zeros((point_count,), dtype=np.float64)
+    if point_count < 3:
+        return curvature
+    diffs = np.diff(path_xy, axis=0)
+    seg_lengths = np.hypot(diffs[:, 0], diffs[:, 1])
+    headings = np.arctan2(diffs[:, 1], diffs[:, 0])
+    for index in range(1, point_count - 1):
+        ds = max(1.0e-6, 0.5 * (seg_lengths[index - 1] + seg_lengths[index]))
+        dtheta = math.atan2(
+            math.sin(float(headings[index] - headings[index - 1])),
+            math.cos(float(headings[index] - headings[index - 1])),
+        )
+        curvature[index] = dtheta / ds
+    curvature[0] = curvature[1]
+    curvature[-1] = curvature[-2]
+    return curvature
+
+
 class RecognitionTourTrackerNode(Node):
     def __init__(self) -> None:
         super().__init__("recognition_tour_tracker_node")
@@ -54,10 +75,21 @@ class RecognitionTourTrackerNode(Node):
         self.declare_parameter("min_lookahead_m", 0.40)
         self.declare_parameter("max_lookahead_m", 0.90)
         self.declare_parameter("lookahead_speed_gain", 0.70)
+        self.declare_parameter("sharp_turn_lookahead_min_m", 0.26)
+        self.declare_parameter("lookahead_curvature_gain", 0.70)
+        self.declare_parameter("lookahead_curvature_window_points", 10)
+        self.declare_parameter("sharp_turn_speed_boost_start_deg", 24.0)
+        self.declare_parameter("sharp_turn_speed_boost_full_deg", 38.0)
+        self.declare_parameter("sharp_turn_speed_boost_min_speed_mps", 0.12)
         self.declare_parameter("min_linear_speed_mps", 0.08)
         self.declare_parameter("max_linear_speed_mps", 0.24)
         self.declare_parameter("curvature_speed_gain", 1.8)
         self.declare_parameter("max_lateral_accel_mps2", 0.08)
+        self.declare_parameter("path_end_slowdown_distance_m", 0.60)
+        self.declare_parameter("path_end_goal_tolerance_m", 0.18)
+        self.declare_parameter("path_end_yaw_tolerance_rad", 0.45)
+        self.declare_parameter("path_end_line_stop_margin_m", 0.00)
+        self.declare_parameter("path_end_line_activation_tail_points", 8)
         self.declare_parameter("max_path_deviation_m", 0.45)
         self.declare_parameter("angular_cmd_ema_alpha", 0.12)
         self.declare_parameter("curvature_deadband_m_inv", 0.08)
@@ -67,6 +99,7 @@ class RecognitionTourTrackerNode(Node):
         self.declare_parameter("low_confidence_speed_scale", 0.60)
         self.declare_parameter("path_stale_max_age_s", 0.30)
         self.declare_parameter("path_stale_abort_hold_s", 0.40)
+        self.declare_parameter("no_forward_target_abort_hold_s", 0.45)
         self.declare_parameter("global_timeout_s", 60.0)
         self.declare_parameter("odom_timeout_s", 0.5)
 
@@ -92,14 +125,50 @@ class RecognitionTourTrackerNode(Node):
             self._min_lookahead_m, float(self.get_parameter("max_lookahead_m").value)
         )
         self._lookahead_speed_gain = max(0.0, float(self.get_parameter("lookahead_speed_gain").value))
+        self._sharp_turn_lookahead_min_m = max(
+            0.05, float(self.get_parameter("sharp_turn_lookahead_min_m").value)
+        )
+        self._lookahead_curvature_gain = max(
+            0.0, float(self.get_parameter("lookahead_curvature_gain").value)
+        )
+        self._lookahead_curvature_window_points = max(
+            1, int(self.get_parameter("lookahead_curvature_window_points").value)
+        )
         self._min_linear_speed_mps = max(0.0, float(self.get_parameter("min_linear_speed_mps").value))
         self._max_linear_speed_mps = max(
             self._min_linear_speed_mps,
             float(self.get_parameter("max_linear_speed_mps").value),
         )
+        self._sharp_turn_speed_boost_start_deg = max(
+            0.0, float(self.get_parameter("sharp_turn_speed_boost_start_deg").value)
+        )
+        self._sharp_turn_speed_boost_full_deg = max(
+            self._sharp_turn_speed_boost_start_deg + 1.0e-3,
+            float(self.get_parameter("sharp_turn_speed_boost_full_deg").value),
+        )
+        self._sharp_turn_speed_boost_min_speed_mps = max(
+            self._min_linear_speed_mps,
+            float(self.get_parameter("sharp_turn_speed_boost_min_speed_mps").value),
+        )
         self._curvature_speed_gain = max(0.0, float(self.get_parameter("curvature_speed_gain").value))
         self._max_lateral_accel_mps2 = max(
             1.0e-4, float(self.get_parameter("max_lateral_accel_mps2").value)
+        )
+        self._path_end_slowdown_distance_m = max(
+            self._min_lookahead_m,
+            float(self.get_parameter("path_end_slowdown_distance_m").value),
+        )
+        self._path_end_goal_tolerance_m = max(
+            0.05, float(self.get_parameter("path_end_goal_tolerance_m").value)
+        )
+        self._path_end_yaw_tolerance_rad = max(
+            0.0, float(self.get_parameter("path_end_yaw_tolerance_rad").value)
+        )
+        self._path_end_line_stop_margin_m = float(
+            self.get_parameter("path_end_line_stop_margin_m").value
+        )
+        self._path_end_line_activation_tail_points = max(
+            1, int(self.get_parameter("path_end_line_activation_tail_points").value)
         )
         self._max_path_deviation_m = max(
             0.05, float(self.get_parameter("max_path_deviation_m").value)
@@ -128,6 +197,9 @@ class RecognitionTourTrackerNode(Node):
         self._path_stale_abort_hold_s = max(
             self._path_stale_max_age_s,
             float(self.get_parameter("path_stale_abort_hold_s").value),
+        )
+        self._no_forward_target_abort_hold_s = max(
+            0.05, float(self.get_parameter("no_forward_target_abort_hold_s").value)
         )
         self._global_timeout_s = max(1.0, float(self.get_parameter("global_timeout_s").value))
         self._odom_timeout_s = max(0.05, float(self.get_parameter("odom_timeout_s").value))
@@ -158,6 +230,8 @@ class RecognitionTourTrackerNode(Node):
         self._path_points_xy: np.ndarray | None = None
         self._path_yaw: np.ndarray | None = None
         self._path_s: np.ndarray | None = None
+        self._path_curvature_m_inv: np.ndarray | None = None
+        self._path_received_monotonic: float | None = None
         self._planning_status: dict[str, object] = {}
         self._fusion_status: dict[str, object] = {}
         self._latest_odom: dict[str, float] | None = None
@@ -167,6 +241,7 @@ class RecognitionTourTrackerNode(Node):
         self._tracking_started_monotonic: float | None = None
         self._low_conf_since_monotonic: float | None = None
         self._path_stale_since_monotonic: float | None = None
+        self._no_forward_target_since_monotonic: float | None = None
         self._filtered_angular_z_rps = 0.0
         self._status_payload: dict[str, object] = {
             "state": self._state,
@@ -203,6 +278,8 @@ class RecognitionTourTrackerNode(Node):
         self._path_points_xy = path_points_xy
         self._path_yaw = path_yaw
         self._path_s = path_s
+        self._path_curvature_m_inv = _estimate_path_curvature(path_points_xy)
+        self._path_received_monotonic = time.monotonic()
 
     def _planning_status_cb(self, msg: String) -> None:
         try:
@@ -295,19 +372,29 @@ class RecognitionTourTrackerNode(Node):
         )
 
     def _path_age_s(self) -> float | None:
+        planner_age_s: float | None = None
         value = self._planning_status.get("local_path_age_s")
-        if value is None:
-            return None
-        try:
-            age_s = float(value)
-        except (TypeError, ValueError):
-            return None
-        return max(0.0, age_s)
+        if value is not None:
+            try:
+                planner_age_s = max(0.0, float(value))
+            except (TypeError, ValueError):
+                planner_age_s = None
+
+        received_age_s: float | None = None
+        if self._path_received_monotonic is not None:
+            received_age_s = max(0.0, time.monotonic() - self._path_received_monotonic)
+
+        if planner_age_s is None:
+            return received_age_s
+        if received_age_s is None:
+            return planner_age_s
+        return max(planner_age_s, received_age_s)
 
     def _control_step(self) -> None:
         now_monotonic = time.monotonic()
 
         if self._path_points_xy is None or self._path_s is None or self._path_yaw is None:
+            self._no_forward_target_since_monotonic = None
             self._state = "waiting_path"
             self._status_payload = {
                 "state": self._state,
@@ -326,6 +413,7 @@ class RecognitionTourTrackerNode(Node):
             self._set_terminal("planner_failed")
 
         if not self._tracking_allowed():
+            self._no_forward_target_since_monotonic = None
             self._state = "waiting_fusion"
             self._status_payload = {
                 "state": self._state,
@@ -340,6 +428,7 @@ class RecognitionTourTrackerNode(Node):
             return
 
         if not self._armed:
+            self._no_forward_target_since_monotonic = None
             self._state = "waiting_arm"
             self._status_payload = {
                 "state": self._state,
@@ -368,6 +457,7 @@ class RecognitionTourTrackerNode(Node):
         elif (now_monotonic - self._tracking_started_monotonic) >= self._global_timeout_s:
             self._set_terminal("timeout")
 
+        odom_age_s: float | None = None
         if self._latest_odom is None:
             self._set_terminal("aborted_odom_timeout")
         else:
@@ -386,12 +476,14 @@ class RecognitionTourTrackerNode(Node):
             self._path_stale_since_monotonic = None
 
         if self._terminal_cause is not None:
+            self._no_forward_target_since_monotonic = None
             self._status_payload = {
                 "state": self._state,
                 "terminal": True,
                 "cause": self._terminal_cause,
                 "planner_state": planner_state,
                 "path_age_s": path_age_s,
+                "odom_age_s": odom_age_s,
             }
             self._publish_cmd(0.0, 0.0)
             self._publish_status()
@@ -403,13 +495,72 @@ class RecognitionTourTrackerNode(Node):
         nearest_index = int(np.argmin(distances))
         path_deviation_m = float(distances[nearest_index])
         if path_deviation_m > self._max_path_deviation_m:
+            self._no_forward_target_since_monotonic = None
             self._set_terminal("aborted_path_loss")
             self._status_payload = {
                 "state": self._state,
                 "terminal": True,
                 "cause": self._terminal_cause,
                 "planner_state": planner_state,
+                "odom_age_s": odom_age_s,
                 "path_deviation_m": path_deviation_m,
+            }
+            self._publish_cmd(0.0, 0.0)
+            self._publish_status()
+            return
+
+        goal_point = self._path_points_xy[-1]
+        goal_yaw_rad = float(self._path_yaw[-1])
+        goal_tangent = np.asarray(
+            [math.cos(goal_yaw_rad), math.sin(goal_yaw_rad)],
+            dtype=np.float64,
+        )
+        goal_normal_left = np.asarray(
+            [-math.sin(goal_yaw_rad), math.cos(goal_yaw_rad)],
+            dtype=np.float64,
+        )
+        goal_delta_xy = rear_xy - goal_point
+        goal_line_projection_m = float(np.dot(goal_delta_xy, goal_tangent))
+        goal_line_lateral_error_m = float(np.dot(goal_delta_xy, goal_normal_left))
+        goal_line_crossed = bool(
+            nearest_index >= max(
+                0,
+                self._path_points_xy.shape[0] - self._path_end_line_activation_tail_points,
+            )
+            and goal_line_projection_m >= self._path_end_line_stop_margin_m
+        )
+        goal_distance_m = float(np.linalg.norm(goal_point - rear_xy))
+        goal_yaw_error_rad = abs(_normalize_angle(goal_yaw_rad - float(rear_yaw)))
+        goal_line_alignment_ready = goal_yaw_error_rad <= self._path_end_yaw_tolerance_rad
+        remaining_path_m = max(0.0, float(self._path_s[-1] - self._path_s[nearest_index]))
+        local_path_goal_ready = bool(
+            (goal_line_crossed and goal_line_alignment_ready)
+            or (
+                goal_distance_m <= self._path_end_goal_tolerance_m
+                and goal_yaw_error_rad <= self._path_end_yaw_tolerance_rad
+            )
+        )
+
+        if local_path_goal_ready and self._terminal_cause is None:
+            self._no_forward_target_since_monotonic = None
+            self._state = "waiting_path_refresh"
+            self._status_payload = {
+                "state": self._state,
+                "terminal": False,
+                "cause": None,
+                "planner_state": planner_state,
+                "planner_ready": bool(self._planning_status.get("ready", False)),
+                "path_age_s": path_age_s,
+                "odom_age_s": odom_age_s,
+                "path_stale": path_is_stale,
+                "path_deviation_m": path_deviation_m,
+                "goal_distance_m": goal_distance_m,
+                "remaining_path_m": remaining_path_m,
+                "goal_yaw_error_rad": goal_yaw_error_rad,
+                "goal_line_projection_m": goal_line_projection_m,
+                "goal_line_lateral_error_m": goal_line_lateral_error_m,
+                "goal_line_crossed": goal_line_crossed,
+                "goal_line_alignment_ready": goal_line_alignment_ready,
             }
             self._publish_cmd(0.0, 0.0)
             self._publish_status()
@@ -419,11 +570,32 @@ class RecognitionTourTrackerNode(Node):
             float(self._latest_odom["vx_mps"]),
             float(self._latest_odom["vy_mps"]),
         )
-        lookahead_m = min(
+        base_lookahead_m = min(
             self._max_lookahead_m,
             max(
                 self._min_lookahead_m,
                 self._min_lookahead_m + (self._lookahead_speed_gain * speed_now_mps),
+            ),
+        )
+        ahead_path_curvature_m_inv = 0.0
+        if self._path_curvature_m_inv is not None and self._path_curvature_m_inv.size > 0:
+            curvature_window_end = min(
+                self._path_curvature_m_inv.shape[0],
+                nearest_index + self._lookahead_curvature_window_points,
+            )
+            curvature_window = np.abs(
+                self._path_curvature_m_inv[nearest_index:curvature_window_end]
+            )
+            if curvature_window.size > 0:
+                ahead_path_curvature_m_inv = float(np.max(curvature_window))
+        lookahead_scale = 1.0 / (
+            1.0 + (self._lookahead_curvature_gain * ahead_path_curvature_m_inv)
+        )
+        lookahead_m = min(
+            self._max_lookahead_m,
+            max(
+                self._sharp_turn_lookahead_min_m,
+                base_lookahead_m * lookahead_scale,
             ),
         )
         target_s = float(self._path_s[nearest_index] + lookahead_m)
@@ -448,6 +620,7 @@ class RecognitionTourTrackerNode(Node):
 
         if dx_local <= 1.0e-3:
             if path_is_stale:
+                self._no_forward_target_since_monotonic = None
                 self._state = "holding_last_path"
                 self._status_payload = {
                     "state": self._state,
@@ -455,11 +628,37 @@ class RecognitionTourTrackerNode(Node):
                     "cause": None,
                     "planner_state": planner_state,
                     "path_age_s": path_age_s,
+                    "odom_age_s": odom_age_s,
                     "path_stale": True,
                 }
                 self._publish_cmd(0.0, 0.0)
                 self._publish_status()
                 return
+            if self._no_forward_target_since_monotonic is None:
+                self._no_forward_target_since_monotonic = now_monotonic
+            no_forward_target_elapsed_s = (
+                now_monotonic - self._no_forward_target_since_monotonic
+            )
+            planner_ready = bool(self._planning_status.get("ready", False))
+            if planner_ready and no_forward_target_elapsed_s < self._no_forward_target_abort_hold_s:
+                self._state = "waiting_forward_path"
+                self._status_payload = {
+                    "state": self._state,
+                    "terminal": False,
+                    "cause": None,
+                    "planner_state": planner_state,
+                    "planner_ready": planner_ready,
+                    "path_age_s": path_age_s,
+                    "odom_age_s": odom_age_s,
+                    "path_stale": False,
+                    "no_forward_target_elapsed_s": no_forward_target_elapsed_s,
+                    "no_forward_target_abort_hold_s": self._no_forward_target_abort_hold_s,
+                    "path_deviation_m": path_deviation_m,
+                }
+                self._publish_cmd(0.0, 0.0)
+                self._publish_status()
+                return
+            self._no_forward_target_since_monotonic = None
             self._set_terminal("aborted_path_loss")
             self._status_payload = {
                 "state": self._state,
@@ -467,18 +666,23 @@ class RecognitionTourTrackerNode(Node):
                 "cause": self._terminal_cause,
                 "planner_state": planner_state,
                 "path_age_s": path_age_s,
+                "odom_age_s": odom_age_s,
+                "path_deviation_m": path_deviation_m,
             }
             self._publish_cmd(0.0, 0.0)
             self._publish_status()
             return
 
-        lookahead_actual_m = max(self._min_lookahead_m, math.hypot(dx_local, dy_local))
+        self._no_forward_target_since_monotonic = None
+        lookahead_actual_m = max(self._sharp_turn_lookahead_min_m, math.hypot(dx_local, dy_local))
         raw_curvature = (2.0 * dy_local) / max(1.0e-6, lookahead_actual_m * lookahead_actual_m)
         curvature = raw_curvature
         if abs(curvature) < self._curvature_deadband_m_inv:
             curvature = 0.0
 
         curvature_abs = abs(raw_curvature)
+        desired_steering_deg = math.degrees(math.atan(self._wheelbase_m * raw_curvature))
+        desired_steering_abs_deg = abs(desired_steering_deg)
         curvature_speed_limit_mps = self._max_linear_speed_mps / (
             1.0 + (self._curvature_speed_gain * curvature_abs)
         )
@@ -494,13 +698,51 @@ class RecognitionTourTrackerNode(Node):
             curvature_speed_limit_mps,
             lateral_accel_speed_limit_mps,
         )
+        goal_speed_limit_mps = self._max_linear_speed_mps
+        if goal_distance_m < self._path_end_slowdown_distance_m:
+            goal_speed_limit_mps = self._max_linear_speed_mps * max(
+                0.15, goal_distance_m / self._path_end_slowdown_distance_m
+            )
+            linear_x_mps = min(linear_x_mps, goal_speed_limit_mps)
         linear_x_mps *= self._startup_ramp_scale(now_monotonic)
         if confidence != "high":
             linear_x_mps *= self._low_confidence_speed_scale
-        linear_x_mps = max(
-            self._min_linear_speed_mps * self._startup_ramp_scale(now_monotonic),
-            min(self._max_linear_speed_mps, linear_x_mps),
+        min_linear_speed_floor_mps = self._min_linear_speed_mps * self._startup_ramp_scale(
+            now_monotonic
         )
+        sharp_turn_speed_floor_mps = 0.0
+        if (
+            confidence == "high"
+            and goal_distance_m > self._path_end_slowdown_distance_m
+            and desired_steering_abs_deg > self._sharp_turn_speed_boost_start_deg
+        ):
+            steer_alpha = min(
+                1.0,
+                max(
+                    0.0,
+                    (
+                        (desired_steering_abs_deg - self._sharp_turn_speed_boost_start_deg)
+                        / (
+                            self._sharp_turn_speed_boost_full_deg
+                            - self._sharp_turn_speed_boost_start_deg
+                        )
+                    ),
+                ),
+            )
+            sharp_turn_speed_floor_mps = self._startup_ramp_scale(now_monotonic) * (
+                self._min_linear_speed_mps
+                + (
+                    steer_alpha
+                    * (self._sharp_turn_speed_boost_min_speed_mps - self._min_linear_speed_mps)
+                )
+            )
+            min_linear_speed_floor_mps = max(
+                min_linear_speed_floor_mps,
+                sharp_turn_speed_floor_mps,
+            )
+        if remaining_path_m <= self._path_end_goal_tolerance_m:
+            min_linear_speed_floor_mps = 0.0
+        linear_x_mps = max(min_linear_speed_floor_mps, min(self._max_linear_speed_mps, linear_x_mps))
 
         raw_angular_z_rps = linear_x_mps * curvature
         if linear_x_mps <= 1.0e-6 or abs(raw_angular_z_rps) <= 1.0e-6:
@@ -530,19 +772,32 @@ class RecognitionTourTrackerNode(Node):
             "planner_state": planner_state,
             "planner_ready": bool(self._planning_status.get("ready", False)),
             "path_age_s": path_age_s,
+            "odom_age_s": odom_age_s,
             "path_stale": path_is_stale,
             "fusion_state": self._fusion_status.get("state"),
             "fusion_confidence": confidence,
             "closest_path_index": nearest_index,
             "target_path_index": target_index,
             "path_deviation_m": path_deviation_m,
+            "goal_distance_m": goal_distance_m,
+            "remaining_path_m": remaining_path_m,
+            "goal_yaw_error_rad": goal_yaw_error_rad,
+            "goal_line_projection_m": goal_line_projection_m,
+            "goal_line_lateral_error_m": goal_line_lateral_error_m,
+            "goal_line_crossed": goal_line_crossed,
+            "goal_line_alignment_ready": goal_line_alignment_ready,
+            "base_lookahead_m": base_lookahead_m,
+            "ahead_path_curvature_m_inv": ahead_path_curvature_m_inv,
             "lookahead_m": lookahead_actual_m,
             "raw_curvature_m_inv": raw_curvature,
             "curvature_m_inv": curvature,
             "filtered_curvature_m_inv": filtered_curvature_m_inv,
+            "desired_steering_deg": desired_steering_deg,
             "curvature_deadband_m_inv": self._curvature_deadband_m_inv,
             "curvature_speed_limit_mps": curvature_speed_limit_mps,
             "lateral_accel_speed_limit_mps": lateral_accel_speed_limit_mps,
+            "goal_speed_limit_mps": goal_speed_limit_mps,
+            "sharp_turn_speed_floor_mps": sharp_turn_speed_floor_mps,
             "cmd_linear_x_mps": linear_x_mps,
             "raw_cmd_angular_z_rps": raw_angular_z_rps,
             "cmd_angular_z_rps": angular_z_rps,

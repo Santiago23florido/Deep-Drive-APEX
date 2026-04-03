@@ -74,9 +74,13 @@ APEX_ENABLE_RECOGNITION_TOUR_PLANNER=1 \
 APEX_ENABLE_RECOGNITION_TOUR_TRACKER=1 \
 APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE=1 \
 APEX_ENABLE_KINEMATICS=0 \
+APEX_STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-safe}" \
+APEX_STAGGERED_STARTUP=1 \
+APEX_SERIAL_WARMUP_S="${APEX_SERIAL_WARMUP_S:-1.0}" \
+APEX_LIDAR_STARTUP_SETTLE_S="${APEX_LIDAR_STARTUP_SETTLE_S:-3.0}" \
 APEX_BRIDGE_MIN_EFFECTIVE_SPEED_PCT="${BRIDGE_MIN_SPEED_PCT}" \
 APEX_BRIDGE_MAX_SPEED_PCT="${BRIDGE_MAX_SPEED_PCT}" \
-APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO=1 \
+APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO=true \
 APEX_SKIP_BUILD="${APEX_SKIP_BUILD:-1}" \
 APEX_NANO_PREFLIGHT="${APEX_NANO_PREFLIGHT:-1}" \
 ./tools/capture/apex_raw_capture_up.sh
@@ -90,6 +94,7 @@ docker exec "${CONTAINER_NAME}" /bin/bash -lc \
   "source '${ROS_SETUP_SCRIPT}' && python3 /work/ros2_ws/scripts/capture/record_recognition_tour.py \
     --path-topic /apex/planning/recognition_tour_local_path \
     --route-topic /apex/planning/recognition_tour_route \
+    --fusion-status-topic /apex/estimation/status \
     --planner-status-topic /apex/planning/recognition_tour_status \
     --tracker-status-topic /apex/tracking/recognition_tour_status \
     --bridge-status-topic /apex/vehicle/drive_bridge_status \
@@ -139,4 +144,6 @@ echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_route.csv"
 echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_route.json"
 echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_trajectory.csv"
 echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_overview.png"
+echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_diagnostics.png"
+echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_diagnostics.json"
 echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/drive_bridge_status.log"

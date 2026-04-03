@@ -8,6 +8,9 @@ nano_accel_serial_node:
     connect_dtr_low_s: 0.0
     connect_settle_s: 0.75
     flush_input_on_connect: true
+    no_data_reconnect_s: 3.5
+    fallback_profiles_enabled: true
+    connection_profile_name: "yaml_configured"
     log_no_data_every_s: 5.0
     frame_id: "imu_link"
     topic: "/apex/imu/acceleration/raw"
@@ -114,6 +117,9 @@ imu_lidar_planar_fusion_node:
     child_frame_id: "base_link"
     publish_tf: false
     status_publish_rate_hz: 2.0
+    publish_predicted_odom_between_scans: true
+    predicted_odom_rate_hz: 30.0
+    max_prediction_horizon_s: 0.22
     path_max_poses: 4000
     median_window: 5
     ema_alpha: 0.25
@@ -225,6 +231,12 @@ recognition_tour_planner_node:
     path_resample_step_m: 0.04
     path_smoothing_alpha: 0.20
     path_smoothing_max_iterations: 140
+    path_min_forward_progress_m: 1.45
+    min_publish_forward_span_m: 0.65
+    straight_entry_hold_length_m: 0.40
+    replan_path_blend_alpha: 0.60
+    previous_path_tail_extension_m: 0.40
+    previous_path_tail_graft_min_span_m: 0.95
     corridor_bin_m: 0.10
     corridor_quantile: 0.18
     corridor_min_bin_points: 8
@@ -266,12 +278,23 @@ recognition_tour_tracker_node:
     min_lookahead_m: 0.40
     max_lookahead_m: 0.90
     lookahead_speed_gain: 0.70
+    sharp_turn_lookahead_min_m: 0.26
+    lookahead_curvature_gain: 0.70
+    lookahead_curvature_window_points: 10
+    sharp_turn_speed_boost_start_deg: 24.0
+    sharp_turn_speed_boost_full_deg: 38.0
+    sharp_turn_speed_boost_min_speed_mps: 0.12
     min_linear_speed_mps: 0.08
     max_linear_speed_mps: 0.24
-    curvature_speed_gain: 1.8
+    curvature_speed_gain: 1.10
     max_lateral_accel_mps2: 0.08
+    path_end_slowdown_distance_m: 0.60
+    path_end_goal_tolerance_m: 0.18
+    path_end_yaw_tolerance_rad: 0.45
+    path_end_line_stop_margin_m: 0.00
+    path_end_line_activation_tail_points: 8
     max_path_deviation_m: 0.45
-    angular_cmd_ema_alpha: 0.12
+    angular_cmd_ema_alpha: 0.18
     curvature_deadband_m_inv: 0.08
     startup_ramp_duration_s: 1.5
     startup_speed_scale_min: 0.65
@@ -279,6 +302,7 @@ recognition_tour_tracker_node:
     low_confidence_speed_scale: 0.60
     path_stale_max_age_s: 0.30
     path_stale_abort_hold_s: 0.40
+    no_forward_target_abort_hold_s: 0.45
     global_timeout_s: 60.0
     odom_timeout_s: 0.5
 

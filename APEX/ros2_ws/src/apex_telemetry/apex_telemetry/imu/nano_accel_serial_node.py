@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 import re
 import threading
@@ -20,6 +21,15 @@ except Exception:  # pragma: no cover - runtime dependency check
     serial = None
 
 
+@dataclass(frozen=True)
+class SerialConnectProfile:
+    name: str
+    toggle_dtr: bool
+    dtr_low_s: float
+    settle_s: float
+    flush_input_on_connect: bool
+
+
 class NanoAccelSerialNode(Node):
     """Bridge raw serial IMU stream from Arduino Nano into ROS2."""
 
@@ -34,6 +44,9 @@ class NanoAccelSerialNode(Node):
         self.declare_parameter("connect_dtr_low_s", 0.2)
         self.declare_parameter("connect_settle_s", 2.0)
         self.declare_parameter("flush_input_on_connect", True)
+        self.declare_parameter("no_data_reconnect_s", 3.5)
+        self.declare_parameter("fallback_profiles_enabled", True)
+        self.declare_parameter("connection_profile_name", "configured")
         self.declare_parameter("log_no_data_every_s", 5.0)
         self.declare_parameter("frame_id", "imu_link")
         self.declare_parameter("topic", "/apex/imu/acceleration/raw")
@@ -52,6 +65,13 @@ class NanoAccelSerialNode(Node):
         self._connect_dtr_low_s = max(0.0, float(self.get_parameter("connect_dtr_low_s").value))
         self._connect_settle_s = max(0.0, float(self.get_parameter("connect_settle_s").value))
         self._flush_input_on_connect = bool(self.get_parameter("flush_input_on_connect").value)
+        self._no_data_reconnect_s = max(0.5, float(self.get_parameter("no_data_reconnect_s").value))
+        self._fallback_profiles_enabled = bool(
+            self.get_parameter("fallback_profiles_enabled").value
+        )
+        self._connection_profile_name = str(
+            self.get_parameter("connection_profile_name").value
+        )
         self._log_no_data_every_s = max(
             0.5, float(self.get_parameter("log_no_data_every_s").value)
         )
@@ -85,20 +105,101 @@ class NanoAccelSerialNode(Node):
 
         self._invalid_counter = 0
         self._no_gyro_counter = 0
+        self._preferred_profile_index = 0
+        self._connection_profiles = self._build_connection_profiles()
         self._stop_event = threading.Event()
         self._worker_thread = threading.Thread(target=self._serial_worker, daemon=True)
         self._worker_thread.start()
 
         self.get_logger().info(
-            "NanoAccelSerialNode started (port=%s, baudrate=%d, accel=%s, gyro=%s, imu=%s)"
+            "NanoAccelSerialNode started (port=%s, baudrate=%d, accel=%s, gyro=%s, imu=%s, profiles=%s)"
             % (
                 self._serial_port,
                 self._baudrate,
                 self._accel_pub.topic_name,
                 self._gyro_pub.topic_name,
                 self._imu_pub.topic_name if self._imu_pub is not None else "(disabled)",
+                ",".join(profile.name for profile in self._connection_profiles),
             )
         )
+
+    def _append_profile_once(
+        self,
+        profiles: list[SerialConnectProfile],
+        profile: SerialConnectProfile,
+    ) -> None:
+        signature = (
+            bool(profile.toggle_dtr),
+            round(float(profile.dtr_low_s), 4),
+            round(float(profile.settle_s), 4),
+            bool(profile.flush_input_on_connect),
+        )
+        for existing in profiles:
+            existing_signature = (
+                bool(existing.toggle_dtr),
+                round(float(existing.dtr_low_s), 4),
+                round(float(existing.settle_s), 4),
+                bool(existing.flush_input_on_connect),
+            )
+            if existing_signature == signature:
+                return
+        profiles.append(profile)
+
+    def _build_connection_profiles(self) -> list[SerialConnectProfile]:
+        configured = SerialConnectProfile(
+            name=self._connection_profile_name or "configured",
+            toggle_dtr=self._connect_toggle_dtr,
+            dtr_low_s=self._connect_dtr_low_s,
+            settle_s=self._connect_settle_s,
+            flush_input_on_connect=self._flush_input_on_connect,
+        )
+        profiles: list[SerialConnectProfile] = [configured]
+        if not self._fallback_profiles_enabled:
+            return profiles
+
+        if self._flush_input_on_connect:
+            self._append_profile_once(
+                profiles,
+                SerialConnectProfile(
+                    name="configured_no_flush",
+                    toggle_dtr=self._connect_toggle_dtr,
+                    dtr_low_s=self._connect_dtr_low_s,
+                    settle_s=self._connect_settle_s,
+                    flush_input_on_connect=False,
+                ),
+            )
+
+        self._append_profile_once(
+            profiles,
+            SerialConnectProfile(
+                name="passive_no_flush",
+                toggle_dtr=False,
+                dtr_low_s=0.0,
+                settle_s=0.0,
+                flush_input_on_connect=False,
+            ),
+        )
+        self._append_profile_once(
+            profiles,
+            SerialConnectProfile(
+                name="passive_flush",
+                toggle_dtr=False,
+                dtr_low_s=0.0,
+                settle_s=max(0.0, min(0.75, self._connect_settle_s)),
+                flush_input_on_connect=True,
+            ),
+        )
+        self._append_profile_once(
+            profiles,
+            SerialConnectProfile(
+                name="dtr_handshake",
+                toggle_dtr=True,
+                dtr_low_s=max(0.2, self._connect_dtr_low_s),
+                settle_s=max(2.0, self._connect_settle_s),
+                flush_input_on_connect=True,
+            ),
+        )
+        return profiles
 
     def _parse_line(
         self, line: str
@@ -193,37 +294,41 @@ class NanoAccelSerialNode(Node):
                 return
             time.sleep(min(0.1, remaining))
 
-    def _prepare_serial_connection(self, ser: serial.Serial) -> None:
+    def _prepare_serial_connection(
+        self,
+        ser: serial.Serial,
+        profile: SerialConnectProfile,
+    ) -> None:
         # Arduino ACM devices often reset on open/DTR transitions. Make that
         # reset explicit, then wait for the firmware to start streaming before
         # we begin parsing lines.
-        if self._connect_toggle_dtr:
+        if profile.toggle_dtr:
             try:
                 ser.setDTR(False)
             except Exception:
                 pass
-            self._sleep_with_stop(self._connect_dtr_low_s)
+            self._sleep_with_stop(profile.dtr_low_s)
 
-        if self._flush_input_on_connect:
+        if profile.flush_input_on_connect:
             try:
                 ser.reset_input_buffer()
             except Exception:
                 pass
 
-        if self._connect_toggle_dtr:
+        if profile.toggle_dtr:
             try:
                 ser.setDTR(True)
             except Exception:
                 pass
 
-        if self._connect_toggle_dtr and self._connect_settle_s > 0.0:
+        if profile.toggle_dtr and profile.settle_s > 0.0:
             self.get_logger().info(
-                "Waiting %.2fs for Arduino serial to settle after DTR handshake."
-                % self._connect_settle_s
+                "Waiting %.2fs for Arduino serial to settle after DTR handshake (profile=%s)."
+                % (profile.settle_s, profile.name)
             )
-        self._sleep_with_stop(self._connect_settle_s)
+        self._sleep_with_stop(profile.settle_s)
 
-        if self._flush_input_on_connect:
+        if profile.flush_input_on_connect:
             try:
                 ser.reset_input_buffer()
             except Exception:
@@ -234,28 +339,35 @@ class NanoAccelSerialNode(Node):
             self.get_logger().error("pyserial is not available. Install python3-serial.")
             return
 
+        profile_index = self._preferred_profile_index
+        attempt_count = 0
         while not self._stop_event.is_set():
             ser = None
+            profile = self._connection_profiles[profile_index]
             try:
                 ser = serial.Serial()
                 ser.port = self._serial_port
                 ser.baudrate = self._baudrate
                 ser.timeout = self._serial_timeout_s
                 ser.write_timeout = self._serial_timeout_s
-                if not self._connect_toggle_dtr:
+                if not profile.toggle_dtr:
                     try:
                         ser.dtr = False
                     except Exception:
                         pass
                 ser.open()
+                attempt_count += 1
                 self.get_logger().info(
-                    "Connected to Arduino serial %s @ %d"
-                    % (self._serial_port, self._baudrate)
+                    "Connected to Arduino serial %s @ %d (profile=%s attempt=%d)"
+                    % (self._serial_port, self._baudrate, profile.name, attempt_count)
                 )
-                self._prepare_serial_connection(ser)
+                self._prepare_serial_connection(ser, profile)
 
-                last_no_data_log_t = time.monotonic()
+                connect_t = time.monotonic()
+                last_no_data_log_t = connect_t
+                last_sample_t = connect_t
                 valid_samples = 0
+                invalid_since_connect = 0
 
                 while not self._stop_event.is_set():
                     raw = ser.readline()
@@ -267,32 +379,55 @@ class NanoAccelSerialNode(Node):
                                 % (self._serial_port, now_t - last_no_data_log_t)
                             )
                             last_no_data_log_t = now_t
+                        if (now_t - last_sample_t) >= self._no_data_reconnect_s:
+                            raise RuntimeError(
+                                "No valid serial IMU samples received for %.2fs on profile=%s; reconnecting"
+                                % (now_t - last_sample_t, profile.name)
+                            )
                         continue
 
                     line = raw.decode("utf-8", errors="replace").strip()
                     parsed = self._parse_line(line)
                     if parsed is None:
+                        invalid_since_connect += 1
                         self._invalid_counter += 1
                         if self._invalid_counter % self._log_every_n_invalid == 0:
                             self.get_logger().warning(
-                                "Skipping invalid serial line: '%s'" % line
+                                "Skipping invalid serial line on profile=%s: '%s'"
+                                % (profile.name, line)
+                            )
+                        if (
+                            invalid_since_connect >= self._log_every_n_invalid
+                            and (time.monotonic() - connect_t) >= self._no_data_reconnect_s
+                            and valid_samples == 0
+                        ):
+                            raise RuntimeError(
+                                "Only invalid serial lines seen for %.2fs on profile=%s; reconnecting"
+                                % (time.monotonic() - connect_t, profile.name)
                             )
                         continue
 
                     ax, ay, az, gx, gy, gz, has_gyro = parsed
+                    invalid_since_connect = 0
                     valid_samples += 1
                     last_no_data_log_t = time.monotonic()
+                    last_sample_t = last_no_data_log_t
                     if valid_samples == 1:
                         self.get_logger().info(
-                            "First valid Arduino IMU sample received on %s." % self._serial_port
+                            "First valid Arduino IMU sample received on %s (profile=%s)."
+                            % (self._serial_port, profile.name)
                         )
+                        self._preferred_profile_index = profile_index
                     self._publish_sample(ax, ay, az, gx, gy, gz, has_gyro)
             except Exception as exc:
                 self.get_logger().warning(
-                    "Serial connection error on %s: %s"
-                    % (self._serial_port, str(exc))
+                    "Serial connection error on %s (profile=%s): %s"
+                    % (self._serial_port, profile.name, str(exc))
                 )
-                time.sleep(self._reconnect_delay_s)
+                next_profile_index = (profile_index + 1) % len(self._connection_profiles)
+                wrapped = next_profile_index == self._preferred_profile_index
+                profile_index = next_profile_index
+                self._sleep_with_stop(self._reconnect_delay_s if wrapped else 0.2)
             finally:
                 if ser is not None:
                     try:

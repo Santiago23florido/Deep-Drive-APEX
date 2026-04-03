@@ -41,6 +41,7 @@ class RecognitionTourRecorder(Node):
         *,
         path_topic: str,
         route_topic: str,
+        fusion_status_topic: str,
         planner_status_topic: str,
         tracker_status_topic: str,
         bridge_status_topic: str,
@@ -58,6 +59,7 @@ class RecognitionTourRecorder(Node):
         self._terminal_state_seen_at: float | None = None
         self._finalized = False
 
+        self._fusion_status: dict[str, Any] = {}
         self._planner_status: dict[str, Any] = {}
         self._tracker_status: dict[str, Any] = {}
         self._bridge_status: dict[str, Any] = {}
@@ -90,6 +92,7 @@ class RecognitionTourRecorder(Node):
         self._trajectory_writer = csv.writer(self._trajectory_handle)
         self._trajectory_writer.writerow(
             [
+                "t_monotonic_s",
                 "stamp_sec",
                 "stamp_nanosec",
                 "x_m",
@@ -98,10 +101,23 @@ class RecognitionTourRecorder(Node):
                 "vx_mps",
                 "vy_mps",
                 "yaw_rate_rps",
+                "odom_source",
+                "odom_prediction_age_s",
                 "planner_state",
+                "planner_path_forward_span_m",
+                "planner_path_length_m",
+                "planner_path_max_curvature_m_inv",
+                "local_path_source",
                 "tracker_state",
                 "path_age_s",
+                "odom_age_s",
                 "path_deviation_m",
+                "cmd_linear_x_mps",
+                "cmd_angular_z_rps",
+                "tracker_desired_steering_deg",
+                "raw_curvature_m_inv",
+                "filtered_curvature_m_inv",
+                "fusion_state",
                 "fusion_confidence",
                 "desired_speed_pct",
                 "applied_speed_pct",
@@ -137,6 +153,7 @@ class RecognitionTourRecorder(Node):
         )
         self.create_subscription(NavPath, path_topic, self._path_cb, latched_qos)
         self.create_subscription(NavPath, route_topic, self._route_cb, latched_qos)
+        self.create_subscription(String, fusion_status_topic, self._fusion_status_cb, 20)
         self.create_subscription(String, planner_status_topic, self._planner_status_cb, latched_qos)
         self.create_subscription(String, tracker_status_topic, self._tracker_status_cb, latched_qos)
         self.create_subscription(String, bridge_status_topic, self._bridge_status_cb, 20)
@@ -149,6 +166,27 @@ class RecognitionTourRecorder(Node):
             % (self._timeout_s, str(self._analysis_dir))
         )
 
+    def _fusion_status_cb(self, msg: String) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+        self._fusion_status = payload
+        self._status_handle.write(
+            json.dumps(
+                {
+                    "t_monotonic_s": time.monotonic() - self._start_monotonic,
+                    "source": "fusion",
+                    "payload": payload,
+                },
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
+        self._status_handle.flush()
+
     def _path_cb(self, msg: NavPath) -> None:
         if not msg.poses:
             return
@@ -156,6 +194,11 @@ class RecognitionTourRecorder(Node):
             "t_monotonic_s": time.monotonic() - self._start_monotonic,
             "stamp_sec": int(msg.header.stamp.sec),
             "stamp_nanosec": int(msg.header.stamp.nanosec),
+            "planner_state": self._planner_status.get("state", ""),
+            "local_path_source": self._planner_status.get("local_path_source", ""),
+            "path_forward_span_m": self._planner_status.get("path_forward_span_m", ""),
+            "path_length_m": self._planner_status.get("path_length_m", ""),
+            "path_max_curvature_m_inv": self._planner_status.get("path_max_curvature_m_inv", ""),
             "path_xy_yaw": [],
         }
         for pose in msg.poses:
@@ -293,8 +336,10 @@ class RecognitionTourRecorder(Node):
         if not self._track_started:
             return
 
+        now_monotonic_s = time.monotonic() - self._start_monotonic
         self._trajectory_writer.writerow(
             [
+                now_monotonic_s,
                 int(msg.header.stamp.sec),
                 int(msg.header.stamp.nanosec),
                 pose["x_m"],
@@ -303,10 +348,23 @@ class RecognitionTourRecorder(Node):
                 pose["vx_mps"],
                 pose["vy_mps"],
                 pose["yaw_rate_rps"],
+                self._fusion_status.get("published_source", ""),
+                self._fusion_status.get("odom_prediction_age_s", ""),
                 self._planner_status.get("state", ""),
+                self._planner_status.get("path_forward_span_m", ""),
+                self._planner_status.get("path_length_m", ""),
+                self._planner_status.get("path_max_curvature_m_inv", ""),
+                self._planner_status.get("local_path_source", ""),
                 self._tracker_status.get("state", ""),
                 self._planner_status.get("local_path_age_s", ""),
+                self._tracker_status.get("odom_age_s", self._planner_status.get("odom_age_s", "")),
                 self._tracker_status.get("path_deviation_m", ""),
+                self._tracker_status.get("cmd_linear_x_mps", ""),
+                self._tracker_status.get("cmd_angular_z_rps", ""),
+                self._tracker_status.get("desired_steering_deg", ""),
+                self._tracker_status.get("raw_curvature_m_inv", ""),
+                self._tracker_status.get("filtered_curvature_m_inv", ""),
+                self._fusion_status.get("state", ""),
                 self._tracker_status.get("fusion_confidence", ""),
                 self._bridge_status.get("desired_speed_pct", ""),
                 self._bridge_status.get("applied_speed_pct", ""),
@@ -400,6 +458,7 @@ class RecognitionTourRecorder(Node):
             "route_point_count": len(self._route_points),
             "lidar_scan_count": self._scan_count,
             "lidar_point_count": self._lidar_point_count,
+            "fusion_status": self._fusion_status,
             "planner_status": self._planner_status,
             "tracker_status": self._tracker_status,
             "bridge_status": self._bridge_status,
@@ -446,6 +505,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--path-topic", default="/apex/planning/recognition_tour_local_path")
     parser.add_argument("--route-topic", default="/apex/planning/recognition_tour_route")
+    parser.add_argument("--fusion-status-topic", default="/apex/estimation/status")
     parser.add_argument("--planner-status-topic", default="/apex/planning/recognition_tour_status")
     parser.add_argument("--tracker-status-topic", default="/apex/tracking/recognition_tour_status")
     parser.add_argument("--bridge-status-topic", default="/apex/vehicle/drive_bridge_status")
@@ -464,6 +524,7 @@ def main() -> None:
     node = RecognitionTourRecorder(
         path_topic=args.path_topic,
         route_topic=args.route_topic,
+        fusion_status_topic=args.fusion_status_topic,
         planner_status_topic=args.planner_status_topic,
         tracker_status_topic=args.tracker_status_topic,
         bridge_status_topic=args.bridge_status_topic,

@@ -158,7 +158,17 @@ class CmdVelToApexActuationNode(Node):
 
     def _start_speed_ramp(self, *, target_speed_pct: float, now_monotonic: float) -> None:
         self._speed_ramp_start_monotonic = now_monotonic
-        self._speed_ramp_start_pct = self._last_applied_speed_pct
+        if (
+            target_speed_pct > 1.0e-6
+            and self._last_applied_speed_pct <= 1.0e-6
+            and self._min_effective_speed_pct > 1.0e-6
+        ):
+            # Do not ramp up from a value that is already below the ESC's
+            # effective movement threshold; otherwise the vehicle can sit still
+            # for most of the launch ramp even though motion has been commanded.
+            self._speed_ramp_start_pct = min(target_speed_pct, self._min_effective_speed_pct)
+        else:
+            self._speed_ramp_start_pct = self._last_applied_speed_pct
         self._speed_ramp_target_pct = target_speed_pct
 
     def _compute_exponential_ramp_speed(self, now_monotonic: float) -> tuple[float, float]:
@@ -220,6 +230,7 @@ class CmdVelToApexActuationNode(Node):
                 "desired_angular_z_rps": self._cmd_angular_z_rps,
                 "desired_speed_pct": self._last_desired_speed_pct,
                 "desired_steering_deg": self._last_desired_steering_deg,
+                "speed_ramp_start_pct": self._speed_ramp_start_pct,
                 "speed_ramp_target_pct": self._speed_ramp_target_pct,
                 "speed_ramp_active": self._speed_ramp_start_monotonic is not None,
                 "applied_speed_pct": self._last_applied_speed_pct,

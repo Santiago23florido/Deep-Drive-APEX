@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APEX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PORT="${APEX_SERIAL_PORT:-/dev/ttyACM0}"
+RUNTIME_DIR="${APEX_RUNTIME_DIR:-${APEX_ROOT}/.apex_runtime}"
+PROFILE_ENV_FILE="${APEX_NANO_PROFILE_ENV_FILE:-${RUNTIME_DIR}/nano_serial_profile.env}"
 CHECK_TIMEOUT_S="${APEX_NANO_CHECK_TIMEOUT_S:-6}"
 CONNECT_DTR_LOW_S="${APEX_NANO_CONNECT_DTR_LOW_S:-0.2}"
 CONNECT_SETTLE_S="${APEX_NANO_CONNECT_SETTLE_S:-2.0}"
@@ -50,6 +52,38 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+rm -f "${PROFILE_ENV_FILE}" 2>/dev/null || true
+
+persist_runtime_profile() {
+  local profile_name="$1"
+  local toggle_dtr="$2"
+  local dtr_low_s="$3"
+  local settle_s="$4"
+  local flush_input="$5"
+  mkdir -p "${RUNTIME_DIR}"
+  cat > "${PROFILE_ENV_FILE}" <<EOF
+export APEX_SERIAL_CONNECT_PROFILE_NAME="${profile_name}"
+export APEX_SERIAL_CONNECT_TOGGLE_DTR="${toggle_dtr}"
+export APEX_SERIAL_CONNECT_DTR_LOW_S="${dtr_low_s}"
+export APEX_SERIAL_CONNECT_SETTLE_S="${settle_s}"
+export APEX_SERIAL_FLUSH_INPUT_ON_CONNECT="${flush_input}"
+EOF
+  echo "[APEX] Recorded Nano runtime profile '${profile_name}' in ${PROFILE_ENV_FILE}"
+}
+
+persist_runtime_attach_profile() {
+  local probe_name="$1"
+  # The probe may need to kick the ACM device with DTR, but once the Nano is
+  # streaming we want the ROS runtime to attach as passively as possible to
+  # avoid a second reset when the serial node opens the same port.
+  persist_runtime_profile \
+    "runtime_passive_after_${probe_name}" \
+    "false" \
+    "0.0" \
+    "0.0" \
+    "false"
+}
 
 check_stream_pyserial() {
   local toggle_dtr="${1}"
@@ -113,6 +147,11 @@ PY
   set -e
 
   [[ -n "${sample}" ]] || return 1
+  if [[ "${toggle_dtr}" == "1" ]]; then
+    persist_runtime_attach_profile "dtr_probe"
+  else
+    persist_runtime_attach_profile "pyserial_probe"
+  fi
   echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
   return 0
 }
@@ -139,6 +178,7 @@ check_stream_passive_cat() {
   set -e
 
   [[ -n "${sample}" ]] || return 1
+  persist_runtime_attach_profile "passive_cat_probe"
   echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
   return 0
 }
@@ -166,6 +206,7 @@ check_stream_passive_head() {
   set -e
 
   [[ -n "${sample}" ]] || return 1
+  persist_runtime_attach_profile "passive_head_probe"
   echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
   return 0
 }

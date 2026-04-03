@@ -23,6 +23,16 @@ ENABLE_PATH_TRACKER="${APEX_ENABLE_PATH_TRACKER:-0}"
 ENABLE_RECOGNITION_TOUR_PLANNER="${APEX_ENABLE_RECOGNITION_TOUR_PLANNER:-0}"
 ENABLE_RECOGNITION_TOUR_TRACKER="${APEX_ENABLE_RECOGNITION_TOUR_TRACKER:-0}"
 ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
+STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-modern}"
+STAGGERED_STARTUP="${APEX_STAGGERED_STARTUP:-1}"
+SERIAL_WARMUP_S="${APEX_SERIAL_WARMUP_S:-1.0}"
+LIDAR_STARTUP_SETTLE_S="${APEX_LIDAR_STARTUP_SETTLE_S:-2.5}"
+SERIAL_CONNECT_TOGGLE_DTR="${APEX_SERIAL_CONNECT_TOGGLE_DTR:-}"
+SERIAL_CONNECT_DTR_LOW_S="${APEX_SERIAL_CONNECT_DTR_LOW_S:-}"
+SERIAL_CONNECT_SETTLE_S="${APEX_SERIAL_CONNECT_SETTLE_S:-}"
+SERIAL_FLUSH_INPUT_ON_CONNECT="${APEX_SERIAL_FLUSH_INPUT_ON_CONNECT:-}"
+SERIAL_CONNECT_PROFILE_NAME="${APEX_SERIAL_CONNECT_PROFILE_NAME:-}"
+SERIAL_NO_DATA_RECONNECT_S="${APEX_SERIAL_NO_DATA_RECONNECT_S:-}"
 BRIDGE_MIN_EFFECTIVE_SPEED_PCT="${APEX_BRIDGE_MIN_EFFECTIVE_SPEED_PCT:-}"
 BRIDGE_MAX_SPEED_PCT="${APEX_BRIDGE_MAX_SPEED_PCT:-}"
 BRIDGE_ACTIVE_BRAKE_ON_ZERO="${APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO:-}"
@@ -45,6 +55,23 @@ with open(params_path, "r", encoding="utf-8") as handle:
             print(match.group(1).strip().strip('"').strip("'"))
             break
 PY
+}
+
+normalize_bool_override() {
+  local raw_value="$1"
+  local normalized
+  normalized="$(printf '%s' "${raw_value}" | tr '[:upper:]' '[:lower:]')"
+  case "${normalized}" in
+    1|true|yes|on)
+      printf 'true\n'
+      ;;
+    0|false|no|off)
+      printf 'false\n'
+      ;;
+    *)
+      printf '%s\n' "${raw_value}"
+      ;;
+  esac
 }
 
 first_pwm_chip_path() {
@@ -152,12 +179,43 @@ cleanup() {
 
 trap cleanup INT TERM EXIT
 
-python3 -m apex_telemetry.imu.nano_accel_serial_node \
-  --ros-args \
-  --params-file "${PARAMS_FILE}" \
-  -p serial_port:="${APEX_SERIAL_PORT:-/dev/ttyACM0}" \
-  -p baudrate:="${APEX_BAUDRATE:-115200}" &
+echo "[APEX] Startup compat: ${STARTUP_COMPAT}"
+
+is_legacy_like() {
+  [[ "${STARTUP_COMPAT}" == "legacy" || "${STARTUP_COMPAT}" == "safe" ]]
+}
+
+NANO_CMD=(python3 -m apex_telemetry.imu.nano_accel_serial_node
+  --ros-args
+  --params-file "${PARAMS_FILE}"
+  -p "serial_port:=${APEX_SERIAL_PORT:-/dev/ttyACM0}"
+  -p "baudrate:=${APEX_BAUDRATE:-115200}")
+if ! is_legacy_like; then
+  if [[ -n "${SERIAL_CONNECT_TOGGLE_DTR}" ]]; then
+    NANO_CMD+=(-p "connect_toggle_dtr:=$(normalize_bool_override "${SERIAL_CONNECT_TOGGLE_DTR}")")
+  fi
+  if [[ -n "${SERIAL_CONNECT_DTR_LOW_S}" ]]; then
+    NANO_CMD+=(-p "connect_dtr_low_s:=${SERIAL_CONNECT_DTR_LOW_S}")
+  fi
+  if [[ -n "${SERIAL_CONNECT_SETTLE_S}" ]]; then
+    NANO_CMD+=(-p "connect_settle_s:=${SERIAL_CONNECT_SETTLE_S}")
+  fi
+  if [[ -n "${SERIAL_FLUSH_INPUT_ON_CONNECT}" ]]; then
+    NANO_CMD+=(-p "flush_input_on_connect:=$(normalize_bool_override "${SERIAL_FLUSH_INPUT_ON_CONNECT}")")
+  fi
+  if [[ -n "${SERIAL_CONNECT_PROFILE_NAME}" ]]; then
+    NANO_CMD+=(-p "connection_profile_name:=${SERIAL_CONNECT_PROFILE_NAME}")
+  fi
+  if [[ -n "${SERIAL_NO_DATA_RECONNECT_S}" ]]; then
+    NANO_CMD+=(-p "no_data_reconnect_s:=${SERIAL_NO_DATA_RECONNECT_S}")
+  fi
+fi
+"${NANO_CMD[@]}" &
 PIDS+=("$!")
+if [[ "${STAGGERED_STARTUP}" == "1" ]]; then
+  echo "[APEX] Startup staging: waiting ${SERIAL_WARMUP_S}s after Nano serial node"
+  sleep "${SERIAL_WARMUP_S}"
+fi
 
 if [[ "${ENABLE_KINEMATICS}" == "1" ]]; then
   python3 -m apex_telemetry.odometry.kinematics_estimator_node \
@@ -179,6 +237,10 @@ python3 -m apex_telemetry.perception.rplidar_publisher_node \
   -p "port:=${APEX_LIDAR_PORT:-/dev/ttyUSB0}" \
   -p "baudrate:=${APEX_LIDAR_BAUDRATE:-115200}" &
 PIDS+=("$!")
+if [[ "${STAGGERED_STARTUP}" == "1" ]]; then
+  echo "[APEX] Startup staging: waiting ${LIDAR_STARTUP_SETTLE_S}s for LiDAR motor spin-up"
+  sleep "${LIDAR_STARTUP_SETTLE_S}"
+fi
 
 if [[ "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
   python3 -m apex_telemetry.estimation.imu_lidar_planar_fusion_node \
@@ -236,7 +298,11 @@ if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
     CMD+=(-p "max_speed_pct:=${BRIDGE_MAX_SPEED_PCT}")
   fi
   if [[ -n "${BRIDGE_ACTIVE_BRAKE_ON_ZERO}" ]]; then
-    CMD+=(-p "active_brake_on_zero:=${BRIDGE_ACTIVE_BRAKE_ON_ZERO}")
+    if is_legacy_like; then
+      CMD+=(-p "active_brake_on_zero:=${BRIDGE_ACTIVE_BRAKE_ON_ZERO}")
+    else
+      CMD+=(-p "active_brake_on_zero:=$(normalize_bool_override "${BRIDGE_ACTIVE_BRAKE_ON_ZERO}")")
+    fi
   fi
   "${CMD[@]}" &
   PIDS+=("$!")

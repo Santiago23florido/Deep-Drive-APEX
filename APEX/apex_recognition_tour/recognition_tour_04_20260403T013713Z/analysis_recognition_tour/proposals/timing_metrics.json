@@ -1,0 +1,19 @@
+{
+  "actual_aborted_odom_timeout_segments": 1,
+  "actual_aborted_path_loss_segments": 0,
+  "actual_holding_last_path_segments": 2,
+  "actual_problem_segments": 3,
+  "actual_waiting_forward_segments": 0,
+  "baseline_sparse_max_odom_age_s": 0.1472475528717041,
+  "baseline_sparse_mean_odom_age_s": 0.03780804477860903,
+  "baseline_sparse_no_forward_segments": 0,
+  "baseline_sparse_p95_odom_age_s": 0.07324707508087158,
+  "baseline_sparse_path_loss_segments": 0,
+  "proxy_dense_max_odom_age_s": 0.0,
+  "proxy_dense_mean_odom_age_s": 0.0,
+  "proxy_dense_no_forward_segments": 0,
+  "proxy_dense_p95_odom_age_s": 0.0,
+  "proxy_dense_path_loss_segments": 0,
+  "run": "recognition_tour_04_20260403T013713Z",
+  "subsystem": "timing"
+}

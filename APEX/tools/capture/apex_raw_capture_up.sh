@@ -5,16 +5,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APEX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CONTAINER_NAME="${APEX_CONTAINER_NAME:-apex_pipeline}"
 NANO_PREFLIGHT_SCRIPT="${APEX_ROOT}/tools/firmware/ensure_nano33_stream.sh"
+NANO_PROFILE_ENV_FILE="${APEX_NANO_PROFILE_ENV_FILE:-${APEX_ROOT}/.apex_runtime/nano_serial_profile.env}"
 ROS_SETUP_SCRIPT="${APEX_ROS_SETUP_SCRIPT:-/opt/ros/jazzy/setup.bash}"
 POSTCHECK_TIMEOUT_S="${APEX_RAW_POSTCHECK_TIMEOUT_S:-5}"
 POSTCHECK_READY_DELAY_S="${APEX_RAW_POSTCHECK_READY_DELAY_S:-4}"
 POSTCHECK_RETRIES="${APEX_RAW_POSTCHECK_RETRIES:-3}"
 PREFLIGHT_SOFT_FAIL="${APEX_NANO_PREFLIGHT_SOFT_FAIL:-1}"
 AUTO_DOWN_ON_POSTCHECK_FAIL="${APEX_RAW_POSTCHECK_AUTO_DOWN_ON_FAIL:-0}"
+STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-modern}"
 
 if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
   echo "[APEX] ${CONTAINER_NAME} is already running"
   exit 0
+fi
+
+if docker ps -a --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
+  echo "[APEX][WARN] Removing stale container ${CONTAINER_NAME} before startup"
+  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
 fi
 
 cd "${APEX_ROOT}"
@@ -37,6 +44,15 @@ if [[ "${APEX_NANO_PREFLIGHT:-1}" == "1" ]]; then
       exit 1
     fi
   fi
+fi
+
+echo "[APEX] Startup compat: ${STARTUP_COMPAT}"
+if [[ "${STARTUP_COMPAT}" != "legacy" && "${STARTUP_COMPAT}" != "safe" && -f "${NANO_PROFILE_ENV_FILE}" ]]; then
+  # Reuse the serial-open profile that actually produced bytes during host-side
+  # preflight so the ROS node does not reopen /dev/ttyACM0 with a mismatched policy.
+  # shellcheck disable=SC1090
+  source "${NANO_PROFILE_ENV_FILE}"
+  echo "[APEX] Loaded Nano runtime profile from ${NANO_PROFILE_ENV_FILE}: ${APEX_SERIAL_CONNECT_PROFILE_NAME:-unknown}"
 fi
 
 ./run_apex.sh -d
