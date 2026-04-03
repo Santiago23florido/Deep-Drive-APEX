@@ -1,0 +1,1 @@
+stamp_sec,stamp_nanosec,x_m,y_m,yaw_rad,vx_mps,vy_mps,yaw_rate_rps,tracker_state,goal_distance_m,path_deviation_m,fusion_confidence

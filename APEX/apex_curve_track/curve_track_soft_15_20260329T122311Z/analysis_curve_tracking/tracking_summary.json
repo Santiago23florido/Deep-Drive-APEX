@@ -1,0 +1,115 @@
+{
+  "run_dir": "/work/ros2_ws/apex_curve_track/curve_track_soft_15_20260329T122311Z",
+  "initial_pose": {
+    "x_m": -0.034020202289313815,
+    "y_m": -0.15980356945797675,
+    "yaw_rad": 0.05280441489813652,
+    "vx_mps": -0.010680706239480111,
+    "vy_mps": 0.04809418822688327,
+    "yaw_rate_rps": -0.0005287261890608672
+  },
+  "final_pose": {
+    "x_m": 2.235962305627316,
+    "y_m": 0.644408617440072,
+    "yaw_rad": 0.09320227947709961,
+    "vx_mps": 0.2666485284646616,
+    "vy_mps": -0.08576449622322597,
+    "yaw_rate_rps": -0.0003047912234917004
+  },
+  "target_pose": {
+    "x_m": 2.067167728302168,
+    "y_m": 0.9092914428970998,
+    "yaw_rad": 1.5885169676476312
+  },
+  "final_error_x_m": 0.16879457732514824,
+  "final_error_y_m": -0.2648828254570278,
+  "final_error_yaw_deg": 85.67522067609222,
+  "goal_distance_m": 0.314093171776264,
+  "time_total_s": 6.820327311999989,
+  "end_cause": "aborted_path_loss",
+  "path_point_count": 65,
+  "trajectory_row_count": 70,
+  "lidar_scan_count": 77,
+  "lidar_point_count": 8446,
+  "planner_status": {
+    "state": "ready",
+    "ready": true,
+    "reason": "curve_path_planned",
+    "plan_frame_id": "odom_imu_lidar_fused",
+    "snapshot_scan_count": 8,
+    "path_point_count": 65,
+    "planner_pose": {
+      "x_m": -0.005542033821698966,
+      "y_m": -0.14081163193737173,
+      "yaw_rad": 0.039050064386432416
+    },
+    "tracking_origin_pose": {
+      "x_m": -0.15542768028970996,
+      "y_m": -0.1466676530154091,
+      "yaw_rad": 0.039050064386432416
+    },
+    "path_start_pose": {
+      "x_m": -0.15542768028970996,
+      "y_m": -0.1466676530154091,
+      "yaw_rad": 0.5143728672756104
+    },
+    "target_pose": {
+      "x_m": 2.067167728302168,
+      "y_m": 0.9092914428970998,
+      "yaw_rad": 1.5885169676476312
+    },
+    "entry_line_center_pose": {
+      "x_m": 2.07352800991159,
+      "y_m": 0.7894601163674776,
+      "yaw_rad": 1.6238235210937264
+    },
+    "second_corridor_axis_xy": {
+      "x": -0.053002346745181256,
+      "y": 0.9985943877468487
+    },
+    "target_depth_into_second_corridor_m": 0.12,
+    "target_clearance_inner_m": 1.66493407750619,
+    "target_clearance_outer_m": 0.15000000000000002,
+    "curve_summary": {
+      "valid": true,
+      "side": "left",
+      "side_label_es": "izquierda",
+      "entry_x_m": 0.8847680911840773,
+      "entry_y_m": 0.9501073672796543,
+      "straight_end_x_m": 0.8847680911840773,
+      "window_far_wall_x_m": 2.4249999999999994,
+      "window_width_m": 1.540231908815922,
+      "same_side_gap_m": 1.2999999999999996,
+      "opposite_wall_visible_until_x_m": 2.4347680911840786,
+      "score": 3.83,
+      "target_x_m": 1.932125789178904,
+      "target_y_m": 0.9683836411597312,
+      "entry_line_center_x_m": 1.9338029901574383,
+      "entry_line_center_y_m": 0.8483953625785398,
+      "second_corridor_axis_xy": [
+        -0.01397667482111871,
+        0.9999023215099286
+      ],
+      "target_depth_into_second_corridor_m": 0.12,
+      "target_clearance_inner_m": 1.66493407750619,
+      "target_clearance_outer_m": 0.15000000000000002,
+      "gap_only_opening": true,
+      "heuristic_name": "gap+opposite_continuity"
+    },
+    "path_metrics": {
+      "path_max_curvature_m_inv": 6.381689522477811,
+      "path_min_turn_radius_m": 0.15669831577950713,
+      "path_curvature_limit_m_inv": 0.8122992405822658
+    },
+    "local_lidar_target": {
+      "x_m": 1.932125789178904,
+      "y_m": 0.9683836411597312
+    }
+  },
+  "tracker_status": {
+    "state": "aborted_path_loss",
+    "terminal": true,
+    "cause": "aborted_path_loss"
+  },
+  "bridge_status": {}
+}

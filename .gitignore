@@ -24,3 +24,5 @@ __pycache__/
 *.swo
 *~
 .DS_Store
+# APEX debug artifacts
+APEX/debug_runs/

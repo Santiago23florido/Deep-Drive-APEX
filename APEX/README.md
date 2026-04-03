@@ -1,232 +1,133 @@
-# APEX
+# APEX Minimal
 
-APEX is a clean modular stack for Raspberry-based mapping.
+Esta rama queda reducida a lo que hoy sirve:
+- Nano IMU raw por serial
+- reflasheo del Nano si no hay stream
+- LiDAR estático
+- detección de curvas en estático
+- odometría raw basada en IMU
+- pulso directo de motor/servo para captura corta
+- exportación CSV de `imu_raw` y nube 2D LiDAR
 
-Current scope:
-- Arduino Nano 33 IoT IMU ingestion (accelerometer + gyroscope)
-- LiDAR publishing (`/lidar/scan`)
-- SLAM on Raspberry with `slam_toolbox` (map reconstruction)
-- Remote visualization from PC
-- Optional autonomous reconnaissance lap for slow wall-aware mapping
+No levanta ni usa:
+- recon
+- sensor fusion
+- SLAM
+- odometría LiDAR relativa
+- navegación automática
 
-Motor control for reconnaissance is optional and only enabled when explicitly requested.
-
-## Architecture
+## Estructura
 
 ```text
 APEX/
-  arduino/
-    nano33_iot_accel_stream/
-  docker/
-    Dockerfile
-    docker-compose.yml
-  ros2_ws/
-    src/apex_telemetry/
-      apex_telemetry/
-        nano_accel_serial_node.py
-        kinematics_estimator_node.py
-        kinematics_odometry_node.py
-        rplidar_publisher_node.py
-      launch/
-        apex_pipeline.launch.py
-        apex_lidar_slam.launch.py
-      config/
-        apex_params.yaml
-        apex_slam_toolbox.yaml
-    scripts/start_apex_pipeline.sh
-  run_apex.sh
+├── tools/
+│   ├── analysis/
+│   │   ├── analyze_lidar_curve_snapshot.py
+│   │   ├── build_lidar_snapshot.py
+│   │   └── run_static_curve_analysis.py
+│   ├── capture/
+│   │   ├── apex_raw_capture_up.sh
+│   │   ├── apex_rect_sensorfus_capture.sh
+│   │   └── fetch_rect_sensorfus_capture.sh
+│   ├── core/
+│   │   ├── apex_core_down.sh
+│   │   └── apex_core_up.sh
+│   └── firmware/
+│       ├── ensure_nano33_stream.sh
+│       └── upload_nano33_iot.sh
+└── ros2_ws/src/apex_telemetry/apex_telemetry/
+    ├── actuation/
+    ├── imu/
+    ├── odometry/
+    └── perception/
 ```
 
-## ROS Graph (Raspberry)
+Los wrappers antiguos en `tools/*.sh` y `tools/*.py` se conservan para compatibilidad.
 
-- `nano_accel_serial_node`: serial -> `/apex/imu/acceleration/raw` + `/apex/imu/angular_velocity/raw` + `/apex/imu/data_raw`
-- `kinematics_estimator_node`: IMU raw topics -> kinematics topics + heading/yaw-rate
-- `kinematics_odometry_node`: kinematics + heading/yaw-rate -> `/odom` + TF `odom -> base_link`
-- `rplidar_publisher_node`: `/dev/ttyUSB*` -> `/lidar/scan`
-- `slam_toolbox` (`online_async_launch.py`): `/lidar/scan` + TF -> `/map`, `/tf`
-- `static_transform_publisher`: TF `base_link -> laser`
-
-## 1) Arduino
-
-Upload:
-- `APEX/arduino/nano33_iot_accel_stream/nano33_iot_accel_stream.ino`
-
-Library:
-- `Arduino_LSM6DS3`
-
-Output format:
-- `ax,ay,az,gx,gy,gz`
-- acceleration in `m/s^2`, angular velocity in `rad/s` at `115200`.
-
-## 2) Raspberry (Docker + SLAM)
-
-From Raspberry host:
-
-```bash
-cd ~/Voiture-Autonome/code/APEX
-./run_apex.sh -d
-```
-
-`run_apex.sh` is a wrapper for Docker Compose:
-
-```bash
-docker compose -f docker/docker-compose.yml up --build -d
-```
-
-If your ports differ:
-
-```bash
-APEX_SERIAL_PORT=/dev/ttyACM0 \
-APEX_LIDAR_PORT=/dev/ttyUSB0 \
-APEX_LIDAR_BAUDRATE=115200 \
-./run_apex.sh -d
-```
-
-Equivalent direct Docker command:
-
-```bash
-APEX_SERIAL_PORT=/dev/ttyACM0 \
-APEX_LIDAR_PORT=/dev/ttyUSB0 \
-APEX_LIDAR_BAUDRATE=115200 \
-docker compose -f docker/docker-compose.yml up --build -d
-```
-
-## 2b) Raspberry (Automatic Reconnaissance Mapping)
-
-This mode starts the same SLAM stack and additionally launches a low-speed LiDAR-based reconnaissance controller that:
-- resets the current `slam_toolbox` map before the first movement command,
-- begins moving automatically,
-- follows open space while staying away from walls,
-- performs a simple reverse recovery if blocked,
-- stops after detecting a closed lap near the start pose,
-- optionally saves the map to `/work/ros2_ws/maps/apex_recon_map`.
-
-Host prerequisites:
-- PWM already configured on the Raspberry (`/sys/class/pwm` available).
-- Steering and motor channels matching the values in `apex_params.yaml`.
-
-Start reconnaissance mapping:
+## Arranque mínimo en Raspberry
 
 ```bash
 cd ~/AiAtonomousRc/APEX
-APEX_ENABLE_RECON_MAPPING=1 ./run_apex.sh -d
+export PATH="$HOME/local/bin:$PATH"
+./tools/core/apex_core_down.sh
+APEX_SKIP_BUILD=1 ./tools/capture/apex_raw_capture_up.sh
 ```
 
-Follow logs:
+Eso arranca solo:
+- `nano_accel_serial_node`
+- `kinematics_estimator_node`
+- `kinematics_odometry_node`
+- `rplidar_publisher_node`
+- `static_transform_publisher`
 
-```bash
-docker logs -f apex_pipeline
-```
-
-Check status:
-
-```bash
-docker ps | grep apex_pipeline
-docker logs -f apex_pipeline
-```
-
-## 3) Validate Topics on Raspberry
-
-```bash
-docker exec -it apex_pipeline bash -lc '
-source /opt/ros/jazzy/setup.bash
-source /work/ros2_ws/install/setup.bash
-ros2 topic list | egrep "/lidar/scan|/map|/odom|/apex"
-'
-```
-
-Quick checks:
-
-```bash
-docker exec -it apex_pipeline bash -lc '
-source /opt/ros/jazzy/setup.bash
-source /work/ros2_ws/install/setup.bash
-ros2 topic hz /lidar/scan
-ros2 topic hz /map
-'
-```
-
-## 4) Visualize from PC
-
-Use the same DDS settings that already worked in your project:
-
-```bash
-source /opt/ros/jazzy/setup.bash
-unset ROS_STATIC_PEERS FASTRTPS_DEFAULT_PROFILES_FILE ROS_LOCALHOST_ONLY
-export ROS_DOMAIN_ID=30
-export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-```
-
-Start RViz2 with APEX preconfigured profile (no manual RViz setup required):
+## Captura corta raw
 
 ```bash
 cd ~/AiAtonomousRc/APEX
-chmod +x run_apex_rviz_pc.sh
-./run_apex_rviz_pc.sh
+./tools/capture/apex_rect_sensorfus_capture.sh \
+  --run-id recta_raw_base_01 \
+  --capture-duration-s 8.0 \
+  --drive-delay-s 1.0 \
+  --drive-duration-s 4.0 \
+  --speed-pct 20 \
+  --steering-deg 0
 ```
 
-## 5) Save Map (Raspberry)
+Archivos generados en Raspberry:
+- `ros2_ws/apex_rect_sensorfus/<run>/imu_raw.csv`
+- `ros2_ws/apex_rect_sensorfus/<run>/lidar_points.csv`
+- `ros2_ws/apex_rect_sensorfus/<run>/pwm_trace.csv`
 
-```bash
-docker exec -it apex_pipeline bash -lc '
-source /opt/ros/jazzy/setup.bash
-source /work/ros2_ws/install/setup.bash
-mkdir -p /work/ros2_ws/maps
-ros2 run nav2_map_server map_saver_cli -f /work/ros2_ws/maps/apex_map
-'
-```
+## Curva estática aislada
 
-## Quick Reset and Restart (Raspberry + PC)
-
-Use this sequence when you want to discard the previous SLAM map and start a fresh mapping session.
-
-Important:
-- On the Raspberry host, do not run `source /opt/ros/jazzy/setup.bash`; ROS runs inside Docker.
-- The reset below deletes the last saved `apex_map.yaml` and `apex_map.pgm` if they exist.
-
-### Raspberry Terminal 1 (restart SLAM from scratch)
-
-```bash
-cd ~/Voiture-Autonome/code/APEX
-docker compose -f docker/docker-compose.yml down --remove-orphans
-rm -f ros2_ws/maps/apex_map.yaml ros2_ws/maps/apex_map.pgm
-APEX_SERIAL_PORT=/dev/ttyACM0 \
-APEX_LIDAR_PORT=/dev/ttyUSB0 \
-APEX_LIDAR_BAUDRATE=115200 \
-./run_apex.sh -d
-```
-
-### Raspberry Terminal 2 (optional: monitor container logs)
-
-```bash
-docker logs -f apex_pipeline
-```
-
-### PC Terminal 1 (restart RViz and display the fresh map)
+Captura solo LiDAR, sin movimiento ni actuation:
 
 ```bash
 cd ~/AiAtonomousRc/APEX
-pkill -f rviz2 || true
-source /opt/ros/jazzy/setup.bash
-unset ROS_STATIC_PEERS FASTRTPS_DEFAULT_PROFILES_FILE ROS_LOCALHOST_ONLY
-export ROS_DOMAIN_ID=30
-export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-./run_apex_rviz_pc.sh
+./tools/capture/apex_static_curve_capture.sh \
+  --run-id curva_estatica_01 \
+  --capture-duration-s 4.0
 ```
 
-### Raspberry Terminal 3 (optional: verify active topics)
+Archivos generados en Raspberry:
+- `ros2_ws/apex_static_curve/<run>/lidar_points.csv`
+- `ros2_ws/apex_static_curve/<run>/lidar_snapshot.csv`
+- `ros2_ws/apex_static_curve/<run>/capture.log`
+
+## Traer al PC
 
 ```bash
-docker exec -it apex_pipeline bash -lc '
-source /opt/ros/jazzy/setup.bash
-ros2 topic list | egrep "/lidar/scan|/map|/odom|/apex"
-'
+cd /home/santiago/AiAtonomousRc
+./APEX/tools/capture/fetch_rect_sensorfus_capture.sh \
+  ensta@raspberrypi \
+  latest \
+  /home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_rect_sensorfus \
+  $(pwd)/APEX/apex_rect_sensorfus
 ```
 
-## Notes
+## Curvas en estático
 
-- With no wheel encoders and no motor model, LiDAR scan matching is the main mapping reference.
-- The IMU branch (accel + gyro) is available for telemetry and auxiliary odometry.
-- If you run into LiDAR serial issues, verify no other process is using `/dev/ttyUSB*`.
+Construir el snapshot desde `lidar_points.csv`:
+
+```bash
+cd /home/santiago/AiAtonomousRc/APEX
+python3 ./tools/analysis/build_lidar_snapshot.py \
+  --run-dir ./apex_rect_sensorfus/curva_estatica_01_YYYYMMDDTHHMMSSZ
+```
+
+Construir el snapshot y generar directamente la imagen/json:
+
+```bash
+cd /home/santiago/AiAtonomousRc/APEX
+python3 ./tools/analysis/run_static_curve_analysis.py \
+  --run-dir ./apex_static_curve/curva_estatica_01_YYYYMMDDTHHMMSSZ
+```
+
+Archivos generados:
+- `lidar_snapshot.csv`
+- `lidar_snapshot_curve_analysis.json`
+- `lidar_snapshot_curve_analysis.png`
+
+Núcleo del análisis:
+- `tools/analysis/analyze_lidar_curve_snapshot.py`
+- `ros2_ws/src/apex_telemetry/apex_telemetry/perception/curve_window_detection.py`

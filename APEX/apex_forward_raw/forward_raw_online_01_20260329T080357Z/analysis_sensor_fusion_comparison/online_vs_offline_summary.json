@@ -1,0 +1,29 @@
+{
+  "run_dir": "/home/santiago/AiAtonomousRc/APEX/apex_forward_raw/forward_raw_online_01_20260329T080357Z",
+  "online_trajectory_csv": "/home/santiago/AiAtonomousRc/APEX/apex_forward_raw/forward_raw_online_01_20260329T080357Z/analysis_sensor_fusion_online/online_fusion_trajectory.csv",
+  "online_summary_json": "/home/santiago/AiAtonomousRc/APEX/apex_forward_raw/forward_raw_online_01_20260329T080357Z/analysis_sensor_fusion_online/online_fusion_summary.json",
+  "offline_trajectory_csv": "/home/santiago/AiAtonomousRc/APEX/apex_forward_raw/forward_raw_online_01_20260329T080357Z/analysis_sensor_fusion/sensor_fusion_trajectory.csv",
+  "offline_summary_json": "/home/santiago/AiAtonomousRc/APEX/apex_forward_raw/forward_raw_online_01_20260329T080357Z/analysis_sensor_fusion/sensor_fusion_summary.json",
+  "online_final_pose": {
+    "x_m": 1.074274,
+    "y_m": -0.218944,
+    "yaw_rad": -0.1959
+  },
+  "offline_final_pose": {
+    "x_m": 1.148985,
+    "y_m": -0.222977,
+    "yaw_rad": -0.302182
+  },
+  "metrics": {
+    "final_planar_error_m": 0.0748197741910519,
+    "final_yaw_error_deg": 6.089510038209417,
+    "distance_delta_m": 0.5331712113489706,
+    "online_high_confidence_pct": 99.51690821256038
+  },
+  "thresholds": {
+    "planar_error_m_max": 0.3,
+    "yaw_error_deg_max": 12.0,
+    "high_confidence_pct_min": 80.0
+  },
+  "pass": true
+}

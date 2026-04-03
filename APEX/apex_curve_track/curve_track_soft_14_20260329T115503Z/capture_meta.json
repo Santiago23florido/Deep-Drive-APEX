@@ -1,0 +1,9 @@
+{
+  "run_id": "curve_track_soft_14_20260329T115503Z",
+  "mode": "curve_track",
+  "timeout_s": 18,
+  "enable_imu_lidar_fusion": 1,
+  "enable_curve_entry_planner": 1,
+  "enable_path_tracker": 1,
+  "enable_cmdvel_actuation_bridge": 1
+}

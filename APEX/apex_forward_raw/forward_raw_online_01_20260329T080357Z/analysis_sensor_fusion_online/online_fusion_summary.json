@@ -1,0 +1,20 @@
+{
+  "trajectory_csv": "/home/santiago/AiAtonomousRc/APEX/apex_forward_raw/forward_raw_online_01_20260329T080357Z/analysis_sensor_fusion_online/online_fusion_trajectory.csv",
+  "trajectory_row_count": 207,
+  "status_message_count": null,
+  "final_pose": {
+    "x_m": 1.074274,
+    "y_m": -0.218944,
+    "yaw_rad": -0.1959
+  },
+  "distance_m": 2.936911239250454,
+  "high_confidence_pct": 99.51690821256038,
+  "static_initialization": null,
+  "corridor_model": null,
+  "quality": null,
+  "parameters": null,
+  "state": "reconstructed_from_trajectory",
+  "alignment_ready": true,
+  "imu_initialized": true,
+  "best_effort_init": false
+}

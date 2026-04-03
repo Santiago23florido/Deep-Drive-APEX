@@ -19,11 +19,13 @@
 static constexpr float GRAVITY_MPS2 = 9.80665f;
 static constexpr float DEG2RAD = 0.017453292519943295f;
 static constexpr unsigned long STREAM_PERIOD_MS = 10;  // ~100 Hz
+static constexpr unsigned long SERIAL_WAIT_TIMEOUT_MS = 2500;
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial) {
-    ;  // Wait for USB serial on boards that need it.
+  const unsigned long serial_wait_started_ms = millis();
+  while (!Serial && (millis() - serial_wait_started_ms) < SERIAL_WAIT_TIMEOUT_MS) {
+    delay(10);
   }
 
   if (!IMU.begin()) {

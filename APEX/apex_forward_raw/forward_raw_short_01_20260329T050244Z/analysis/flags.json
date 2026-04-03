@@ -1,0 +1,16 @@
+{
+  "actuation_mode": "forward_raw",
+  "readiness_passed": true,
+  "sysfs_monitor_present": true,
+  "external_pwm_overwrite_detected": false,
+  "motor_enable_dropped_during_active_window": false,
+  "actual_duty_mismatch_during_active_window": false,
+  "pwm_active_gap_detected": false,
+  "imu_gap_detected": false,
+  "lidar_gap_detected": false,
+  "active_monitor_rows": 73,
+  "mismatched_duty_samples": 0,
+  "mismatched_enable_samples": 0,
+  "pwm_duty_mismatch_threshold_ns": 5000,
+  "pwm_alignment_tolerance_s": 0.12
+}
