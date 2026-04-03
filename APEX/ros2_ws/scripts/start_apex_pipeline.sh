@@ -35,6 +35,8 @@ SERIAL_CONNECT_PROFILE_NAME="${APEX_SERIAL_CONNECT_PROFILE_NAME:-}"
 SERIAL_NO_DATA_RECONNECT_S="${APEX_SERIAL_NO_DATA_RECONNECT_S:-}"
 BRIDGE_MIN_EFFECTIVE_SPEED_PCT="${APEX_BRIDGE_MIN_EFFECTIVE_SPEED_PCT:-}"
 BRIDGE_MAX_SPEED_PCT="${APEX_BRIDGE_MAX_SPEED_PCT:-}"
+BRIDGE_LAUNCH_BOOST_SPEED_PCT="${APEX_BRIDGE_LAUNCH_BOOST_SPEED_PCT:-}"
+BRIDGE_LAUNCH_BOOST_HOLD_S="${APEX_BRIDGE_LAUNCH_BOOST_HOLD_S:-}"
 BRIDGE_ACTIVE_BRAKE_ON_ZERO="${APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO:-}"
 
 read_param_value() {
@@ -185,12 +187,24 @@ is_legacy_like() {
   [[ "${STARTUP_COMPAT}" == "legacy" || "${STARTUP_COMPAT}" == "safe" ]]
 }
 
+is_safe_like() {
+  [[ "${STARTUP_COMPAT}" == "safe" ]]
+}
+
+if is_safe_like && [[ -z "${SERIAL_CONNECT_PROFILE_NAME}" ]]; then
+  SERIAL_CONNECT_PROFILE_NAME="safe_passive_default"
+  SERIAL_CONNECT_TOGGLE_DTR="${SERIAL_CONNECT_TOGGLE_DTR:-false}"
+  SERIAL_CONNECT_DTR_LOW_S="${SERIAL_CONNECT_DTR_LOW_S:-0.0}"
+  SERIAL_CONNECT_SETTLE_S="${SERIAL_CONNECT_SETTLE_S:-0.0}"
+  SERIAL_FLUSH_INPUT_ON_CONNECT="${SERIAL_FLUSH_INPUT_ON_CONNECT:-false}"
+fi
+
 NANO_CMD=(python3 -m apex_telemetry.imu.nano_accel_serial_node
   --ros-args
   --params-file "${PARAMS_FILE}"
   -p "serial_port:=${APEX_SERIAL_PORT:-/dev/ttyACM0}"
   -p "baudrate:=${APEX_BAUDRATE:-115200}")
-if ! is_legacy_like; then
+if ! is_legacy_like || is_safe_like; then
   if [[ -n "${SERIAL_CONNECT_TOGGLE_DTR}" ]]; then
     NANO_CMD+=(-p "connect_toggle_dtr:=$(normalize_bool_override "${SERIAL_CONNECT_TOGGLE_DTR}")")
   fi
@@ -288,6 +302,7 @@ else
 fi
 
 if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
+  echo "[APEX] CmdVel bridge launch config: min=${BRIDGE_MIN_EFFECTIVE_SPEED_PCT:-yaml}% max=${BRIDGE_MAX_SPEED_PCT:-yaml}% launch_boost=${BRIDGE_LAUNCH_BOOST_SPEED_PCT:-yaml}% hold=${BRIDGE_LAUNCH_BOOST_HOLD_S:-yaml}s active_brake=${BRIDGE_ACTIVE_BRAKE_ON_ZERO:-yaml}"
   CMD=(python3 -m apex_telemetry.actuation.cmd_vel_to_apex_actuation_node
     --ros-args
     --params-file "${PARAMS_FILE}")
@@ -296,6 +311,12 @@ if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
   fi
   if [[ -n "${BRIDGE_MAX_SPEED_PCT}" ]]; then
     CMD+=(-p "max_speed_pct:=${BRIDGE_MAX_SPEED_PCT}")
+  fi
+  if [[ -n "${BRIDGE_LAUNCH_BOOST_SPEED_PCT}" ]]; then
+    CMD+=(-p "launch_boost_speed_pct:=${BRIDGE_LAUNCH_BOOST_SPEED_PCT}")
+  fi
+  if [[ -n "${BRIDGE_LAUNCH_BOOST_HOLD_S}" ]]; then
+    CMD+=(-p "launch_boost_hold_s:=${BRIDGE_LAUNCH_BOOST_HOLD_S}")
   fi
   if [[ -n "${BRIDGE_ACTIVE_BRAKE_ON_ZERO}" ]]; then
     if is_legacy_like; then

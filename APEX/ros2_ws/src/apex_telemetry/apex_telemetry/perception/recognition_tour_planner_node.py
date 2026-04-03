@@ -289,6 +289,39 @@ def _compute_path_s(path_xy: np.ndarray) -> np.ndarray:
     return np.concatenate([[0.0], np.cumsum(np.hypot(diffs[:, 0], diffs[:, 1]))])
 
 
+def _extend_path_along_terminal_heading(
+    path_xy: np.ndarray,
+    *,
+    target_forward_span_m: float,
+    step_m: float,
+) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] < 2:
+        return path_xy.copy()
+
+    current_forward_span_m = _path_forward_span_m(path_xy)
+    needed_forward_m = float(target_forward_span_m) - current_forward_span_m
+    if needed_forward_m <= max(0.01, 0.5 * step_m):
+        return path_xy.copy()
+
+    terminal_heading_rad = _path_terminal_heading(path_xy)
+    terminal_tangent_xy = np.asarray(
+        [math.cos(terminal_heading_rad), math.sin(terminal_heading_rad)],
+        dtype=np.float64,
+    )
+    if terminal_tangent_xy[0] <= 1.0e-3:
+        terminal_tangent_xy = np.asarray([1.0, 0.0], dtype=np.float64)
+
+    extension_point_count = max(2, int(math.ceil(needed_forward_m / max(step_m, 1.0e-3))) + 1)
+    extension_points = [path_xy[-1]]
+    for idx in range(1, extension_point_count + 1):
+        extension_points.append(
+            path_xy[-1] + (idx * step_m * terminal_tangent_xy)
+        )
+    extended_xy = np.vstack([path_xy[:-1], np.asarray(extension_points, dtype=np.float64)])
+    return _enforce_monotonic_forward_x(extended_xy)
+
+
 def _polyline_yaw(path_xy: np.ndarray) -> np.ndarray:
     path_xy = np.asarray(path_xy, dtype=np.float64)
     if path_xy.shape[0] <= 1:
@@ -1038,6 +1071,52 @@ class RecognitionTourPlannerNode(Node):
         rescued_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
         return rescued_xy
 
+    def _rescue_candidate_local_path(
+        self,
+        candidate_local_path_xy: np.ndarray,
+    ) -> np.ndarray | None:
+        candidate_local_path_xy = np.asarray(candidate_local_path_xy, dtype=np.float64)
+        if candidate_local_path_xy.shape[0] < 2:
+            return None
+
+        rescue_target_forward_x_m = max(
+            self._min_publish_forward_span_m + 0.25,
+            min(self._planning_horizon_m, self._path_min_forward_progress_m),
+        )
+        rescued_xy = _bridge_path_from_origin(
+            candidate_local_path_xy,
+            self._origin_bridge_point_count,
+        )
+        rescued_xy = _enforce_monotonic_forward_x(rescued_xy)
+        rescued_xy = _extend_path_along_terminal_heading(
+            rescued_xy,
+            target_forward_span_m=rescue_target_forward_x_m,
+            step_m=self._path_resample_step_m,
+        )
+        rescued_xy = _extend_path_forward(
+            rescued_xy,
+            target_forward_x_m=rescue_target_forward_x_m,
+            step_m=self._path_resample_step_m,
+        )
+        rescued_xy = _truncate_polyline_length(rescued_xy, self._planning_horizon_m)
+        rescued_xy = _deduplicate_polyline_xy(
+            rescued_xy,
+            min_segment_m=0.35 * self._path_resample_step_m,
+        )
+        rescued_xy = _resample_polyline_xy(rescued_xy, self._path_resample_step_m)
+        rescued_xy, _ = _smooth_path_to_curvature_limit(
+            path_xy=rescued_xy,
+            max_curvature_m_inv=self._max_path_curvature_m_inv,
+            resample_step_m=self._path_resample_step_m,
+            smoothing_alpha=max(self._path_smoothing_alpha, 0.22),
+            max_iterations=max(self._path_smoothing_max_iterations, 220),
+        )
+        rescued_xy = _enforce_monotonic_forward_x(rescued_xy)
+        if rescued_xy.shape[0] == 0:
+            return None
+        rescued_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        return rescued_xy
+
     def _candidate_path_metrics(self, path_xy: np.ndarray) -> tuple[float, float, float]:
         path_xy = np.asarray(path_xy, dtype=np.float64)
         if path_xy.shape[0] < 2:
@@ -1098,6 +1177,16 @@ class RecognitionTourPlannerNode(Node):
 
         if rejection_reason is None:
             return candidate_local_path_xy, candidate_source, None
+
+        candidate_rescue_xy = self._rescue_candidate_local_path(candidate_local_path_xy)
+        if candidate_rescue_xy is not None:
+            candidate_rescue_forward_span_m, _, _ = self._candidate_path_metrics(candidate_rescue_xy)
+            if candidate_rescue_forward_span_m >= self._min_publish_forward_span_m:
+                self._path_rejection_count += 1
+                self._path_rescue_count += 1
+                self._last_path_rejected = True
+                self._last_path_rejection_reason = rejection_reason
+                return candidate_rescue_xy, "rescue_candidate_extension", rejection_reason
 
         rescue_xy = self._rescue_previous_local_path(rear_xy=rear_xy, yaw_rad=yaw_rad)
         if rescue_xy is not None:

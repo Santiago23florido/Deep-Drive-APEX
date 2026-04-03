@@ -47,7 +47,7 @@ if [[ "${APEX_NANO_PREFLIGHT:-1}" == "1" ]]; then
 fi
 
 echo "[APEX] Startup compat: ${STARTUP_COMPAT}"
-if [[ "${STARTUP_COMPAT}" != "legacy" && "${STARTUP_COMPAT}" != "safe" && -f "${NANO_PROFILE_ENV_FILE}" ]]; then
+if [[ "${STARTUP_COMPAT}" != "legacy" && -f "${NANO_PROFILE_ENV_FILE}" ]]; then
   # Reuse the serial-open profile that actually produced bytes during host-side
   # preflight so the ROS node does not reopen /dev/ttyACM0 with a mismatched policy.
   # shellcheck disable=SC1090

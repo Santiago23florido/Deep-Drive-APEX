@@ -33,6 +33,8 @@ class CmdVelToApexActuationNode(Node):
         self.declare_parameter("speed_pct_ramp_duration_s", 1.0)
         self.declare_parameter("speed_pct_ramp_exp_k", 4.0)
         self.declare_parameter("speed_pct_ramp_down_per_s", 24.0)
+        self.declare_parameter("launch_boost_speed_pct", 0.0)
+        self.declare_parameter("launch_boost_hold_s", 0.0)
         self.declare_parameter("steering_rate_limit_deg_per_s", 90.0)
         self.declare_parameter("active_brake_on_zero", False)
 
@@ -78,6 +80,12 @@ class CmdVelToApexActuationNode(Node):
         )
         self._speed_pct_ramp_down_per_s = max(
             0.0, float(self.get_parameter("speed_pct_ramp_down_per_s").value)
+        )
+        self._launch_boost_speed_pct = max(
+            0.0, min(100.0, float(self.get_parameter("launch_boost_speed_pct").value))
+        )
+        self._launch_boost_hold_s = max(
+            0.0, float(self.get_parameter("launch_boost_hold_s").value)
         )
         self._steering_rate_limit_deg_per_s = max(
             0.0, float(self.get_parameter("steering_rate_limit_deg_per_s").value)
@@ -126,6 +134,7 @@ class CmdVelToApexActuationNode(Node):
         self._speed_ramp_start_monotonic: float | None = None
         self._speed_ramp_start_pct = 0.0
         self._speed_ramp_target_pct = 0.0
+        self._launch_boost_until_monotonic = 0.0
 
         self.get_logger().info(
             "CmdVelToApexActuationNode started (cmd=%s max_linear=%.2f m/s speed_pct=%.1f..%.1f)"
@@ -158,15 +167,23 @@ class CmdVelToApexActuationNode(Node):
 
     def _start_speed_ramp(self, *, target_speed_pct: float, now_monotonic: float) -> None:
         self._speed_ramp_start_monotonic = now_monotonic
+        self._launch_boost_until_monotonic = 0.0
         if (
             target_speed_pct > 1.0e-6
             and self._last_applied_speed_pct <= 1.0e-6
-            and self._min_effective_speed_pct > 1.0e-6
+            and max(self._min_effective_speed_pct, self._launch_boost_speed_pct) > 1.0e-6
         ):
+            launch_start_pct = self._min_effective_speed_pct
+            if self._launch_boost_speed_pct > 1.0e-6:
+                launch_start_pct = max(launch_start_pct, self._launch_boost_speed_pct)
+                if self._launch_boost_hold_s > 1.0e-6:
+                    self._launch_boost_until_monotonic = (
+                        now_monotonic + self._launch_boost_hold_s
+                    )
             # Do not ramp up from a value that is already below the ESC's
             # effective movement threshold; otherwise the vehicle can sit still
             # for most of the launch ramp even though motion has been commanded.
-            self._speed_ramp_start_pct = min(target_speed_pct, self._min_effective_speed_pct)
+            self._speed_ramp_start_pct = min(100.0, launch_start_pct)
         else:
             self._speed_ramp_start_pct = self._last_applied_speed_pct
         self._speed_ramp_target_pct = target_speed_pct
@@ -233,6 +250,8 @@ class CmdVelToApexActuationNode(Node):
                 "speed_ramp_start_pct": self._speed_ramp_start_pct,
                 "speed_ramp_target_pct": self._speed_ramp_target_pct,
                 "speed_ramp_active": self._speed_ramp_start_monotonic is not None,
+                "launch_boost_active": self._launch_boost_until_monotonic > time.monotonic(),
+                "launch_boost_speed_pct": self._launch_boost_speed_pct,
                 "applied_speed_pct": self._last_applied_speed_pct,
                 "applied_steering_deg": self._last_applied_steering_deg,
             },
@@ -275,10 +294,16 @@ class CmdVelToApexActuationNode(Node):
                     now_monotonic=now_monotonic,
                 )
             applied_speed_pct, _ = self._compute_exponential_ramp_speed(now_monotonic)
+            if (
+                self._launch_boost_until_monotonic > now_monotonic
+                and self._speed_ramp_start_pct > desired_speed_pct
+            ):
+                applied_speed_pct = max(applied_speed_pct, self._speed_ramp_start_pct)
         else:
             self._speed_ramp_start_monotonic = None
             self._speed_ramp_start_pct = self._last_applied_speed_pct
             self._speed_ramp_target_pct = 0.0
+            self._launch_boost_until_monotonic = 0.0
             if self._active_brake_on_zero and self._last_applied_speed_pct > 1.0:
                 applied_steering_deg = 0.0
                 self._steering.set_angle_deg(0.0)

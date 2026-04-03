@@ -317,11 +317,13 @@ cmd_vel_to_apex_actuation_node:
     wheelbase_m: 0.30
     max_steering_deg: 18.0
     max_linear_speed_mps: 0.24
-    min_effective_speed_pct: 20.0
-    max_speed_pct: 20.0
+    min_effective_speed_pct: 30.0
+    max_speed_pct: 30.0
     speed_pct_ramp_duration_s: 0.70
     speed_pct_ramp_exp_k: 3.0
     speed_pct_ramp_down_per_s: 18.0
+    launch_boost_speed_pct: 50.0
+    launch_boost_hold_s: 0.35
     steering_rate_limit_deg_per_s: 65.0
     active_brake_on_zero: false
     steering_channel: 1

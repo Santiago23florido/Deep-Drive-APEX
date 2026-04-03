@@ -6,6 +6,7 @@ APEX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PORT="${APEX_SERIAL_PORT:-/dev/ttyACM0}"
 RUNTIME_DIR="${APEX_RUNTIME_DIR:-${APEX_ROOT}/.apex_runtime}"
 PROFILE_ENV_FILE="${APEX_NANO_PROFILE_ENV_FILE:-${RUNTIME_DIR}/nano_serial_profile.env}"
+PROFILE_ENV_BACKUP_FILE="${PROFILE_ENV_FILE}.last_good"
 CHECK_TIMEOUT_S="${APEX_NANO_CHECK_TIMEOUT_S:-6}"
 CONNECT_DTR_LOW_S="${APEX_NANO_CONNECT_DTR_LOW_S:-0.2}"
 CONNECT_SETTLE_S="${APEX_NANO_CONNECT_SETTLE_S:-2.0}"
@@ -53,8 +54,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-rm -f "${PROFILE_ENV_FILE}" 2>/dev/null || true
-
 persist_runtime_profile() {
   local profile_name="$1"
   local toggle_dtr="$2"
@@ -69,7 +68,17 @@ export APEX_SERIAL_CONNECT_DTR_LOW_S="${dtr_low_s}"
 export APEX_SERIAL_CONNECT_SETTLE_S="${settle_s}"
 export APEX_SERIAL_FLUSH_INPUT_ON_CONNECT="${flush_input}"
 EOF
+  cp -f "${PROFILE_ENV_FILE}" "${PROFILE_ENV_BACKUP_FILE}"
   echo "[APEX] Recorded Nano runtime profile '${profile_name}' in ${PROFILE_ENV_FILE}"
+}
+
+restore_last_good_profile() {
+  if [[ -f "${PROFILE_ENV_BACKUP_FILE}" ]]; then
+    cp -f "${PROFILE_ENV_BACKUP_FILE}" "${PROFILE_ENV_FILE}"
+    echo "[APEX][WARN] Restored last known good Nano runtime profile from ${PROFILE_ENV_BACKUP_FILE}"
+    return 0
+  fi
+  return 1
 }
 
 persist_runtime_attach_profile() {
@@ -264,6 +273,7 @@ if check_stream; then
 fi
 
 dump_serial_preview
+restore_last_good_profile || true
 
 echo "[APEX][ERROR] Nano still not streaming after reflashing" >&2
 exit 1
