@@ -48,21 +48,36 @@ class TrajectorySeries:
     planner_path_length_m: np.ndarray
     planner_path_max_curvature_m_inv: np.ndarray
     local_path_source: list[str]
+    continuation_source: list[str]
+    path_terminal_heading_deg: np.ndarray
+    route_suffix_heading_deg: np.ndarray
+    path_heading_alignment_deg: np.ndarray
+    planner_forward_projection_valid: np.ndarray
     tracker_state: list[str]
     path_age_s: np.ndarray
     odom_age_s: np.ndarray
     path_deviation_m: np.ndarray
+    path_projection_valid: np.ndarray
+    path_projection_s_m: np.ndarray
+    distance_to_path_end_m: np.ndarray
+    path_loss_reason: list[str]
+    waiting_path_refresh_active: np.ndarray
     cmd_linear_x_mps: np.ndarray
     cmd_angular_z_rps: np.ndarray
     tracker_desired_steering_deg: np.ndarray
     raw_curvature_m_inv: np.ndarray
+    commanded_curvature_m_inv: np.ndarray
     filtered_curvature_m_inv: np.ndarray
+    tracker_steering_saturated: np.ndarray
+    tracker_steering_saturation_ratio: np.ndarray
     fusion_state: list[str]
     fusion_confidence: np.ndarray
     desired_speed_pct: np.ndarray
     applied_speed_pct: np.ndarray
     desired_steering_deg: np.ndarray
+    requested_steering_deg: np.ndarray
     applied_steering_deg: np.ndarray
+    bridge_steering_saturated: np.ndarray
     bridge_state: list[str]
 
 
@@ -218,21 +233,36 @@ def _load_tracking_series(path: Path) -> TrajectorySeries:
             planner_path_length_m=empty,
             planner_path_max_curvature_m_inv=empty,
             local_path_source=[],
+            continuation_source=[],
+            path_terminal_heading_deg=empty,
+            route_suffix_heading_deg=empty,
+            path_heading_alignment_deg=empty,
+            planner_forward_projection_valid=empty,
             tracker_state=[],
             path_age_s=empty,
             odom_age_s=empty,
             path_deviation_m=empty,
+            path_projection_valid=empty,
+            path_projection_s_m=empty,
+            distance_to_path_end_m=empty,
+            path_loss_reason=[],
+            waiting_path_refresh_active=empty,
             cmd_linear_x_mps=empty,
             cmd_angular_z_rps=empty,
             tracker_desired_steering_deg=empty,
             raw_curvature_m_inv=empty,
+            commanded_curvature_m_inv=empty,
             filtered_curvature_m_inv=empty,
+            tracker_steering_saturated=empty,
+            tracker_steering_saturation_ratio=empty,
             fusion_state=[],
             fusion_confidence=empty,
             desired_speed_pct=empty,
             applied_speed_pct=empty,
             desired_steering_deg=empty,
+            requested_steering_deg=empty,
             applied_steering_deg=empty,
+            bridge_steering_saturated=empty,
             bridge_state=[],
         )
 
@@ -276,10 +306,40 @@ def _load_tracking_series(path: Path) -> TrajectorySeries:
             dtype=np.float64,
         ),
         local_path_source=[str(row.get("local_path_source", "")) for row in rows],
+        continuation_source=[str(row.get("continuation_source", "")) for row in rows],
+        path_terminal_heading_deg=np.asarray(
+            [_csv_float(row, "path_terminal_heading_deg") for row in rows],
+            dtype=np.float64,
+        ),
+        route_suffix_heading_deg=np.asarray(
+            [_csv_float(row, "route_suffix_heading_deg") for row in rows],
+            dtype=np.float64,
+        ),
+        path_heading_alignment_deg=np.asarray(
+            [_csv_float(row, "path_heading_alignment_deg") for row in rows],
+            dtype=np.float64,
+        ),
+        planner_forward_projection_valid=np.asarray(
+            [_csv_float(row, "planner_forward_projection_valid") for row in rows],
+            dtype=np.float64,
+        ),
         tracker_state=[str(row.get("tracker_state", "")) for row in rows],
         path_age_s=np.asarray([_csv_float(row, "path_age_s") for row in rows], dtype=np.float64),
         odom_age_s=np.asarray([_csv_float(row, "odom_age_s") for row in rows], dtype=np.float64),
         path_deviation_m=np.asarray([_csv_float(row, "path_deviation_m") for row in rows], dtype=np.float64),
+        path_projection_valid=np.asarray(
+            [_csv_float(row, "path_projection_valid") for row in rows], dtype=np.float64
+        ),
+        path_projection_s_m=np.asarray(
+            [_csv_float(row, "path_projection_s_m") for row in rows], dtype=np.float64
+        ),
+        distance_to_path_end_m=np.asarray(
+            [_csv_float(row, "distance_to_path_end_m") for row in rows], dtype=np.float64
+        ),
+        path_loss_reason=[str(row.get("path_loss_reason", "")) for row in rows],
+        waiting_path_refresh_active=np.asarray(
+            [_csv_float(row, "waiting_path_refresh_active") for row in rows], dtype=np.float64
+        ),
         cmd_linear_x_mps=np.asarray([_csv_float(row, "cmd_linear_x_mps") for row in rows], dtype=np.float64),
         cmd_angular_z_rps=np.asarray([_csv_float(row, "cmd_angular_z_rps") for row in rows], dtype=np.float64),
         tracker_desired_steering_deg=np.asarray(
@@ -290,8 +350,20 @@ def _load_tracking_series(path: Path) -> TrajectorySeries:
             [_csv_float(row, "raw_curvature_m_inv") for row in rows],
             dtype=np.float64,
         ),
+        commanded_curvature_m_inv=np.asarray(
+            [_csv_float(row, "commanded_curvature_m_inv") for row in rows],
+            dtype=np.float64,
+        ),
         filtered_curvature_m_inv=np.asarray(
             [_csv_float(row, "filtered_curvature_m_inv") for row in rows],
+            dtype=np.float64,
+        ),
+        tracker_steering_saturated=np.asarray(
+            [_csv_float(row, "tracker_steering_saturated") for row in rows],
+            dtype=np.float64,
+        ),
+        tracker_steering_saturation_ratio=np.asarray(
+            [_csv_float(row, "tracker_steering_saturation_ratio") for row in rows],
             dtype=np.float64,
         ),
         fusion_state=[str(row.get("fusion_state", "")) for row in rows],
@@ -302,8 +374,16 @@ def _load_tracking_series(path: Path) -> TrajectorySeries:
             [_csv_float(row, "desired_steering_deg") for row in rows],
             dtype=np.float64,
         ),
+        requested_steering_deg=np.asarray(
+            [_csv_float(row, "requested_steering_deg") for row in rows],
+            dtype=np.float64,
+        ),
         applied_steering_deg=np.asarray(
             [_csv_float(row, "applied_steering_deg") for row in rows],
+            dtype=np.float64,
+        ),
+        bridge_steering_saturated=np.asarray(
+            [_csv_float(row, "bridge_steering_saturated") for row in rows],
             dtype=np.float64,
         ),
         bridge_state=[str(row.get("bridge_state", "")) for row in rows],
@@ -419,10 +499,12 @@ def _compute_root_cause_diagnostics(
     _, tracker_desired_steering = _extract_status_numeric(tracker_entries, "desired_steering_deg")
     _, fusion_prediction_age = _extract_status_numeric(fusion_entries, "odom_prediction_age_s")
     _, local_path_source_values = _extract_status_strings(planner_entries, "local_path_source")
+    _, continuation_source_values = _extract_status_strings(planner_entries, "continuation_source")
+    _, path_loss_reason_values = _extract_status_strings(tracker_entries, "path_loss_reason")
 
     tracker_states = trajectory.tracker_state if trajectory.tracker_state else []
     holding_mask = np.asarray(
-        [state in {"holding_last_path", "waiting_forward_path"} for state in tracker_states],
+        [state in {"holding_last_path", "waiting_forward_path", "waiting_path_refresh"} for state in tracker_states],
         dtype=bool,
     )
     aborted_mask = np.asarray(
@@ -439,6 +521,14 @@ def _compute_root_cause_diagnostics(
     )
     low_speed_sharp_turn_mask = sharp_turn_mask & np.isfinite(trajectory.cmd_linear_x_mps) & (
         trajectory.cmd_linear_x_mps < 0.10
+    )
+    waiting_refresh_fraction = _fraction(
+        np.isfinite(trajectory.waiting_path_refresh_active)
+        & (trajectory.waiting_path_refresh_active > 0.5)
+    )
+    steering_saturation_fraction = _fraction(
+        np.isfinite(trajectory.bridge_steering_saturated)
+        & (trajectory.bridge_steering_saturated > 0.5)
     )
 
     steering_error_deg = np.abs(trajectory.desired_steering_deg - trajectory.applied_steering_deg)
@@ -519,6 +609,18 @@ def _compute_root_cause_diagnostics(
     if fallback_fraction > 0.20:
         planner_score += 0.9
         planner_evidence.append(f"fallback path fraction={_format_pct(fallback_fraction)}")
+    if continuation_source_values:
+        route_continuation_fraction = float(
+            np.mean(
+                np.asarray(
+                    ["route_suffix_continuation" in value for value in continuation_source_values],
+                    dtype=np.float64,
+                )
+            )
+        )
+        if route_continuation_fraction > 0.05:
+            planner_score -= 0.3
+            planner_evidence.append(f"route-suffix continuation fraction={_format_pct(route_continuation_fraction)}")
     if str(summary.get("end_cause")) == "aborted_path_loss" and planner_score >= 1.0:
         planner_score += 0.7
         planner_evidence.append("path-loss happened with weak forward path continuity")
@@ -546,6 +648,20 @@ def _compute_root_cause_diagnostics(
         controller_evidence.append(
             f"sharp-turn low-speed fraction={_format_pct(_fraction(low_speed_sharp_turn_mask))}"
         )
+    if steering_saturation_fraction > 0.10:
+        controller_score += 1.2
+        controller_evidence.append(
+            f"steering saturation fraction={_format_pct(steering_saturation_fraction)}"
+        )
+    if waiting_refresh_fraction > 0.05:
+        controller_score += 0.4
+        controller_evidence.append(
+            f"waiting-path-refresh fraction={_format_pct(waiting_refresh_fraction)}"
+        )
+    if path_loss_reason_values:
+        last_reason = path_loss_reason_values[-1]
+        if last_reason:
+            controller_evidence.append(f"path loss reason={last_reason}")
     if (
         str(summary.get("end_cause")) == "aborted_path_loss"
         and timing_score < 1.4
@@ -598,6 +714,8 @@ def _compute_root_cause_diagnostics(
             "sharp_turn_low_speed_fraction": _fraction(low_speed_sharp_turn_mask),
             "max_desired_steering_deg": None if not math.isfinite(_max_abs(trajectory.desired_steering_deg)) else _max_abs(trajectory.desired_steering_deg),
             "max_applied_steering_deg": None if not math.isfinite(_max_abs(trajectory.applied_steering_deg)) else _max_abs(trajectory.applied_steering_deg),
+            "steering_saturation_fraction": steering_saturation_fraction,
+            "waiting_path_refresh_fraction": waiting_refresh_fraction,
         },
         "evidence": {
             "timing": timing_evidence,
@@ -760,9 +878,12 @@ def _plot_overview(
         f"travel distance: {planner_status.get('travel_distance_m', 'n/a')}",
         f"planner state: {planner_status.get('state', 'n/a')}",
         f"tracker state: {tracker_status.get('state', 'n/a')}",
+        f"continuation: {planner_status.get('continuation_source', planner_status.get('local_path_source', 'n/a'))}",
+        f"path loss reason: {tracker_status.get('path_loss_reason', 'n/a')}",
         f"planner span p10: {_format_float(float(diagnostics['planner'].get('path_forward_span_p10_m') or float('nan')), 2)} m",
         f"odom age p95: {_format_float(float(diagnostics['timing'].get('tracker_odom_age_p95_s') or float('nan')), 3)} s",
         f"path deviation p95: {_format_float(float(diagnostics['controller'].get('path_deviation_p95_m') or float('nan')), 3)} m",
+        f"steer sat frac: {_format_pct(float(diagnostics['controller'].get('steering_saturation_fraction') or 0.0))}",
     ]
     ax.text(
         0.02,
@@ -787,6 +908,7 @@ def _plot_state_spans(ax: Any, times_s: np.ndarray, states: list[str]) -> None:
     problematic_states = {
         "holding_last_path": "#ffd166",
         "waiting_forward_path": "#ffd166",
+        "waiting_path_refresh": "#ffd166",
         "aborted_path_loss": "#ef476f",
         "aborted_odom_timeout": "#ef476f",
         "waiting_odom": "#f4a261",
@@ -907,9 +1029,23 @@ def _plot_diagnostics(
         ],
         dtype=np.float64,
     )
+    bridge_requested_steer = np.asarray(
+        [
+            float((entry.get("payload") or {}).get("requested_steering_deg", float("nan")))
+            for entry in bridge_entries
+        ],
+        dtype=np.float64,
+    )
     bridge_applied_steer = np.asarray(
         [
             float((entry.get("payload") or {}).get("applied_steering_deg", float("nan")))
+            for entry in bridge_entries
+        ],
+        dtype=np.float64,
+    )
+    bridge_steering_saturated = np.asarray(
+        [
+            float((entry.get("payload") or {}).get("steering_saturated", float("nan")))
             for entry in bridge_entries
         ],
         dtype=np.float64,
@@ -930,7 +1066,18 @@ def _plot_diagnostics(
     )
     if bridge_t.size > 0:
         ax_control.plot(bridge_t, bridge_desired_steer, color="#ef476f", linewidth=1.5, label="Desired steering")
+        ax_control.plot(bridge_t, bridge_requested_steer, color="#f78c6b", linewidth=1.2, linestyle="--", label="Requested steering")
         ax_control.plot(bridge_t, bridge_applied_steer, color="#f78c6b", linewidth=1.2, label="Applied steering")
+        saturated_mask = np.isfinite(bridge_steering_saturated) & (bridge_steering_saturated > 0.5)
+        if np.any(saturated_mask):
+            ax_control.scatter(
+                bridge_t[saturated_mask],
+                bridge_applied_steer[saturated_mask],
+                s=12,
+                color="#d81b60",
+                alpha=0.7,
+                label="Steering saturated",
+            )
         ax_control_twin = ax_control.twinx()
         ax_control_twin.plot(bridge_t, bridge_desired_speed, color="#118ab2", linewidth=1.4, label="Desired speed %")
         ax_control_twin.plot(bridge_t, bridge_applied_speed, color="#06d6a0", linewidth=1.2, label="Applied speed %")

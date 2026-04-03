@@ -303,6 +303,13 @@ recognition_tour_tracker_node:
     path_stale_max_age_s: 0.30
     path_stale_abort_hold_s: 0.40
     no_forward_target_abort_hold_s: 0.45
+    waiting_path_refresh_hold_s: 0.60
+    waiting_path_refresh_near_end_distance_m: 0.85
+    path_projection_heading_tolerance_rad: 1.10
+    path_deviation_abort_margin_m: 0.18
+    path_refresh_min_forward_speed_mps: 0.06
+    steering_saturation_start_ratio: 0.85
+    steering_saturation_speed_scale_min: 0.60
     global_timeout_s: 60.0
     odom_timeout_s: 0.5
 
@@ -317,12 +324,12 @@ cmd_vel_to_apex_actuation_node:
     wheelbase_m: 0.30
     max_steering_deg: 18.0
     max_linear_speed_mps: 0.24
-    min_effective_speed_pct: 30.0
-    max_speed_pct: 30.0
+    min_effective_speed_pct: 17.0
+    max_speed_pct: 25.0
     speed_pct_ramp_duration_s: 0.70
     speed_pct_ramp_exp_k: 3.0
     speed_pct_ramp_down_per_s: 18.0
-    launch_boost_speed_pct: 50.0
+    launch_boost_speed_pct: 20.0
     launch_boost_hold_s: 0.35
     steering_rate_limit_deg_per_s: 65.0
     active_brake_on_zero: false

@@ -100,6 +100,13 @@ class RecognitionTourTrackerNode(Node):
         self.declare_parameter("path_stale_max_age_s", 0.30)
         self.declare_parameter("path_stale_abort_hold_s", 0.40)
         self.declare_parameter("no_forward_target_abort_hold_s", 0.45)
+        self.declare_parameter("waiting_path_refresh_hold_s", 0.55)
+        self.declare_parameter("waiting_path_refresh_near_end_distance_m", 0.75)
+        self.declare_parameter("path_projection_heading_tolerance_rad", 1.10)
+        self.declare_parameter("path_deviation_abort_margin_m", 0.15)
+        self.declare_parameter("path_refresh_min_forward_speed_mps", 0.06)
+        self.declare_parameter("steering_saturation_start_ratio", 0.85)
+        self.declare_parameter("steering_saturation_speed_scale_min", 0.58)
         self.declare_parameter("global_timeout_s", 60.0)
         self.declare_parameter("odom_timeout_s", 0.5)
 
@@ -201,6 +208,28 @@ class RecognitionTourTrackerNode(Node):
         self._no_forward_target_abort_hold_s = max(
             0.05, float(self.get_parameter("no_forward_target_abort_hold_s").value)
         )
+        self._waiting_path_refresh_hold_s = max(
+            0.05, float(self.get_parameter("waiting_path_refresh_hold_s").value)
+        )
+        self._waiting_path_refresh_near_end_distance_m = max(
+            self._path_end_goal_tolerance_m,
+            float(self.get_parameter("waiting_path_refresh_near_end_distance_m").value),
+        )
+        self._path_projection_heading_tolerance_rad = max(
+            0.1, float(self.get_parameter("path_projection_heading_tolerance_rad").value)
+        )
+        self._path_deviation_abort_margin_m = max(
+            0.0, float(self.get_parameter("path_deviation_abort_margin_m").value)
+        )
+        self._path_refresh_min_forward_speed_mps = max(
+            0.0, float(self.get_parameter("path_refresh_min_forward_speed_mps").value)
+        )
+        self._steering_saturation_start_ratio = max(
+            0.1, min(1.0, float(self.get_parameter("steering_saturation_start_ratio").value))
+        )
+        self._steering_saturation_speed_scale_min = max(
+            0.2, min(1.0, float(self.get_parameter("steering_saturation_speed_scale_min").value))
+        )
         self._global_timeout_s = max(1.0, float(self.get_parameter("global_timeout_s").value))
         self._odom_timeout_s = max(0.05, float(self.get_parameter("odom_timeout_s").value))
 
@@ -242,6 +271,8 @@ class RecognitionTourTrackerNode(Node):
         self._low_conf_since_monotonic: float | None = None
         self._path_stale_since_monotonic: float | None = None
         self._no_forward_target_since_monotonic: float | None = None
+        self._waiting_path_refresh_since_monotonic: float | None = None
+        self._last_path_loss_reason: str | None = None
         self._filtered_angular_z_rps = 0.0
         self._status_payload: dict[str, object] = {
             "state": self._state,
@@ -390,11 +421,125 @@ class RecognitionTourTrackerNode(Node):
             return planner_age_s
         return max(planner_age_s, received_age_s)
 
+    def _project_onto_path(self, point_xy: np.ndarray) -> dict[str, float | int | np.ndarray] | None:
+        if self._path_points_xy is None or self._path_s is None or self._path_yaw is None:
+            return None
+        if self._path_points_xy.shape[0] < 2:
+            return None
+
+        seg_start_xy = self._path_points_xy[:-1]
+        seg_end_xy = self._path_points_xy[1:]
+        seg_vec_xy = seg_end_xy - seg_start_xy
+        seg_len_sq = np.sum(seg_vec_xy * seg_vec_xy, axis=1)
+        valid_mask = seg_len_sq > 1.0e-9
+        if not np.any(valid_mask):
+            return None
+
+        rel_xy = point_xy.reshape(1, 2) - seg_start_xy
+        projection_alpha = np.zeros_like(seg_len_sq, dtype=np.float64)
+        projection_alpha[valid_mask] = np.clip(
+            np.sum(rel_xy[valid_mask] * seg_vec_xy[valid_mask], axis=1) / seg_len_sq[valid_mask],
+            0.0,
+            1.0,
+        )
+        projection_xy = seg_start_xy + (projection_alpha.reshape(-1, 1) * seg_vec_xy)
+        projection_distance = np.hypot(
+            projection_xy[:, 0] - float(point_xy[0]),
+            projection_xy[:, 1] - float(point_xy[1]),
+        )
+        projection_index = int(np.argmin(projection_distance))
+        segment_heading_rad = math.atan2(
+            float(seg_vec_xy[projection_index, 1]),
+            float(seg_vec_xy[projection_index, 0]),
+        )
+        segment_length_m = math.sqrt(max(1.0e-12, float(seg_len_sq[projection_index])))
+        projection_s_m = float(self._path_s[projection_index]) + (
+            float(projection_alpha[projection_index]) * segment_length_m
+        )
+        closest_vertex_index = int(
+            min(
+                self._path_points_xy.shape[0] - 1,
+                projection_index + (1 if projection_alpha[projection_index] >= 0.5 else 0),
+            )
+        )
+        return {
+            "segment_index": projection_index,
+            "closest_vertex_index": closest_vertex_index,
+            "projection_xy": projection_xy[projection_index].copy(),
+            "projection_s_m": projection_s_m,
+            "distance_m": float(projection_distance[projection_index]),
+            "heading_rad": float(segment_heading_rad),
+        }
+
+    def _status_waiting_path_refresh(
+        self,
+        *,
+        now_monotonic: float,
+        planner_state: str,
+        path_age_s: float | None,
+        odom_age_s: float | None,
+        path_is_stale: bool,
+        path_deviation_m: float,
+        distance_to_path_end_m: float,
+        path_projection_valid: bool,
+        path_projection_s_m: float,
+        path_heading_error_rad: float,
+        path_loss_reason: str,
+        linear_x_mps: float,
+        angular_z_rps: float,
+    ) -> bool:
+        planner_ready = bool(self._planning_status.get("ready", False))
+        recoverable = (
+            planner_ready
+            and not path_is_stale
+            and path_projection_valid
+            and distance_to_path_end_m <= self._waiting_path_refresh_near_end_distance_m
+            and path_heading_error_rad <= self._path_projection_heading_tolerance_rad
+        )
+        if not recoverable:
+            self._waiting_path_refresh_since_monotonic = None
+            self._last_path_loss_reason = path_loss_reason
+            return False
+
+        if self._waiting_path_refresh_since_monotonic is None:
+            self._waiting_path_refresh_since_monotonic = now_monotonic
+        waiting_elapsed_s = now_monotonic - self._waiting_path_refresh_since_monotonic
+        if waiting_elapsed_s >= self._waiting_path_refresh_hold_s:
+            self._waiting_path_refresh_since_monotonic = None
+            self._last_path_loss_reason = path_loss_reason
+            return False
+
+        self._state = "waiting_path_refresh"
+        self._last_path_loss_reason = path_loss_reason
+        self._status_payload = {
+            "state": self._state,
+            "terminal": False,
+            "cause": None,
+            "planner_state": planner_state,
+            "planner_ready": planner_ready,
+            "path_age_s": path_age_s,
+            "odom_age_s": odom_age_s,
+            "path_stale": path_is_stale,
+            "path_deviation_m": path_deviation_m,
+            "distance_to_path_end_m": distance_to_path_end_m,
+            "path_projection_valid": path_projection_valid,
+            "path_projection_s_m": path_projection_s_m,
+            "path_loss_reason": path_loss_reason,
+            "waiting_path_refresh_active": True,
+            "waiting_path_refresh_elapsed_s": waiting_elapsed_s,
+            "waiting_path_refresh_hold_s": self._waiting_path_refresh_hold_s,
+            "path_heading_error_rad": path_heading_error_rad,
+        }
+        self._publish_cmd(linear_x_mps, angular_z_rps)
+        self._publish_status()
+        return True
+
     def _control_step(self) -> None:
         now_monotonic = time.monotonic()
 
         if self._path_points_xy is None or self._path_s is None or self._path_yaw is None:
             self._no_forward_target_since_monotonic = None
+            self._waiting_path_refresh_since_monotonic = None
             self._state = "waiting_path"
             self._status_payload = {
                 "state": self._state,
@@ -414,6 +559,7 @@ class RecognitionTourTrackerNode(Node):
 
         if not self._tracking_allowed():
             self._no_forward_target_since_monotonic = None
+            self._waiting_path_refresh_since_monotonic = None
             self._state = "waiting_fusion"
             self._status_payload = {
                 "state": self._state,
@@ -429,6 +575,7 @@ class RecognitionTourTrackerNode(Node):
 
         if not self._armed:
             self._no_forward_target_since_monotonic = None
+            self._waiting_path_refresh_since_monotonic = None
             self._state = "waiting_arm"
             self._status_payload = {
                 "state": self._state,
@@ -477,6 +624,7 @@ class RecognitionTourTrackerNode(Node):
 
         if self._terminal_cause is not None:
             self._no_forward_target_since_monotonic = None
+            self._waiting_path_refresh_since_monotonic = None
             self._status_payload = {
                 "state": self._state,
                 "terminal": True,
@@ -484,18 +632,16 @@ class RecognitionTourTrackerNode(Node):
                 "planner_state": planner_state,
                 "path_age_s": path_age_s,
                 "odom_age_s": odom_age_s,
+                "path_loss_reason": self._last_path_loss_reason,
             }
             self._publish_cmd(0.0, 0.0)
             self._publish_status()
             return
 
         rear_xy, rear_yaw = self._rear_axle_pose()
-        deltas = self._path_points_xy - rear_xy.reshape(1, 2)
-        distances = np.hypot(deltas[:, 0], deltas[:, 1])
-        nearest_index = int(np.argmin(distances))
-        path_deviation_m = float(distances[nearest_index])
-        if path_deviation_m > self._max_path_deviation_m:
-            self._no_forward_target_since_monotonic = None
+        projection = self._project_onto_path(rear_xy)
+        if projection is None:
+            self._last_path_loss_reason = "projection_invalid"
             self._set_terminal("aborted_path_loss")
             self._status_payload = {
                 "state": self._state,
@@ -503,11 +649,21 @@ class RecognitionTourTrackerNode(Node):
                 "cause": self._terminal_cause,
                 "planner_state": planner_state,
                 "odom_age_s": odom_age_s,
-                "path_deviation_m": path_deviation_m,
+                "path_projection_valid": False,
+                "path_loss_reason": self._last_path_loss_reason,
             }
             self._publish_cmd(0.0, 0.0)
             self._publish_status()
             return
+
+        nearest_index = int(projection["closest_vertex_index"])
+        path_deviation_m = float(projection["distance_m"])
+        path_projection_s_m = float(projection["projection_s_m"])
+        path_projection_valid = True
+        path_projection_heading_rad = float(projection["heading_rad"])
+        path_heading_error_rad = abs(_normalize_angle(path_projection_heading_rad - float(rear_yaw)))
+        distance_to_path_end_m = max(0.0, float(self._path_s[-1] - path_projection_s_m))
+        path_deviation_margin_m = self._max_path_deviation_m + self._path_deviation_abort_margin_m
 
         goal_point = self._path_points_xy[-1]
         goal_yaw_rad = float(self._path_yaw[-1])
@@ -532,7 +688,7 @@ class RecognitionTourTrackerNode(Node):
         goal_distance_m = float(np.linalg.norm(goal_point - rear_xy))
         goal_yaw_error_rad = abs(_normalize_angle(goal_yaw_rad - float(rear_yaw)))
         goal_line_alignment_ready = goal_yaw_error_rad <= self._path_end_yaw_tolerance_rad
-        remaining_path_m = max(0.0, float(self._path_s[-1] - self._path_s[nearest_index]))
+        remaining_path_m = distance_to_path_end_m
         local_path_goal_ready = bool(
             (goal_line_crossed and goal_line_alignment_ready)
             or (
@@ -543,6 +699,7 @@ class RecognitionTourTrackerNode(Node):
 
         if local_path_goal_ready and self._terminal_cause is None:
             self._no_forward_target_since_monotonic = None
+            self._waiting_path_refresh_since_monotonic = None
             self._state = "waiting_path_refresh"
             self._status_payload = {
                 "state": self._state,
@@ -561,6 +718,11 @@ class RecognitionTourTrackerNode(Node):
                 "goal_line_lateral_error_m": goal_line_lateral_error_m,
                 "goal_line_crossed": goal_line_crossed,
                 "goal_line_alignment_ready": goal_line_alignment_ready,
+                "path_projection_valid": path_projection_valid,
+                "path_projection_s_m": path_projection_s_m,
+                "distance_to_path_end_m": distance_to_path_end_m,
+                "path_loss_reason": None,
+                "waiting_path_refresh_active": True,
             }
             self._publish_cmd(0.0, 0.0)
             self._publish_status()
@@ -598,7 +760,7 @@ class RecognitionTourTrackerNode(Node):
                 base_lookahead_m * lookahead_scale,
             ),
         )
-        target_s = float(self._path_s[nearest_index] + lookahead_m)
+        target_s = float(path_projection_s_m + lookahead_m)
         target_index = int(np.searchsorted(self._path_s, target_s, side="left"))
         target_index = min(target_index, self._path_points_xy.shape[0] - 1)
 
@@ -621,6 +783,7 @@ class RecognitionTourTrackerNode(Node):
         if dx_local <= 1.0e-3:
             if path_is_stale:
                 self._no_forward_target_since_monotonic = None
+                self._waiting_path_refresh_since_monotonic = None
                 self._state = "holding_last_path"
                 self._status_payload = {
                     "state": self._state,
@@ -633,6 +796,26 @@ class RecognitionTourTrackerNode(Node):
                 }
                 self._publish_cmd(0.0, 0.0)
                 self._publish_status()
+                return
+            recovery_linear_x_mps = min(
+                0.10,
+                max(self._path_refresh_min_forward_speed_mps, 0.75 * self._min_linear_speed_mps),
+            )
+            if self._status_waiting_path_refresh(
+                now_monotonic=now_monotonic,
+                planner_state=planner_state,
+                path_age_s=path_age_s,
+                odom_age_s=odom_age_s,
+                path_is_stale=path_is_stale,
+                path_deviation_m=path_deviation_m,
+                distance_to_path_end_m=distance_to_path_end_m,
+                path_projection_valid=path_projection_valid,
+                path_projection_s_m=path_projection_s_m,
+                path_heading_error_rad=path_heading_error_rad,
+                path_loss_reason="projection_behind_target",
+                linear_x_mps=recovery_linear_x_mps,
+                angular_z_rps=0.0,
+            ):
                 return
             if self._no_forward_target_since_monotonic is None:
                 self._no_forward_target_since_monotonic = now_monotonic
@@ -668,21 +851,67 @@ class RecognitionTourTrackerNode(Node):
                 "path_age_s": path_age_s,
                 "odom_age_s": odom_age_s,
                 "path_deviation_m": path_deviation_m,
+                "path_projection_valid": path_projection_valid,
+                "path_projection_s_m": path_projection_s_m,
+                "distance_to_path_end_m": distance_to_path_end_m,
+                "path_loss_reason": "projection_behind_target",
             }
             self._publish_cmd(0.0, 0.0)
             self._publish_status()
             return
 
         self._no_forward_target_since_monotonic = None
+        self._waiting_path_refresh_since_monotonic = None
         lookahead_actual_m = max(self._sharp_turn_lookahead_min_m, math.hypot(dx_local, dy_local))
         raw_curvature = (2.0 * dy_local) / max(1.0e-6, lookahead_actual_m * lookahead_actual_m)
+        max_track_curvature_m_inv = math.tan(math.radians(self._steering_limit_deg)) / self._wheelbase_m
+        desired_steering_deg = math.degrees(math.atan(self._wheelbase_m * raw_curvature))
+        steering_saturation_ratio = abs(desired_steering_deg) / max(1.0e-6, self._steering_limit_deg)
+        if steering_saturation_ratio > self._steering_saturation_start_ratio:
+            saturation_alpha = min(
+                1.0,
+                (
+                    (steering_saturation_ratio - self._steering_saturation_start_ratio)
+                    / max(1.0e-6, 1.0 - self._steering_saturation_start_ratio)
+                ),
+            )
+            saturation_lookahead_m = max(
+                self._sharp_turn_lookahead_min_m,
+                lookahead_actual_m * (1.0 - (0.35 * saturation_alpha)),
+            )
+            saturation_target_s = float(path_projection_s_m + saturation_lookahead_m)
+            saturation_target_index = int(np.searchsorted(self._path_s, saturation_target_s, side="left"))
+            saturation_target_index = min(saturation_target_index, self._path_points_xy.shape[0] - 1)
+            saturation_target_xy = self._path_points_xy[saturation_target_index]
+            dx_world = float(saturation_target_xy[0] - rear_xy[0])
+            dy_world = float(saturation_target_xy[1] - rear_xy[1])
+            dx_local = (cos_yaw * dx_world) + (sin_yaw * dy_world)
+            dy_local = (-sin_yaw * dx_world) + (cos_yaw * dy_world)
+            if dx_local > 1.0e-3:
+                target_index = saturation_target_index
+                target_xy = saturation_target_xy
+                lookahead_actual_m = max(
+                    self._sharp_turn_lookahead_min_m,
+                    math.hypot(dx_local, dy_local),
+                )
+                raw_curvature = (2.0 * dy_local) / max(
+                    1.0e-6, lookahead_actual_m * lookahead_actual_m
+                )
+                desired_steering_deg = math.degrees(math.atan(self._wheelbase_m * raw_curvature))
+                steering_saturation_ratio = abs(desired_steering_deg) / max(
+                    1.0e-6, self._steering_limit_deg
+                )
+
         curvature = raw_curvature
         if abs(curvature) < self._curvature_deadband_m_inv:
             curvature = 0.0
 
         curvature_abs = abs(raw_curvature)
-        desired_steering_deg = math.degrees(math.atan(self._wheelbase_m * raw_curvature))
         desired_steering_abs_deg = abs(desired_steering_deg)
+        steering_saturated = desired_steering_abs_deg > (self._steering_limit_deg + 1.0e-3)
+        commanded_curvature = float(
+            np.clip(curvature, -max_track_curvature_m_inv, max_track_curvature_m_inv)
+        )
         curvature_speed_limit_mps = self._max_linear_speed_mps / (
             1.0 + (self._curvature_speed_gain * curvature_abs)
         )
@@ -743,8 +972,23 @@ class RecognitionTourTrackerNode(Node):
         if remaining_path_m <= self._path_end_goal_tolerance_m:
             min_linear_speed_floor_mps = 0.0
         linear_x_mps = max(min_linear_speed_floor_mps, min(self._max_linear_speed_mps, linear_x_mps))
+        if steering_saturation_ratio > self._steering_saturation_start_ratio:
+            saturation_alpha = min(
+                1.0,
+                (
+                    (steering_saturation_ratio - self._steering_saturation_start_ratio)
+                    / max(1.0e-6, 1.5 - self._steering_saturation_start_ratio)
+                ),
+            )
+            saturation_speed_scale = 1.0 - (
+                saturation_alpha * (1.0 - self._steering_saturation_speed_scale_min)
+            )
+            linear_x_mps = max(
+                min_linear_speed_floor_mps,
+                linear_x_mps * saturation_speed_scale,
+            )
 
-        raw_angular_z_rps = linear_x_mps * curvature
+        raw_angular_z_rps = linear_x_mps * commanded_curvature
         if linear_x_mps <= 1.0e-6 or abs(raw_angular_z_rps) <= 1.0e-6:
             angular_z_rps = raw_angular_z_rps
             self._filtered_angular_z_rps = raw_angular_z_rps
@@ -779,6 +1023,11 @@ class RecognitionTourTrackerNode(Node):
             "closest_path_index": nearest_index,
             "target_path_index": target_index,
             "path_deviation_m": path_deviation_m,
+            "path_projection_valid": path_projection_valid,
+            "path_projection_s_m": path_projection_s_m,
+            "distance_to_path_end_m": distance_to_path_end_m,
+            "path_loss_reason": None,
+            "waiting_path_refresh_active": False,
             "goal_distance_m": goal_distance_m,
             "remaining_path_m": remaining_path_m,
             "goal_yaw_error_rad": goal_yaw_error_rad,
@@ -791,8 +1040,12 @@ class RecognitionTourTrackerNode(Node):
             "lookahead_m": lookahead_actual_m,
             "raw_curvature_m_inv": raw_curvature,
             "curvature_m_inv": curvature,
+            "commanded_curvature_m_inv": commanded_curvature,
             "filtered_curvature_m_inv": filtered_curvature_m_inv,
             "desired_steering_deg": desired_steering_deg,
+            "steering_saturated": steering_saturated,
+            "steering_saturation_ratio": steering_saturation_ratio,
+            "path_projection_heading_error_rad": path_heading_error_rad,
             "curvature_deadband_m_inv": self._curvature_deadband_m_inv,
             "curvature_speed_limit_mps": curvature_speed_limit_mps,
             "lateral_accel_speed_limit_mps": lateral_accel_speed_limit_mps,
@@ -811,6 +1064,44 @@ class RecognitionTourTrackerNode(Node):
                 "y_m": float(target_xy[1]),
             },
         }
+        if path_deviation_m > path_deviation_margin_m:
+            recovery_linear_x_mps = min(
+                0.10,
+                max(self._path_refresh_min_forward_speed_mps, 0.75 * self._min_linear_speed_mps),
+            )
+            if self._status_waiting_path_refresh(
+                now_monotonic=now_monotonic,
+                planner_state=planner_state,
+                path_age_s=path_age_s,
+                odom_age_s=odom_age_s,
+                path_is_stale=path_is_stale,
+                path_deviation_m=path_deviation_m,
+                distance_to_path_end_m=distance_to_path_end_m,
+                path_projection_valid=path_projection_valid,
+                path_projection_s_m=path_projection_s_m,
+                path_heading_error_rad=path_heading_error_rad,
+                path_loss_reason="path_deviation_margin_exceeded",
+                linear_x_mps=recovery_linear_x_mps,
+                angular_z_rps=0.0,
+            ):
+                return
+            self._set_terminal("aborted_path_loss")
+            self._status_payload = {
+                "state": self._state,
+                "terminal": True,
+                "cause": self._terminal_cause,
+                "planner_state": planner_state,
+                "path_age_s": path_age_s,
+                "odom_age_s": odom_age_s,
+                "path_deviation_m": path_deviation_m,
+                "path_projection_valid": path_projection_valid,
+                "path_projection_s_m": path_projection_s_m,
+                "distance_to_path_end_m": distance_to_path_end_m,
+                "path_loss_reason": "path_deviation_margin_exceeded",
+            }
+            self._publish_cmd(0.0, 0.0)
+            self._publish_status()
+            return
         self._publish_cmd(linear_x_mps, angular_z_rps)
         self._publish_status()
 

@@ -27,6 +27,7 @@ STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-modern}"
 STAGGERED_STARTUP="${APEX_STAGGERED_STARTUP:-1}"
 SERIAL_WARMUP_S="${APEX_SERIAL_WARMUP_S:-1.0}"
 LIDAR_STARTUP_SETTLE_S="${APEX_LIDAR_STARTUP_SETTLE_S:-2.5}"
+NODE_STARTUP_STAGGER_S="${APEX_NODE_STARTUP_STAGGER_S:-0.0}"
 SERIAL_CONNECT_TOGGLE_DTR="${APEX_SERIAL_CONNECT_TOGGLE_DTR:-}"
 SERIAL_CONNECT_DTR_LOW_S="${APEX_SERIAL_CONNECT_DTR_LOW_S:-}"
 SERIAL_CONNECT_SETTLE_S="${APEX_SERIAL_CONNECT_SETTLE_S:-}"
@@ -191,6 +192,28 @@ is_safe_like() {
   [[ "${STARTUP_COMPAT}" == "safe" ]]
 }
 
+startup_stage_sleep() {
+  local label="$1"
+  if [[ "${STAGGERED_STARTUP}" != "1" ]]; then
+    return
+  fi
+  if [[ -z "${NODE_STARTUP_STAGGER_S}" ]]; then
+    return
+  fi
+  if python3 - "${NODE_STARTUP_STAGGER_S}" <<'PY'
+import sys
+try:
+    value = float(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if value > 1.0e-6 else 1)
+PY
+  then
+    echo "[APEX] Startup staging: waiting ${NODE_STARTUP_STAGGER_S}s after ${label}"
+    sleep "${NODE_STARTUP_STAGGER_S}"
+  fi
+}
+
 if is_safe_like && [[ -z "${SERIAL_CONNECT_PROFILE_NAME}" ]]; then
   SERIAL_CONNECT_PROFILE_NAME="safe_passive_default"
   SERIAL_CONNECT_TOGGLE_DTR="${SERIAL_CONNECT_TOGGLE_DTR:-false}"
@@ -261,6 +284,7 @@ if [[ "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
     --ros-args \
     --params-file "${PARAMS_FILE}" &
   PIDS+=("$!")
+  startup_stage_sleep "online fusion"
 else
   echo "[APEX] Online IMU+LiDAR fusion disabled for this run"
 fi
@@ -270,6 +294,7 @@ if [[ "${ENABLE_CURVE_ENTRY_PLANNER}" == "1" ]]; then
     --ros-args \
     --params-file "${PARAMS_FILE}" &
   PIDS+=("$!")
+  startup_stage_sleep "curve planner"
 else
   echo "[APEX] Curve-entry planner disabled for this run"
 fi
@@ -279,6 +304,7 @@ if [[ "${ENABLE_PATH_TRACKER}" == "1" ]]; then
     --ros-args \
     --params-file "${PARAMS_FILE}" &
   PIDS+=("$!")
+  startup_stage_sleep "path tracker"
 else
   echo "[APEX] Curve path tracker disabled for this run"
 fi
@@ -288,6 +314,7 @@ if [[ "${ENABLE_RECOGNITION_TOUR_PLANNER}" == "1" ]]; then
     --ros-args \
     --params-file "${PARAMS_FILE}" &
   PIDS+=("$!")
+  startup_stage_sleep "recognition planner"
 else
   echo "[APEX] Recognition tour planner disabled for this run"
 fi
@@ -297,6 +324,7 @@ if [[ "${ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
     --ros-args \
     --params-file "${PARAMS_FILE}" &
   PIDS+=("$!")
+  startup_stage_sleep "recognition tracker"
 else
   echo "[APEX] Recognition tour tracker disabled for this run"
 fi
@@ -327,6 +355,7 @@ if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
   fi
   "${CMD[@]}" &
   PIDS+=("$!")
+  startup_stage_sleep "cmd_vel bridge"
 else
   echo "[APEX] CmdVel actuation bridge disabled for this run"
 fi

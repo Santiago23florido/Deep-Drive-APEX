@@ -28,7 +28,9 @@
     "speed_error_p95_pct": 0.4875090558351935,
     "sharp_turn_low_speed_fraction": 0.504434011476265,
     "max_desired_steering_deg": 45.79101717224609,
-    "max_applied_steering_deg": 45.79101717224609
+    "max_applied_steering_deg": 45.79101717224609,
+    "steering_saturation_fraction": 0.0,
+    "waiting_path_refresh_fraction": 0.0
   },
   "evidence": {
     "timing": [

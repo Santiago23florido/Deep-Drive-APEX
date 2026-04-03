@@ -10,6 +10,7 @@ ROS_SETUP_SCRIPT="${APEX_ROS_SETUP_SCRIPT:-/opt/ros/jazzy/setup.bash}"
 POSTCHECK_TIMEOUT_S="${APEX_RAW_POSTCHECK_TIMEOUT_S:-5}"
 POSTCHECK_READY_DELAY_S="${APEX_RAW_POSTCHECK_READY_DELAY_S:-4}"
 POSTCHECK_RETRIES="${APEX_RAW_POSTCHECK_RETRIES:-3}"
+POSTCHECK_TOPIC_GAP_S="${APEX_RAW_POSTCHECK_TOPIC_GAP_S:-0.5}"
 PREFLIGHT_SOFT_FAIL="${APEX_NANO_PREFLIGHT_SOFT_FAIL:-1}"
 AUTO_DOWN_ON_POSTCHECK_FAIL="${APEX_RAW_POSTCHECK_AUTO_DOWN_ON_FAIL:-0}"
 STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-modern}"
@@ -35,6 +36,12 @@ export APEX_ENABLE_PATH_TRACKER="${APEX_ENABLE_PATH_TRACKER:-0}"
 export APEX_ENABLE_RECOGNITION_TOUR_PLANNER="${APEX_ENABLE_RECOGNITION_TOUR_PLANNER:-0}"
 export APEX_ENABLE_RECOGNITION_TOUR_TRACKER="${APEX_ENABLE_RECOGNITION_TOUR_TRACKER:-0}"
 export APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
+
+if [[ "${STARTUP_COMPAT}" == "safe" ]]; then
+  POSTCHECK_READY_DELAY_S="${APEX_RAW_POSTCHECK_READY_DELAY_S:-8}"
+  POSTCHECK_RETRIES="${APEX_RAW_POSTCHECK_RETRIES:-2}"
+  POSTCHECK_TOPIC_GAP_S="${APEX_RAW_POSTCHECK_TOPIC_GAP_S:-1.0}"
+fi
 
 if [[ "${APEX_NANO_PREFLIGHT:-1}" == "1" ]]; then
   if ! "${NANO_PREFLIGHT_SCRIPT}"; then
@@ -77,6 +84,17 @@ require_topic() {
   while [[ "${attempt}" -le "${POSTCHECK_RETRIES}" ]]; do
     echo "[APEX] Raw postcheck topic sample: ${topic} (attempt ${attempt}/${POSTCHECK_RETRIES})"
     if sample_topic "${topic}"; then
+      if python3 - "${POSTCHECK_TOPIC_GAP_S}" <<'PY'
+import sys
+try:
+    value = float(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if value > 1.0e-6 else 1)
+PY
+      then
+        sleep "${POSTCHECK_TOPIC_GAP_S}"
+      fi
       return 0
     fi
     sleep 1

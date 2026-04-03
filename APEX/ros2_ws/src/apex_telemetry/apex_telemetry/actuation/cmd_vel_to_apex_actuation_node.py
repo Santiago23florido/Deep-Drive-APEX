@@ -128,8 +128,10 @@ class CmdVelToApexActuationNode(Node):
         self._last_cmd_monotonic = 0.0
         self._last_applied_speed_pct = 0.0
         self._last_applied_steering_deg = 0.0
+        self._last_requested_steering_deg = 0.0
         self._last_desired_speed_pct = 0.0
         self._last_desired_steering_deg = 0.0
+        self._last_steering_saturated = False
         self._last_control_monotonic = time.monotonic()
         self._speed_ramp_start_monotonic: float | None = None
         self._speed_ramp_start_pct = 0.0
@@ -247,6 +249,7 @@ class CmdVelToApexActuationNode(Node):
                 "desired_angular_z_rps": self._cmd_angular_z_rps,
                 "desired_speed_pct": self._last_desired_speed_pct,
                 "desired_steering_deg": self._last_desired_steering_deg,
+                "requested_steering_deg": self._last_requested_steering_deg,
                 "speed_ramp_start_pct": self._speed_ramp_start_pct,
                 "speed_ramp_target_pct": self._speed_ramp_target_pct,
                 "speed_ramp_active": self._speed_ramp_start_monotonic is not None,
@@ -254,6 +257,7 @@ class CmdVelToApexActuationNode(Node):
                 "launch_boost_speed_pct": self._launch_boost_speed_pct,
                 "applied_speed_pct": self._last_applied_speed_pct,
                 "applied_steering_deg": self._last_applied_steering_deg,
+                "steering_saturated": self._last_steering_saturated,
             },
             separators=(",", ":"),
         )
@@ -277,8 +281,8 @@ class CmdVelToApexActuationNode(Node):
         )
         desired_speed_pct = self._map_linear_speed_to_pct(desired_linear_x_mps)
 
-        applied_steering_deg = self._apply_rate_limit(
-            current_value=self._last_applied_steering_deg,
+        requested_steering_deg = self._apply_rate_limit(
+            current_value=self._last_requested_steering_deg,
             target_value=desired_steering_deg,
             rate_up_per_s=self._steering_rate_limit_deg_per_s,
             rate_down_per_s=self._steering_rate_limit_deg_per_s,
@@ -305,7 +309,7 @@ class CmdVelToApexActuationNode(Node):
             self._speed_ramp_target_pct = 0.0
             self._launch_boost_until_monotonic = 0.0
             if self._active_brake_on_zero and self._last_applied_speed_pct > 1.0:
-                applied_steering_deg = 0.0
+                requested_steering_deg = 0.0
                 self._steering.set_angle_deg(0.0)
                 self._motor.brake_to_neutral()
                 applied_speed_pct = 0.0
@@ -318,12 +322,18 @@ class CmdVelToApexActuationNode(Node):
                     dt_s=dt_s,
                 )
 
-        self._steering.set_angle_deg(applied_steering_deg)
+        self._steering.set_angle_deg(requested_steering_deg)
+        steering_state = self._steering.get_state()
+        applied_steering_deg = float(
+            steering_state.get("clamped_deg", requested_steering_deg)
+        )
         self._motor.set_speed_pct(applied_speed_pct)
         self._last_desired_steering_deg = desired_steering_deg
         self._last_desired_speed_pct = desired_speed_pct
+        self._last_requested_steering_deg = requested_steering_deg
         self._last_applied_steering_deg = applied_steering_deg
         self._last_applied_speed_pct = applied_speed_pct
+        self._last_steering_saturated = abs(applied_steering_deg - requested_steering_deg) > 1.0e-3
         self._publish_state(timed_out=timed_out)
 
     def destroy_node(self) -> bool:
