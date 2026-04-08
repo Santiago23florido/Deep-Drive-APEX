@@ -107,6 +107,13 @@ class RecognitionTourTrackerNode(Node):
         self.declare_parameter("path_refresh_min_forward_speed_mps", 0.06)
         self.declare_parameter("steering_saturation_start_ratio", 0.85)
         self.declare_parameter("steering_saturation_speed_scale_min", 0.58)
+        self.declare_parameter("short_horizon_forward_span_m", 1.10)
+        self.declare_parameter("short_horizon_speed_scale_min", 0.72)
+        self.declare_parameter("continuation_lookahead_scale_min", 0.78)
+        self.declare_parameter("continuation_speed_scale_min", 0.68)
+        self.declare_parameter("route_alignment_slowdown_start_deg", 12.0)
+        self.declare_parameter("route_alignment_slowdown_full_deg", 28.0)
+        self.declare_parameter("route_alignment_speed_scale_min", 0.60)
         self.declare_parameter("global_timeout_s", 60.0)
         self.declare_parameter("odom_timeout_s", 0.5)
 
@@ -230,6 +237,29 @@ class RecognitionTourTrackerNode(Node):
         self._steering_saturation_speed_scale_min = max(
             0.2, min(1.0, float(self.get_parameter("steering_saturation_speed_scale_min").value))
         )
+        self._short_horizon_forward_span_m = max(
+            self._min_publish_forward_span_guess(),
+            float(self.get_parameter("short_horizon_forward_span_m").value),
+        )
+        self._short_horizon_speed_scale_min = max(
+            0.2, min(1.0, float(self.get_parameter("short_horizon_speed_scale_min").value))
+        )
+        self._continuation_lookahead_scale_min = max(
+            0.3, min(1.0, float(self.get_parameter("continuation_lookahead_scale_min").value))
+        )
+        self._continuation_speed_scale_min = max(
+            0.2, min(1.0, float(self.get_parameter("continuation_speed_scale_min").value))
+        )
+        self._route_alignment_slowdown_start_deg = max(
+            0.0, float(self.get_parameter("route_alignment_slowdown_start_deg").value)
+        )
+        self._route_alignment_slowdown_full_deg = max(
+            self._route_alignment_slowdown_start_deg + 1.0e-3,
+            float(self.get_parameter("route_alignment_slowdown_full_deg").value),
+        )
+        self._route_alignment_speed_scale_min = max(
+            0.2, min(1.0, float(self.get_parameter("route_alignment_speed_scale_min").value))
+        )
         self._global_timeout_s = max(1.0, float(self.get_parameter("global_timeout_s").value))
         self._odom_timeout_s = max(0.05, float(self.get_parameter("odom_timeout_s").value))
 
@@ -284,6 +314,13 @@ class RecognitionTourTrackerNode(Node):
             "RecognitionTourTrackerNode started (path=%s odom=%s arm=%s cmd=%s)"
             % (self._path_topic, self._odom_topic, self._arm_topic, self._cmd_vel_topic)
         )
+
+    def _min_publish_forward_span_guess(self) -> float:
+        value = self.get_parameter("short_horizon_forward_span_m").value
+        try:
+            return max(0.55, float(value))
+        except (TypeError, ValueError):
+            return 0.55
 
     def _path_cb(self, msg: Path) -> None:
         if not msg.poses:
@@ -732,6 +769,15 @@ class RecognitionTourTrackerNode(Node):
             float(self._latest_odom["vx_mps"]),
             float(self._latest_odom["vy_mps"]),
         )
+        continuation_source = str(
+            self._planning_status.get("continuation_source")
+            or self._planning_status.get("local_path_source")
+            or planner_state
+            or "unknown"
+        )
+        path_heading_alignment_deg = abs(
+            float(self._planning_status.get("path_heading_alignment_deg") or 0.0)
+        )
         base_lookahead_m = min(
             self._max_lookahead_m,
             max(
@@ -739,6 +785,30 @@ class RecognitionTourTrackerNode(Node):
                 self._min_lookahead_m + (self._lookahead_speed_gain * speed_now_mps),
             ),
         )
+        if continuation_source != "tracking":
+            base_lookahead_m = max(
+                self._sharp_turn_lookahead_min_m,
+                base_lookahead_m * self._continuation_lookahead_scale_min,
+            )
+        if path_heading_alignment_deg > self._route_alignment_slowdown_start_deg:
+            alignment_alpha = min(
+                1.0,
+                (
+                    (path_heading_alignment_deg - self._route_alignment_slowdown_start_deg)
+                    / max(
+                        1.0e-6,
+                        self._route_alignment_slowdown_full_deg
+                        - self._route_alignment_slowdown_start_deg,
+                    )
+                ),
+            )
+            alignment_lookahead_scale = 1.0 - (
+                alignment_alpha * (1.0 - self._continuation_lookahead_scale_min)
+            )
+            base_lookahead_m = max(
+                self._sharp_turn_lookahead_min_m,
+                base_lookahead_m * alignment_lookahead_scale,
+            )
         ahead_path_curvature_m_inv = 0.0
         if self._path_curvature_m_inv is not None and self._path_curvature_m_inv.size > 0:
             curvature_window_end = min(
@@ -971,6 +1041,14 @@ class RecognitionTourTrackerNode(Node):
             )
         if remaining_path_m <= self._path_end_goal_tolerance_m:
             min_linear_speed_floor_mps = 0.0
+        elif (
+            continuation_source != "tracking"
+            or path_heading_alignment_deg > self._route_alignment_slowdown_start_deg
+        ):
+            min_linear_speed_floor_mps = min(
+                min_linear_speed_floor_mps,
+                max(self._path_refresh_min_forward_speed_mps, 0.75 * self._min_linear_speed_mps),
+            )
         linear_x_mps = max(min_linear_speed_floor_mps, min(self._max_linear_speed_mps, linear_x_mps))
         if steering_saturation_ratio > self._steering_saturation_start_ratio:
             saturation_alpha = min(
@@ -986,6 +1064,55 @@ class RecognitionTourTrackerNode(Node):
             linear_x_mps = max(
                 min_linear_speed_floor_mps,
                 linear_x_mps * saturation_speed_scale,
+            )
+        planner_path_forward_span_m = float(
+            self._planning_status.get(
+                "path_forward_span_m",
+                self._short_horizon_forward_span_m,
+            )
+            or self._short_horizon_forward_span_m
+        )
+        if planner_path_forward_span_m < self._short_horizon_forward_span_m:
+            short_horizon_alpha = min(
+                1.0,
+                max(
+                    0.0,
+                    (
+                        (self._short_horizon_forward_span_m - planner_path_forward_span_m)
+                        / max(1.0e-6, self._short_horizon_forward_span_m)
+                    ),
+                ),
+            )
+            short_horizon_speed_scale = 1.0 - (
+                short_horizon_alpha * (1.0 - self._short_horizon_speed_scale_min)
+            )
+            linear_x_mps = max(
+                min_linear_speed_floor_mps,
+                linear_x_mps * short_horizon_speed_scale,
+            )
+        if continuation_source != "tracking":
+            linear_x_mps = max(
+                min_linear_speed_floor_mps,
+                linear_x_mps * self._continuation_speed_scale_min,
+            )
+        if path_heading_alignment_deg > self._route_alignment_slowdown_start_deg:
+            alignment_alpha = min(
+                1.0,
+                (
+                    (path_heading_alignment_deg - self._route_alignment_slowdown_start_deg)
+                    / max(
+                        1.0e-6,
+                        self._route_alignment_slowdown_full_deg
+                        - self._route_alignment_slowdown_start_deg,
+                    )
+                ),
+            )
+            alignment_speed_scale = 1.0 - (
+                alignment_alpha * (1.0 - self._route_alignment_speed_scale_min)
+            )
+            linear_x_mps = max(
+                min_linear_speed_floor_mps,
+                linear_x_mps * alignment_speed_scale,
             )
 
         raw_angular_z_rps = linear_x_mps * commanded_curvature
@@ -1014,6 +1141,7 @@ class RecognitionTourTrackerNode(Node):
             "tracking_started": True,
             "elapsed_s": now_monotonic - float(self._tracking_started_monotonic or now_monotonic),
             "planner_state": planner_state,
+            "continuation_source": continuation_source,
             "planner_ready": bool(self._planning_status.get("ready", False)),
             "path_age_s": path_age_s,
             "odom_age_s": odom_age_s,
@@ -1037,6 +1165,7 @@ class RecognitionTourTrackerNode(Node):
             "goal_line_alignment_ready": goal_line_alignment_ready,
             "base_lookahead_m": base_lookahead_m,
             "ahead_path_curvature_m_inv": ahead_path_curvature_m_inv,
+            "path_heading_alignment_deg": path_heading_alignment_deg,
             "lookahead_m": lookahead_actual_m,
             "raw_curvature_m_inv": raw_curvature,
             "curvature_m_inv": curvature,
@@ -1051,6 +1180,7 @@ class RecognitionTourTrackerNode(Node):
             "lateral_accel_speed_limit_mps": lateral_accel_speed_limit_mps,
             "goal_speed_limit_mps": goal_speed_limit_mps,
             "sharp_turn_speed_floor_mps": sharp_turn_speed_floor_mps,
+            "planner_path_forward_span_m": planner_path_forward_span_m,
             "cmd_linear_x_mps": linear_x_mps,
             "raw_cmd_angular_z_rps": raw_angular_z_rps,
             "cmd_angular_z_rps": angular_z_rps,

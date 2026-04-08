@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import json
 import math
+import numpy as np
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, TransformStamped
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Imu, LaserScan
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from sensor_msgs.msg import Imu, LaserScan, PointCloud2, PointField
 from std_msgs.msg import String
 from tf2_ros import TransformBroadcaster
 
@@ -31,6 +32,9 @@ class ImuLidarPlanarFusionNode(Node):
         self.declare_parameter("scan_topic", "/lidar/scan_localization")
         self.declare_parameter("odom_topic", "/apex/odometry/imu_lidar_fused")
         self.declare_parameter("path_topic", "/apex/estimation/path")
+        self.declare_parameter("pose_topic", "/apex/estimation/current_pose")
+        self.declare_parameter("live_map_topic", "/apex/estimation/live_map_points")
+        self.declare_parameter("full_map_topic", "/apex/estimation/full_map_points")
         self.declare_parameter("status_topic", "/apex/estimation/status")
         self.declare_parameter("odom_frame_id", "odom_imu_lidar_fused")
         self.declare_parameter("child_frame_id", "base_link")
@@ -40,6 +44,11 @@ class ImuLidarPlanarFusionNode(Node):
         self.declare_parameter("predicted_odom_rate_hz", 30.0)
         self.declare_parameter("max_prediction_horizon_s", 0.20)
         self.declare_parameter("path_max_poses", 4000)
+        self.declare_parameter("live_map_publish_rate_hz", 1.0)
+        self.declare_parameter("live_map_window_scans", 120)
+        self.declare_parameter("live_map_max_points", 6000)
+        self.declare_parameter("full_map_publish_rate_hz", 0.5)
+        self.declare_parameter("full_map_max_points", 30000)
 
         self.declare_parameter("median_window", 5)
         self.declare_parameter("ema_alpha", 0.25)
@@ -60,6 +69,9 @@ class ImuLidarPlanarFusionNode(Node):
         self._scan_topic = str(self.get_parameter("scan_topic").value)
         self._odom_topic = str(self.get_parameter("odom_topic").value)
         self._path_topic = str(self.get_parameter("path_topic").value)
+        self._pose_topic = str(self.get_parameter("pose_topic").value)
+        self._live_map_topic = str(self.get_parameter("live_map_topic").value)
+        self._full_map_topic = str(self.get_parameter("full_map_topic").value)
         self._status_topic = str(self.get_parameter("status_topic").value)
         self._odom_frame = str(self.get_parameter("odom_frame_id").value)
         self._child_frame = str(self.get_parameter("child_frame_id").value)
@@ -77,6 +89,21 @@ class ImuLidarPlanarFusionNode(Node):
             0.02, float(self.get_parameter("max_prediction_horizon_s").value)
         )
         self._path_max_poses = max(32, int(self.get_parameter("path_max_poses").value))
+        self._live_map_publish_rate_hz = max(
+            0.2, float(self.get_parameter("live_map_publish_rate_hz").value)
+        )
+        self._live_map_window_scans = max(
+            4, int(self.get_parameter("live_map_window_scans").value)
+        )
+        self._live_map_max_points = max(
+            64, int(self.get_parameter("live_map_max_points").value)
+        )
+        self._full_map_publish_rate_hz = max(
+            0.1, float(self.get_parameter("full_map_publish_rate_hz").value)
+        )
+        self._full_map_max_points = max(
+            256, int(self.get_parameter("full_map_max_points").value)
+        )
         self._point_stride = int(self.get_parameter("point_stride").value)
 
         params = FusionParameters(
@@ -111,8 +138,15 @@ class ImuLidarPlanarFusionNode(Node):
         self._last_published_pose_payload: dict[str, float | str | bool] | None = None
         self._last_published_source = "none"
         self._last_prediction_age_s = 0.0
+        self._last_corrected_header = None
         self._path_msg = Path()
         self._path_msg.header.frame_id = self._odom_frame
+
+        latched_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
 
         self.create_subscription(Imu, self._imu_topic, self._imu_cb, qos_profile_sensor_data)
         self.create_subscription(
@@ -124,20 +158,28 @@ class ImuLidarPlanarFusionNode(Node):
 
         self._odom_pub = self.create_publisher(Odometry, self._odom_topic, 20)
         self._path_pub = self.create_publisher(Path, self._path_topic, 20)
+        self._pose_pub = self.create_publisher(PoseStamped, self._pose_topic, 20)
+        self._live_map_pub = self.create_publisher(PointCloud2, self._live_map_topic, latched_qos)
+        self._full_map_pub = self.create_publisher(PointCloud2, self._full_map_topic, latched_qos)
         self._status_pub = self.create_publisher(String, self._status_topic, 20)
         self._tf_broadcaster = TransformBroadcaster(self) if self._publish_tf else None
 
         self.create_timer(1.0 / self._status_publish_rate_hz, self._publish_status)
+        self.create_timer(1.0 / self._live_map_publish_rate_hz, self._publish_live_map)
+        self.create_timer(1.0 / self._full_map_publish_rate_hz, self._publish_full_map)
         if self._publish_predicted_odom_between_scans:
             self.create_timer(1.0 / self._predicted_odom_rate_hz, self._publish_predicted_odom)
 
         self.get_logger().info(
-            "ImuLidarPlanarFusionNode started (imu=%s scan=%s odom=%s path=%s status=%s)"
+            "ImuLidarPlanarFusionNode started (imu=%s scan=%s odom=%s path=%s pose=%s map=%s full_map=%s status=%s)"
             % (
                 self._imu_topic,
                 self._scan_topic,
                 self._odom_topic,
                 self._path_topic,
+                self._pose_topic,
+                self._live_map_topic,
+                self._full_map_topic,
                 self._status_topic,
             )
         )
@@ -234,6 +276,8 @@ class ImuLidarPlanarFusionNode(Node):
 
         self._last_published_source = "predicted" if predicted else "corrected"
         self._last_prediction_age_s = float(max(0.0, prediction_age_s))
+        if not predicted:
+            self._last_corrected_header = odom.header
         self._last_published_pose_payload = {
             "x_m": x_m,
             "y_m": y_m,
@@ -262,6 +306,7 @@ class ImuLidarPlanarFusionNode(Node):
         pose_stamped = PoseStamped()
         pose_stamped.header = odom.header
         pose_stamped.pose = odom.pose.pose
+        self._pose_pub.publish(pose_stamped)
         self._path_msg.header.stamp = odom.header.stamp
         self._path_msg.poses.append(pose_stamped)
         if len(self._path_msg.poses) > self._path_max_poses:
@@ -291,6 +336,53 @@ class ImuLidarPlanarFusionNode(Node):
             predicted=True,
             prediction_age_s=prediction_age_s,
         )
+
+    def _publish_live_map(self) -> None:
+        if self._last_corrected_header is None:
+            return
+        map_points_xy = self._fusion.live_map_points_world(
+            window_scans=self._live_map_window_scans,
+            max_points=self._live_map_max_points,
+        )
+        message = self._pointcloud_message_from_xy(map_points_xy)
+        self._live_map_pub.publish(message)
+
+    def _publish_full_map(self) -> None:
+        if self._last_corrected_header is None:
+            return
+        map_points_xy = self._fusion.full_map_points_world(
+            max_points=self._full_map_max_points,
+        )
+        message = self._pointcloud_message_from_xy(map_points_xy)
+        self._full_map_pub.publish(message)
+
+    def _pointcloud_message_from_xy(self, map_points_xy: np.ndarray) -> PointCloud2:
+        message = PointCloud2()
+        message.header = self._last_corrected_header
+        message.header.frame_id = self._odom_frame
+        message.height = 1
+        message.width = int(map_points_xy.shape[0])
+        message.is_bigendian = False
+        message.is_dense = True
+        message.fields = [
+            PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+            PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+            PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+        ]
+        message.point_step = 12
+        message.row_step = message.point_step * message.width
+        if map_points_xy.size == 0:
+            message.data = b""
+        else:
+            cloud = np.zeros(
+                (map_points_xy.shape[0],),
+                dtype=[("x", np.float32), ("y", np.float32), ("z", np.float32)],
+            )
+            cloud["x"] = map_points_xy[:, 0].astype(np.float32)
+            cloud["y"] = map_points_xy[:, 1].astype(np.float32)
+            cloud["z"] = 0.0
+            message.data = cloud.tobytes()
+        return message
 
     def _publish_status(self) -> None:
         snapshot = self._fusion.status_snapshot()

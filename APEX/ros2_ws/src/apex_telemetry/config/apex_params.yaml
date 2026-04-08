@@ -20,6 +20,9 @@ nano_accel_serial_node:
     allow_legacy_3axis_lines: false
     log_every_n_invalid: 25
     log_every_n_no_gyro: 100
+    max_abs_accel_mps2: 30.0
+    max_abs_gyro_rps: 15.0
+    max_accel_norm_mps2: 30.0
 
 kinematics_estimator_node:
   ros__parameters:
@@ -112,6 +115,9 @@ imu_lidar_planar_fusion_node:
     scan_topic: "/lidar/scan_localization"
     odom_topic: "/apex/odometry/imu_lidar_fused"
     path_topic: "/apex/estimation/path"
+    pose_topic: "/apex/estimation/current_pose"
+    live_map_topic: "/apex/estimation/live_map_points"
+    full_map_topic: "/apex/estimation/full_map_points"
     status_topic: "/apex/estimation/status"
     odom_frame_id: "odom_imu_lidar_fused"
     child_frame_id: "base_link"
@@ -121,6 +127,11 @@ imu_lidar_planar_fusion_node:
     predicted_odom_rate_hz: 30.0
     max_prediction_horizon_s: 0.22
     path_max_poses: 4000
+    live_map_publish_rate_hz: 1.0
+    live_map_window_scans: 120
+    live_map_max_points: 6000
+    full_map_publish_rate_hz: 0.5
+    full_map_max_points: 30000
     median_window: 5
     ema_alpha: 0.25
     static_window_s: 0.4
@@ -233,8 +244,17 @@ recognition_tour_planner_node:
     path_smoothing_max_iterations: 140
     path_min_forward_progress_m: 1.45
     min_publish_forward_span_m: 0.65
+    route_suffix_min_progress_m: 0.28
+    route_suffix_min_start_x_m: 0.16
+    route_suffix_target_forward_span_m: 1.45
+    route_heading_soft_reject_deg: 18.0
+    route_heading_soft_margin_deg: 10.0
     straight_entry_hold_length_m: 0.40
     replan_path_blend_alpha: 0.60
+    publish_path_persistence_alpha: 0.48
+    publish_path_continuation_alpha: 0.30
+    publish_path_heading_bias_deg: 12.0
+    publish_path_lateral_blend_gain: 0.16
     previous_path_tail_extension_m: 0.40
     previous_path_tail_graft_min_span_m: 0.95
     corridor_bin_m: 0.10
@@ -283,11 +303,11 @@ recognition_tour_tracker_node:
     lookahead_curvature_window_points: 10
     sharp_turn_speed_boost_start_deg: 24.0
     sharp_turn_speed_boost_full_deg: 38.0
-    sharp_turn_speed_boost_min_speed_mps: 0.12
+    sharp_turn_speed_boost_min_speed_mps: 0.07
     min_linear_speed_mps: 0.08
     max_linear_speed_mps: 0.24
     curvature_speed_gain: 1.10
-    max_lateral_accel_mps2: 0.08
+    max_lateral_accel_mps2: 0.06
     path_end_slowdown_distance_m: 0.60
     path_end_goal_tolerance_m: 0.18
     path_end_yaw_tolerance_rad: 0.45
@@ -310,8 +330,15 @@ recognition_tour_tracker_node:
     path_refresh_min_forward_speed_mps: 0.06
     steering_saturation_start_ratio: 0.85
     steering_saturation_speed_scale_min: 0.60
+    short_horizon_forward_span_m: 1.25
+    short_horizon_speed_scale_min: 0.60
+    continuation_lookahead_scale_min: 0.76
+    continuation_speed_scale_min: 0.65
+    route_alignment_slowdown_start_deg: 12.0
+    route_alignment_slowdown_full_deg: 26.0
+    route_alignment_speed_scale_min: 0.55
     global_timeout_s: 60.0
-    odom_timeout_s: 0.5
+    odom_timeout_s: 0.75
 
 cmd_vel_to_apex_actuation_node:
   ros__parameters:
@@ -340,6 +367,7 @@ cmd_vel_to_apex_actuation_node:
     steering_dc_max: 8.6
     steering_center_trim_dc: 1.4
     steering_direction_sign: -1.0
+    steering_min_authority_ratio: 0.90
     motor_channel: 0
     motor_frequency_hz: 50.0
     motor_dc_min: 5.0

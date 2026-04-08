@@ -56,6 +56,9 @@ class NanoAccelSerialNode(Node):
         self.declare_parameter("allow_legacy_3axis_lines", False)
         self.declare_parameter("log_every_n_invalid", 25)
         self.declare_parameter("log_every_n_no_gyro", 100)
+        self.declare_parameter("max_abs_accel_mps2", 30.0)
+        self.declare_parameter("max_abs_gyro_rps", 15.0)
+        self.declare_parameter("max_accel_norm_mps2", 30.0)
 
         self._serial_port = str(self.get_parameter("serial_port").value)
         self._baudrate = int(self.get_parameter("baudrate").value)
@@ -81,6 +84,16 @@ class NanoAccelSerialNode(Node):
         self._publish_imu_topic = bool(self.get_parameter("publish_imu_topic").value)
         self._allow_legacy_3axis_lines = bool(
             self.get_parameter("allow_legacy_3axis_lines").value
+        )
+        self._max_abs_accel_mps2 = max(
+            1.0, float(self.get_parameter("max_abs_accel_mps2").value)
+        )
+        self._max_abs_gyro_rps = max(
+            0.1, float(self.get_parameter("max_abs_gyro_rps").value)
+        )
+        self._max_accel_norm_mps2 = max(
+            self._max_abs_accel_mps2,
+            float(self.get_parameter("max_accel_norm_mps2").value),
         )
 
         self._accel_pub = self.create_publisher(
@@ -235,6 +248,26 @@ class NanoAccelSerialNode(Node):
             return (ax, ay, az, 0.0, 0.0, 0.0, False)
         except ValueError:
             return None
+
+    def _sample_is_physically_plausible(
+        self,
+        ax: float,
+        ay: float,
+        az: float,
+        gx: float,
+        gy: float,
+        gz: float,
+        has_gyro: bool,
+    ) -> bool:
+        accel = (ax, ay, az)
+        if any(abs(value) > self._max_abs_accel_mps2 for value in accel):
+            return False
+        accel_norm = math.sqrt((ax * ax) + (ay * ay) + (az * az))
+        if accel_norm > self._max_accel_norm_mps2:
+            return False
+        if has_gyro and any(abs(value) > self._max_abs_gyro_rps for value in (gx, gy, gz)):
+            return False
+        return True
 
     def _publish_sample(
         self,
@@ -408,6 +441,27 @@ class NanoAccelSerialNode(Node):
                         continue
 
                     ax, ay, az, gx, gy, gz, has_gyro = parsed
+                    if not self._sample_is_physically_plausible(ax, ay, az, gx, gy, gz, has_gyro):
+                        invalid_since_connect += 1
+                        self._invalid_counter += 1
+                        if self._invalid_counter % self._log_every_n_invalid == 0:
+                            self.get_logger().warning(
+                                (
+                                    "Skipping implausible IMU sample on profile=%s: "
+                                    "accel=(%.3f, %.3f, %.3f) gyro=(%.3f, %.3f, %.3f)"
+                                )
+                                % (profile.name, ax, ay, az, gx, gy, gz)
+                            )
+                        if (
+                            invalid_since_connect >= self._log_every_n_invalid
+                            and (time.monotonic() - connect_t) >= self._no_data_reconnect_s
+                            and valid_samples == 0
+                        ):
+                            raise RuntimeError(
+                                "Only implausible serial IMU samples seen for %.2fs on profile=%s; reconnecting"
+                                % (time.monotonic() - connect_t, profile.name)
+                            )
+                        continue
                     invalid_since_connect = 0
                     valid_samples += 1
                     last_no_data_log_t = time.monotonic()

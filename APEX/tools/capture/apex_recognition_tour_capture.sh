@@ -98,6 +98,7 @@ cd "${APEX_ROOT}"
 export PATH="${HOME}/local/bin:${PATH}"
 echo "[APEX] recognition_tour bridge config: min=${BRIDGE_MIN_SPEED_PCT}% max=${BRIDGE_MAX_SPEED_PCT}% launch_boost=${BRIDGE_LAUNCH_BOOST_SPEED_PCT}% hold=${BRIDGE_LAUNCH_BOOST_HOLD_S}s startup_compat=${APEX_STARTUP_COMPAT:-safe}"
 echo "[APEX] recognition_tour startup config: serial_warmup=${APEX_SERIAL_WARMUP_S:-2.0}s lidar_settle=${APEX_LIDAR_STARTUP_SETTLE_S:-6.0}s node_stagger=${APEX_NODE_STARTUP_STAGGER_S:-0.8}s postcheck_ready=${APEX_RAW_POSTCHECK_READY_DELAY_S:-8}s"
+echo "[APEX] recognition_tour capture config: run_id=${CAPTURE_NAME} timeout=${RUN_TIMEOUT_S}s output=${HOST_RUN_DIR}"
 if [[ "${PRINT_CONFIG_ONLY}" == "1" ]]; then
   exit 0
 fi

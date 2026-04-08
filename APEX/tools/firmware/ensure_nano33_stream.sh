@@ -15,6 +15,9 @@ PASSIVE_HEAD_LINES="${APEX_NANO_PASSIVE_HEAD_LINES:-20}"
 POST_FLASH_RECOVERY_S="${APEX_NANO_POST_FLASH_RECOVERY_S:-8.0}"
 AUTOFLASH="${APEX_NANO_AUTOFLASH:-1}"
 UPLOAD_SCRIPT="${APEX_ROOT}/tools/firmware/upload_nano33_iot.sh"
+MAX_ABS_ACCEL_MPS2="${APEX_NANO_MAX_ABS_ACCEL_MPS2:-30.0}"
+MAX_ABS_GYRO_RPS="${APEX_NANO_MAX_ABS_GYRO_RPS:-15.0}"
+MAX_ACCEL_NORM_MPS2="${APEX_NANO_MAX_ACCEL_NORM_MPS2:-30.0}"
 
 usage() {
   cat <<'EOF'
@@ -94,6 +97,35 @@ persist_runtime_attach_profile() {
     "false"
 }
 
+sample_is_plausible() {
+  local sample="${1:-}"
+  python3 - "${sample}" "${MAX_ABS_ACCEL_MPS2}" "${MAX_ABS_GYRO_RPS}" "${MAX_ACCEL_NORM_MPS2}" <<'PY'
+import math
+import sys
+
+sample = sys.argv[1].strip()
+max_abs_accel = float(sys.argv[2])
+max_abs_gyro = float(sys.argv[3])
+max_accel_norm = float(sys.argv[4])
+parts = [part.strip() for part in sample.split(",")]
+if len(parts) != 6:
+    raise SystemExit(1)
+try:
+    ax, ay, az, gx, gy, gz = [float(part) for part in parts]
+except ValueError:
+    raise SystemExit(1)
+if not all(math.isfinite(v) for v in (ax, ay, az, gx, gy, gz)):
+    raise SystemExit(1)
+if any(abs(v) > max_abs_accel for v in (ax, ay, az)):
+    raise SystemExit(1)
+if math.sqrt((ax * ax) + (ay * ay) + (az * az)) > max_accel_norm:
+    raise SystemExit(1)
+if any(abs(v) > max_abs_gyro for v in (gx, gy, gz)):
+    raise SystemExit(1)
+raise SystemExit(0)
+PY
+}
+
 check_stream_pyserial() {
   local toggle_dtr="${1}"
   local settle_s="${2}"
@@ -156,6 +188,10 @@ PY
   set -e
 
   [[ -n "${sample}" ]] || return 1
+  if ! sample_is_plausible "${sample}"; then
+    echo "[APEX][WARN] Ignoring implausible Nano IMU sample on ${PORT}: ${sample}" >&2
+    return 1
+  fi
   if [[ "${toggle_dtr}" == "1" ]]; then
     persist_runtime_attach_profile "dtr_probe"
   else
@@ -187,6 +223,10 @@ check_stream_passive_cat() {
   set -e
 
   [[ -n "${sample}" ]] || return 1
+  if ! sample_is_plausible "${sample}"; then
+    echo "[APEX][WARN] Ignoring implausible Nano IMU sample on ${PORT}: ${sample}" >&2
+    return 1
+  fi
   persist_runtime_attach_profile "passive_cat_probe"
   echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
   return 0
@@ -215,6 +255,10 @@ check_stream_passive_head() {
   set -e
 
   [[ -n "${sample}" ]] || return 1
+  if ! sample_is_plausible "${sample}"; then
+    echo "[APEX][WARN] Ignoring implausible Nano IMU sample on ${PORT}: ${sample}" >&2
+    return 1
+  fi
   persist_runtime_attach_profile "passive_head_probe"
   echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
   return 0

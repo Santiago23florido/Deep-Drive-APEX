@@ -45,6 +45,7 @@ class CmdVelToApexActuationNode(Node):
         self.declare_parameter("steering_dc_max", 8.6)
         self.declare_parameter("steering_center_trim_dc", 1.4)
         self.declare_parameter("steering_direction_sign", -1.0)
+        self.declare_parameter("steering_min_authority_ratio", 0.90)
 
         self.declare_parameter("motor_channel", 0)
         self.declare_parameter("motor_frequency_hz", 50.0)
@@ -112,6 +113,7 @@ class CmdVelToApexActuationNode(Node):
             dc_max=float(self.get_parameter("steering_dc_max").value),
             center_trim_dc=float(self.get_parameter("steering_center_trim_dc").value),
             direction_sign=float(self.get_parameter("steering_direction_sign").value),
+            min_authority_ratio=float(self.get_parameter("steering_min_authority_ratio").value),
             logger=self.get_logger(),
         )
         self._steering.center()
@@ -325,7 +327,7 @@ class CmdVelToApexActuationNode(Node):
         self._steering.set_angle_deg(requested_steering_deg)
         steering_state = self._steering.get_state()
         applied_steering_deg = float(
-            steering_state.get("clamped_deg", requested_steering_deg)
+            steering_state.get("applied_deg", requested_steering_deg)
         )
         self._motor.set_speed_pct(applied_speed_pct)
         self._last_desired_steering_deg = desired_steering_deg
