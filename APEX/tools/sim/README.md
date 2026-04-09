@@ -118,6 +118,25 @@ y publica el mapa final en:
 - `/apex/sim/offline_map_path`
 - `/apex/sim/offline_map_status`
 
+Mapping manual ideal en WSL con puente de mando desde Windows:
+
+```bash
+source /opt/ros/$ROS_DISTRO/setup.bash
+cd /home/santiago/AiAtonomousRc/APEX/ros2_ws && colcon build --symlink-install --packages-select apex_telemetry
+cd /home/santiago/AiAtonomousRc && colcon build --symlink-install --packages-select rc_sim_description --allow-overriding rc_sim_description
+source /home/santiago/AiAtonomousRc/APEX/ros2_ws/install/setup.bash
+source /home/santiago/AiAtonomousRc/install/setup.bash
+export APEX_REPO_ROOT=/home/santiago/AiAtonomousRc
+ros2 launch rc_sim_description apex_sim.launch.py control_mode:=manual_windows_bridge use_slam:=true mapping_mode:=ideal rviz:=true
+```
+
+Notas:
+
+- En este modo `slam_toolbox` usa el `LaserScan` ideal de Gazebo en `/apex/sim/scan`.
+- La odometria ideal para SLAM sale de `/apex/sim/ground_truth/odom` y se adapta a la cadena `odom -> base_link`.
+- Usa `control_mode:=manual_windows_bridge` cuando el mando entra por `APEX/tools/windows/dist/apex_xbox_bridge.exe` y llega a WSL por el puente de Windows.
+- Usa `control_mode:=manual_xbox` solo si Linux/WSL ve el joystick directamente por `pygame`.
+
 Escenarios disponibles:
 
 - `baseline`

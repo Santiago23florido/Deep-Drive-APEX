@@ -30,6 +30,7 @@ install(
   PROGRAMS
     scripts/apex_gz_vehicle_bridge.py
     scripts/apex_ground_truth_node.py
+    scripts/apex_ground_truth_tf_bridge.py
     scripts/apex_refined_sensorfusion_map_node.py
     scripts/apex_xbox_manual_teleop_node.py
     scripts/apex_windows_gamepad_bridge_node.py

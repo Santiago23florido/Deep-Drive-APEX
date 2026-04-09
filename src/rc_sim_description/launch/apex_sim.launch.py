@@ -65,6 +65,23 @@ def _prepare_launch(context, *args, **kwargs):
         LaunchConfiguration("use_slam").perform(context).strip().lower()
         in {"1", "true", "yes", "on"}
     )
+    mapping_mode = (
+        LaunchConfiguration("mapping_mode").perform(context).strip().lower()
+        or "current"
+    )
+    use_ideal_pose_for_slam = (
+        LaunchConfiguration("use_ideal_pose_for_slam").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    use_ideal_lidar_for_slam = (
+        LaunchConfiguration("use_ideal_lidar_for_slam").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    if mapping_mode not in {"current", "ideal"}:
+        mapping_mode = "current"
+    ideal_mapping_mode = mapping_mode == "ideal"
+    slam_uses_ideal_pose = ideal_mapping_mode or use_ideal_pose_for_slam
+    slam_uses_ideal_lidar = ideal_mapping_mode or use_ideal_lidar_for_slam
     control_mode = (
         LaunchConfiguration("control_mode").perform(context).strip().lower()
         or "recognition_tour"
@@ -85,6 +102,12 @@ def _prepare_launch(context, *args, **kwargs):
             default_rviz_name = "apex_fixed_map_live.rviz"
         elif use_refined_visual_map:
             default_rviz_name = "apex_recognition_refined_map_live.rviz"
+        elif (
+            control_mode in {"manual_xbox", "manual_windows_bridge"}
+            and use_slam
+            and ideal_mapping_mode
+        ):
+            default_rviz_name = "apex_recognition_slam_live.rviz"
         elif control_mode in {"manual_xbox", "manual_windows_bridge"}:
             default_rviz_name = "apex_manual_mapping_live.rviz"
         else:
@@ -158,14 +181,35 @@ def _prepare_launch(context, *args, **kwargs):
             },
         )
 
+    selected_slam_params_file = (
+        (rc_share / "config" / "slam_toolbox_sim_ideal.yaml").resolve()
+        if ideal_mapping_mode
+        else slam_params_file
+    )
     try:
-        base_slam_params = yaml.safe_load(slam_params_file.read_text(encoding="utf-8")) or {}
+        base_slam_params = yaml.safe_load(
+            selected_slam_params_file.read_text(encoding="utf-8")
+        ) or {}
     except Exception:
         base_slam_params = {}
     slam_params_overrides = scenario.get("slam_params_overrides", {})
     if not isinstance(slam_params_overrides, dict):
         slam_params_overrides = {}
     merged_slam_params = _deep_merge(base_slam_params, slam_params_overrides)
+    ideal_slam_overrides: dict[str, Any] = {"slam_toolbox": {"ros__parameters": {}}}
+    ideal_slam_ros_params = ideal_slam_overrides["slam_toolbox"]["ros__parameters"]
+    # In ideal mapping mode slam_toolbox consumes Gazebo's perfect scan directly
+    # instead of the degraded LiDAR topics published by the telemetry pipeline.
+    if slam_uses_ideal_lidar:
+        ideal_slam_ros_params["scan_topic"] = "/apex/sim/scan"
+    # slam_toolbox tracks motion through TF, so the ideal Gazebo ground truth is
+    # bridged into the standard odom -> base_link frames for this first mapping stage.
+    if slam_uses_ideal_pose:
+        ideal_slam_ros_params["map_frame"] = "map"
+        ideal_slam_ros_params["odom_frame"] = "odom"
+        ideal_slam_ros_params["base_frame"] = "base_link"
+    if ideal_slam_ros_params:
+        merged_slam_params = _deep_merge(merged_slam_params, ideal_slam_overrides)
 
     temp_dir = Path(tempfile.gettempdir()) / "apex_sim"
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -208,6 +252,11 @@ def _prepare_launch(context, *args, **kwargs):
 
     gz_resource_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
     resource_value = f"{rc_share}:{gz_resource_path}" if gz_resource_path else str(rc_share)
+    pythonpath_parts = ["/usr/lib/python3/dist-packages"]
+    existing_pythonpath = os.environ.get("PYTHONPATH", "").strip()
+    if existing_pythonpath:
+        pythonpath_parts.append(existing_pythonpath)
+    pythonpath_value = ":".join(pythonpath_parts)
 
     vehicle_bridge_params = scenario.get("vehicle_bridge", {})
     if not isinstance(vehicle_bridge_params, dict):
@@ -287,6 +336,7 @@ def _prepare_launch(context, *args, **kwargs):
         name="apex_gz_vehicle_bridge",
         output="screen",
         parameters=[vehicle_bridge_params],
+        additional_env={"PYTHONPATH": pythonpath_value},
     )
 
     ground_truth = Node(
@@ -295,6 +345,38 @@ def _prepare_launch(context, *args, **kwargs):
         name="apex_ground_truth_node",
         output="screen",
         parameters=[ground_truth_params],
+        additional_env={"PYTHONPATH": pythonpath_value},
+    )
+    ground_truth_tf_bridge = Node(
+        package="rc_sim_description",
+        executable="apex_ground_truth_tf_bridge.py",
+        name="apex_ground_truth_tf_bridge",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": True,
+                "source_odom_topic": "/apex/sim/ground_truth/odom",
+                "ideal_odom_topic": "/apex/sim/ideal_odom",
+                "odom_frame_id": "odom",
+                "child_frame_id": "base_link",
+            }
+        ],
+    )
+    ideal_lidar_frame_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="apex_sim_ideal_lidar_frame_tf",
+        output="screen",
+        arguments=[
+            "0.18",
+            "0.0",
+            "0.12",
+            "0.0",
+            "0.0",
+            "0.0",
+            "base_link",
+            "rc_car/base_link/lidar",
+        ],
     )
 
     fixed_map_publisher = None
@@ -379,7 +461,13 @@ def _prepare_launch(context, *args, **kwargs):
             "actuation_backend": "sim_pwm_topic",
             "sim_motor_pwm_topic": "/apex/sim/pwm/motor_dc",
             "sim_steering_pwm_topic": "/apex/sim/pwm/steering_dc",
-            "enable_imu_lidar_fusion": "true",
+            # Ideal mapping keeps the actuation bridge but disables the degraded
+            # IMU/LiDAR estimation chain so slam_toolbox uses Gazebo ground truth.
+            "enable_imu_source": "false" if ideal_mapping_mode else "true",
+            "enable_lidar_source": "false" if ideal_mapping_mode else "true",
+            "enable_kinematics_estimator": "false" if ideal_mapping_mode else "true",
+            "enable_kinematics_odometry": "false" if ideal_mapping_mode else "true",
+            "enable_imu_lidar_fusion": "false" if ideal_mapping_mode else "true",
             "enable_curve_entry_planner": "false",
             "enable_path_tracker": "false",
             "enable_recognition_tour_planner": "true" if enable_recognition_tour else "false",
@@ -416,11 +504,14 @@ def _prepare_launch(context, *args, **kwargs):
         sim_bridges,
         TimerAction(period=2.0, actions=[spawn_rc]),
         TimerAction(period=2.5, actions=[vehicle_bridge, ground_truth]),
+        TimerAction(period=2.8, actions=[ground_truth_tf_bridge]) if slam_uses_ideal_pose else None,
+        TimerAction(period=2.9, actions=[ideal_lidar_frame_tf]) if slam_uses_ideal_lidar else None,
         TimerAction(period=3.0, actions=[apex_pipeline]),
         TimerAction(period=3.8, actions=[refined_visual_map]),
         TimerAction(period=4.0, actions=[slam_toolbox]),
         TimerAction(period=4.5, actions=[rviz_node]),
     ]
+    actions = [action for action in actions if action is not None]
     if fixed_map_publisher is not None:
         actions.append(TimerAction(period=3.9, actions=[fixed_map_publisher]))
     if control_mode == "manual_xbox":
@@ -450,6 +541,9 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("use_refined_visual_map", default_value="false"),
             DeclareLaunchArgument("fixed_map_run", default_value=""),
             DeclareLaunchArgument("control_mode", default_value="recognition_tour"),
+            DeclareLaunchArgument("mapping_mode", default_value="current"),
+            DeclareLaunchArgument("use_ideal_pose_for_slam", default_value="false"),
+            DeclareLaunchArgument("use_ideal_lidar_for_slam", default_value="false"),
             DeclareLaunchArgument("slam_params_file", default_value=default_slam_params_file),
             DeclareLaunchArgument("x", default_value=""),
             DeclareLaunchArgument("y", default_value=""),

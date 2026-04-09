@@ -14,6 +14,10 @@ def generate_launch_description() -> LaunchDescription:
     lidar_port = LaunchConfiguration("lidar_port")
     lidar_baudrate = LaunchConfiguration("lidar_baudrate")
     enable_laser_tf = LaunchConfiguration("enable_laser_tf")
+    enable_imu_source = LaunchConfiguration("enable_imu_source")
+    enable_lidar_source = LaunchConfiguration("enable_lidar_source")
+    enable_kinematics_estimator = LaunchConfiguration("enable_kinematics_estimator")
+    enable_kinematics_odometry = LaunchConfiguration("enable_kinematics_odometry")
     imu_transport_backend = LaunchConfiguration("imu_transport_backend")
     sim_imu_topic = LaunchConfiguration("sim_imu_topic")
     lidar_source_backend = LaunchConfiguration("lidar_source_backend")
@@ -43,6 +47,7 @@ def generate_launch_description() -> LaunchDescription:
                 "sim_imu_topic": sim_imu_topic,
             },
         ],
+        condition=IfCondition(enable_imu_source),
     )
 
     kinematics_estimator = Node(
@@ -51,6 +56,7 @@ def generate_launch_description() -> LaunchDescription:
         name="kinematics_estimator_node",
         output="screen",
         parameters=[params_file, {"use_sim_time": use_sim_time}],
+        condition=IfCondition(enable_kinematics_estimator),
     )
 
     kinematics_odometry = Node(
@@ -59,6 +65,7 @@ def generate_launch_description() -> LaunchDescription:
         name="kinematics_odometry_node",
         output="screen",
         parameters=[params_file, {"use_sim_time": use_sim_time}],
+        condition=IfCondition(enable_kinematics_odometry),
     )
 
     lidar_node = Node(
@@ -76,6 +83,7 @@ def generate_launch_description() -> LaunchDescription:
                 "sim_scan_topic": sim_scan_topic,
             },
         ],
+        condition=IfCondition(enable_lidar_source),
     )
 
     laser_tf_node = Node(
@@ -163,6 +171,10 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("lidar_port", default_value="/dev/ttyUSB0"),
             DeclareLaunchArgument("lidar_baudrate", default_value="115200"),
             DeclareLaunchArgument("enable_laser_tf", default_value="true"),
+            DeclareLaunchArgument("enable_imu_source", default_value="true"),
+            DeclareLaunchArgument("enable_lidar_source", default_value="true"),
+            DeclareLaunchArgument("enable_kinematics_estimator", default_value="true"),
+            DeclareLaunchArgument("enable_kinematics_odometry", default_value="true"),
             DeclareLaunchArgument("imu_transport_backend", default_value="serial"),
             DeclareLaunchArgument("sim_imu_topic", default_value="/apex/sim/imu"),
             DeclareLaunchArgument("lidar_source_backend", default_value="rplidar"),
