@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, TimerAction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, LogInfo, OpaqueFunction, SetEnvironmentVariable, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
@@ -207,7 +207,7 @@ def _prepare_launch(context, *args, **kwargs):
     # In ideal mapping mode slam_toolbox consumes Gazebo's perfect scan directly
     # instead of the degraded LiDAR topics published by the telemetry pipeline.
     if slam_uses_ideal_lidar:
-        ideal_slam_ros_params["scan_topic"] = "/apex/sim/scan"
+        ideal_slam_ros_params["scan_topic"] = "/apex/sim/scan_ideal"
     # slam_toolbox tracks motion through TF, so the ideal Gazebo ground truth is
     # bridged into the standard odom -> base_link frames for this first mapping stage.
     if slam_uses_ideal_pose:
@@ -372,20 +372,18 @@ def _prepare_launch(context, *args, **kwargs):
             }
         ],
     )
-    ideal_lidar_frame_tf = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="apex_sim_ideal_lidar_frame_tf",
+    ideal_scan_frame_adapter = Node(
+        package="rc_sim_description",
+        executable="apex_scan_frame_adapter.py",
+        name="apex_scan_frame_adapter",
         output="screen",
-        arguments=[
-            "0.18",
-            "0.0",
-            "0.12",
-            "0.0",
-            "0.0",
-            "0.0",
-            "base_link",
-            "rc_car/base_link/lidar",
+        parameters=[
+            {
+                "use_sim_time": True,
+                "source_scan_topic": "/apex/sim/scan",
+                "target_scan_topic": "/apex/sim/scan_ideal",
+                "target_frame_id": "laser",
+            }
         ],
     )
 
@@ -552,16 +550,40 @@ def _prepare_launch(context, *args, **kwargs):
         output="screen",
         condition=IfCondition(LaunchConfiguration("rviz")),
     )
+    ideal_mode_logs = [
+        LogInfo(
+            msg=(
+                "[apex_sim] mapping_mode=ideal uses slam params file: "
+                f"{selected_slam_params_file}"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] mapping_mode=ideal normalizes Gazebo scan "
+                "/apex/sim/scan -> /apex/sim/scan_ideal with frame 'laser'; "
+                "if Gazebo still publishes another scan frame, the adapter applies "
+                "TF-based yaw correction before slam_toolbox. No manual lidar "
+                "static TF is launched."
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] mapping_mode=ideal bypasses the old APEX SLAM pipeline and "
+                "uses apex_ground_truth_tf_bridge.py for odom -> base_link."
+            )
+        ),
+    ]
 
     actions = [
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_value),
+        *(ideal_mode_logs if ideal_mapping_mode else []),
         gz_sim,
         robot_state_publisher,
         sim_bridges,
         TimerAction(period=2.0, actions=[spawn_rc]),
         TimerAction(period=2.5, actions=[vehicle_bridge, ground_truth]),
+        TimerAction(period=2.7, actions=[ideal_scan_frame_adapter]) if ideal_mapping_mode else None,
         TimerAction(period=2.8, actions=[ground_truth_tf_bridge]) if slam_uses_ideal_pose else None,
-        TimerAction(period=2.9, actions=[ideal_lidar_frame_tf]) if slam_uses_ideal_lidar else None,
         TimerAction(period=3.0, actions=[ideal_cmd_vel_bridge]) if ideal_mapping_mode else None,
         TimerAction(period=3.0, actions=[apex_pipeline]) if apex_pipeline is not None else None,
         TimerAction(period=3.8, actions=[refined_visual_map]) if refined_visual_map is not None else None,

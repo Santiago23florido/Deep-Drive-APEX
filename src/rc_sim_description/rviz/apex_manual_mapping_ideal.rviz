@@ -48,7 +48,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /apex/sim/scan
+        Value: /apex/sim/scan_ideal
       Use Fixed Frame: true
       Value: true
     - Class: rviz_default_plugins/TF
@@ -76,7 +76,7 @@ Visualization Manager:
       Value: true
     - Angle Tolerance: 0.1
       Class: rviz_default_plugins/Odometry
-      Enabled: true
+      Enabled: false
       Keep: 100
       Name: Ideal Odom
       Position Tolerance: 0.1
@@ -127,17 +127,14 @@ Visualization Manager:
         Value: /clicked_point
   Views:
     Current:
-      Class: rviz_default_plugins/Orbit
-      Distance: 9
-      Focal Point:
-        X: 0
-        Y: 0
-        Z: 0
-      Name: Orbit
-      Pitch: 1.1
-      Target Frame: base_link
-      Value: Orbit (rviz)
-      Yaw: 0.8
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: TopDownOrtho
+      Near Clip Distance: 0.00999999978
+      Scale: 18
+      Target Frame: map
+      Value: TopDownOrtho (rviz)
+      X: 0
+      Y: 0
 Window Geometry:
   Displays:
     collapsed: false

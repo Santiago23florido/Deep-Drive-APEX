@@ -213,6 +213,11 @@
       <update_rate>12</update_rate>
       <visualize>true</visualize>
       <topic>/apex/sim/scan</topic>
+      <!-- Gazebo modern uses gz_frame_id for sensor messages. Keep the ideal
+           scan anchored to the URDF laser link so slam_toolbox can use the
+           existing base_link -> laser TF from robot_state_publisher instead of
+           a hand-written sensor TF. -->
+      <gz_frame_id>laser</gz_frame_id>
       <lidar>
         <scan>
           <horizontal>

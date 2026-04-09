@@ -4,11 +4,15 @@ slam_toolbox:
     mode: mapping
     map_frame: map
     odom_frame: odom
+    # The ideal mode keeps base_link as the robot frame and relies on the
+    # URDF-published base_link -> laser TF for the scan geometry.
     base_frame: base_link
     # The ideal stage bypasses the degraded LiDAR pipeline and maps directly
     # from Gazebo's perfect LaserScan topic.
-    scan_topic: /apex/sim/scan
+    scan_topic: /apex/sim/scan_ideal
 
+    # Keep the async mapper queue short while validating the ideal geometry.
+    scan_queue_size: 1
     throttle_scans: 1
     transform_publish_period: 0.05
     map_update_interval: 0.5
@@ -29,4 +33,6 @@ slam_toolbox:
     link_match_minimum_response_fine: 0.12
     link_scan_maximum_distance: 1.5
     loop_search_maximum_distance: 3.0
-    do_loop_closing: true
+    # Disable loop closure temporarily while diagnosing the ideal scan / TF
+    # geometry so curve distortion comes only from the live odom + scan chain.
+    do_loop_closing: false
