@@ -12,7 +12,7 @@ find_package(ament_cmake REQUIRED)
 # find_package(<dependency> REQUIRED)
 
 install(
-  DIRECTORY launch urdf worlds config meshes
+  DIRECTORY launch urdf worlds config meshes rviz
   DESTINATION share/${PROJECT_NAME}
   FILES_MATCHING
     PATTERN "*.launch.py"
@@ -29,6 +29,7 @@ install(
 install(
   PROGRAMS
     scripts/apex_gz_vehicle_bridge.py
+    scripts/apex_cmd_vel_to_sim_pwm_node.py
     scripts/apex_ground_truth_node.py
     scripts/apex_ground_truth_tf_bridge.py
     scripts/apex_refined_sensorfusion_map_node.py

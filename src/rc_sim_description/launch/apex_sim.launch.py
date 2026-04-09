@@ -46,6 +46,16 @@ def _load_scenario(config_path: str, scenario_name: str) -> dict[str, Any]:
     return _deep_merge(defaults, scenario)
 
 
+def _node_ros_parameters(all_params: dict[str, Any], node_name: str) -> dict[str, Any]:
+    node_entry = all_params.get(node_name, {})
+    if not isinstance(node_entry, dict):
+        return {}
+    ros_params = node_entry.get("ros__parameters", {})
+    if not isinstance(ros_params, dict):
+        return {}
+    return dict(ros_params)
+
+
 def _prepare_launch(context, *args, **kwargs):
     del args, kwargs
     rc_share = Path(get_package_share_directory("rc_sim_description"))
@@ -97,17 +107,13 @@ def _prepare_launch(context, *args, **kwargs):
     rviz_config_value = LaunchConfiguration("rviz_config").perform(context).strip()
     if rviz_config_value:
         rviz_config = Path(rviz_config_value).expanduser().resolve()
+    elif ideal_mapping_mode:
+        rviz_config = (rc_share / "rviz" / "apex_manual_mapping_ideal.rviz").resolve()
     else:
         if fixed_map_run_dir is not None:
             default_rviz_name = "apex_fixed_map_live.rviz"
         elif use_refined_visual_map:
             default_rviz_name = "apex_recognition_refined_map_live.rviz"
-        elif (
-            control_mode in {"manual_xbox", "manual_windows_bridge"}
-            and use_slam
-            and ideal_mapping_mode
-        ):
-            default_rviz_name = "apex_recognition_slam_live.rviz"
         elif control_mode in {"manual_xbox", "manual_windows_bridge"}:
             default_rviz_name = "apex_manual_mapping_live.rviz"
         else:
@@ -164,7 +170,7 @@ def _prepare_launch(context, *args, **kwargs):
                 }
             },
         )
-    if use_slam:
+    if use_slam and not ideal_mapping_mode:
         merged_params = _deep_merge(
             merged_params,
             {
@@ -192,7 +198,7 @@ def _prepare_launch(context, *args, **kwargs):
         ) or {}
     except Exception:
         base_slam_params = {}
-    slam_params_overrides = scenario.get("slam_params_overrides", {})
+    slam_params_overrides = {} if ideal_mapping_mode else scenario.get("slam_params_overrides", {})
     if not isinstance(slam_params_overrides, dict):
         slam_params_overrides = {}
     merged_slam_params = _deep_merge(base_slam_params, slam_params_overrides)
@@ -282,6 +288,10 @@ def _prepare_launch(context, *args, **kwargs):
     ground_truth_params.setdefault("world_name", "default")
     ground_truth_params.setdefault("model_name", "rc_car")
     ground_truth_params.setdefault("world_path", world_path)
+    cmd_vel_bridge_ros_params = _node_ros_parameters(
+        merged_params,
+        "cmd_vel_to_apex_actuation_node",
+    )
 
     robot_description = ParameterValue(Command(["xacro ", robot_xacro]), value_type=str)
     gz_sim = ExecuteProcess(
@@ -403,21 +413,23 @@ def _prepare_launch(context, *args, **kwargs):
             ],
         )
 
-    refined_visual_map = Node(
-        package="rc_sim_description",
-        executable="apex_refined_sensorfusion_map_node.py",
-        name="apex_refined_sensorfusion_map_node",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": True,
-                "reference_script_path": reference_script_path,
-                "scan_topic": "/lidar/scan_localization",
-                "odom_topic": "/apex/odometry/imu_lidar_fused",
-            }
-        ],
-        condition=IfCondition(LaunchConfiguration("use_refined_visual_map")),
-    )
+    refined_visual_map = None
+    if not ideal_mapping_mode:
+        refined_visual_map = Node(
+            package="rc_sim_description",
+            executable="apex_refined_sensorfusion_map_node.py",
+            name="apex_refined_sensorfusion_map_node",
+            output="screen",
+            parameters=[
+                {
+                    "use_sim_time": True,
+                    "reference_script_path": reference_script_path,
+                    "scan_topic": "/lidar/scan_localization",
+                    "odom_topic": "/apex/odometry/imu_lidar_fused",
+                }
+            ],
+            condition=IfCondition(LaunchConfiguration("use_refined_visual_map")),
+        )
 
     manual_teleop = Node(
         package="rc_sim_description",
@@ -445,36 +457,80 @@ def _prepare_launch(context, *args, **kwargs):
             },
         ],
     )
+    ideal_cmd_vel_bridge = Node(
+        package="rc_sim_description",
+        executable="apex_cmd_vel_to_sim_pwm_node.py",
+        name="apex_cmd_vel_to_sim_pwm_node",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": True,
+                "cmd_vel_topic": "/apex/cmd_vel_track",
+                "motor_pwm_topic": "/apex/sim/pwm/motor_dc",
+                "steering_pwm_topic": "/apex/sim/pwm/steering_dc",
+                "wheelbase_m": float(vehicle_bridge_params.get("wheelbase_m", 0.30)),
+                "steering_limit_deg": float(vehicle_bridge_params.get("steering_limit_deg", 18.0)),
+                "steering_left_ratio": float(vehicle_bridge_params.get("steering_left_ratio", 1.0)),
+                "steering_right_ratio": float(vehicle_bridge_params.get("steering_right_ratio", 0.96)),
+                "steering_dc_min": float(vehicle_bridge_params.get("steering_dc_min", 5.0)),
+                "steering_dc_max": float(vehicle_bridge_params.get("steering_dc_max", 8.6)),
+                "steering_center_trim_dc": float(
+                    vehicle_bridge_params.get("steering_center_trim_dc", 1.4)
+                ),
+                "steering_direction_sign": float(
+                    vehicle_bridge_params.get("steering_direction_sign", -1.0)
+                ),
+                "steering_min_authority_ratio": float(
+                    vehicle_bridge_params.get("steering_min_authority_ratio", 0.90)
+                ),
+                # In ideal mapping the car still moves through Gazebo PWM topics,
+                # but the SLAM stack no longer depends on the degraded APEX pipeline.
+                "max_linear_speed_mps": float(
+                    cmd_vel_bridge_ros_params.get(
+                        "max_linear_speed_mps",
+                        vehicle_bridge_params.get("motor_max_forward_speed_mps", 0.60),
+                    )
+                ),
+                "motor_neutral_dc": float(vehicle_bridge_params.get("motor_neutral_dc", 7.5)),
+                "motor_forward_deadband_dc": float(
+                    vehicle_bridge_params.get("motor_forward_deadband_dc", 7.72)
+                ),
+                "motor_forward_top_dc": float(
+                    vehicle_bridge_params.get("motor_forward_top_dc", 8.55)
+                ),
+            }
+        ],
+    )
 
     enable_recognition_tour = control_mode not in {"manual_xbox", "manual_windows_bridge"}
 
-    apex_pipeline = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(pipeline_launch),
-        launch_arguments={
-            "params_file": str(merged_params_path),
-            "use_sim_time": "true",
-            "enable_laser_tf": "false",
-            "imu_transport_backend": "sim_imu",
-            "sim_imu_topic": "/apex/sim/imu",
-            "lidar_source_backend": "sim_scan",
-            "sim_scan_topic": "/apex/sim/scan",
-            "actuation_backend": "sim_pwm_topic",
-            "sim_motor_pwm_topic": "/apex/sim/pwm/motor_dc",
-            "sim_steering_pwm_topic": "/apex/sim/pwm/steering_dc",
-            # Ideal mapping keeps the actuation bridge but disables the degraded
-            # IMU/LiDAR estimation chain so slam_toolbox uses Gazebo ground truth.
-            "enable_imu_source": "false" if ideal_mapping_mode else "true",
-            "enable_lidar_source": "false" if ideal_mapping_mode else "true",
-            "enable_kinematics_estimator": "false" if ideal_mapping_mode else "true",
-            "enable_kinematics_odometry": "false" if ideal_mapping_mode else "true",
-            "enable_imu_lidar_fusion": "false" if ideal_mapping_mode else "true",
-            "enable_curve_entry_planner": "false",
-            "enable_path_tracker": "false",
-            "enable_recognition_tour_planner": "true" if enable_recognition_tour else "false",
-            "enable_recognition_tour_tracker": "true" if enable_recognition_tour else "false",
-            "enable_cmdvel_actuation_bridge": "true",
-        }.items(),
-    )
+    apex_pipeline = None
+    if not ideal_mapping_mode:
+        apex_pipeline = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(pipeline_launch),
+            launch_arguments={
+                "params_file": str(merged_params_path),
+                "use_sim_time": "true",
+                "enable_laser_tf": "false",
+                "imu_transport_backend": "sim_imu",
+                "sim_imu_topic": "/apex/sim/imu",
+                "lidar_source_backend": "sim_scan",
+                "sim_scan_topic": "/apex/sim/scan",
+                "actuation_backend": "sim_pwm_topic",
+                "sim_motor_pwm_topic": "/apex/sim/pwm/motor_dc",
+                "sim_steering_pwm_topic": "/apex/sim/pwm/steering_dc",
+                "enable_imu_lidar_fusion": "true",
+                "enable_curve_entry_planner": "false",
+                "enable_path_tracker": "false",
+                "enable_recognition_tour_planner": (
+                    "true" if enable_recognition_tour else "false"
+                ),
+                "enable_recognition_tour_tracker": (
+                    "true" if enable_recognition_tour else "false"
+                ),
+                "enable_cmdvel_actuation_bridge": "true",
+            }.items(),
+        )
 
     slam_toolbox = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str((slam_share / "launch" / "online_async_launch.py").resolve())),
@@ -506,8 +562,9 @@ def _prepare_launch(context, *args, **kwargs):
         TimerAction(period=2.5, actions=[vehicle_bridge, ground_truth]),
         TimerAction(period=2.8, actions=[ground_truth_tf_bridge]) if slam_uses_ideal_pose else None,
         TimerAction(period=2.9, actions=[ideal_lidar_frame_tf]) if slam_uses_ideal_lidar else None,
-        TimerAction(period=3.0, actions=[apex_pipeline]),
-        TimerAction(period=3.8, actions=[refined_visual_map]),
+        TimerAction(period=3.0, actions=[ideal_cmd_vel_bridge]) if ideal_mapping_mode else None,
+        TimerAction(period=3.0, actions=[apex_pipeline]) if apex_pipeline is not None else None,
+        TimerAction(period=3.8, actions=[refined_visual_map]) if refined_visual_map is not None else None,
         TimerAction(period=4.0, actions=[slam_toolbox]),
         TimerAction(period=4.5, actions=[rviz_node]),
     ]
