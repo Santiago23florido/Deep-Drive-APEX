@@ -16,6 +16,7 @@ from sensor_msgs.msg import Imu, LaserScan, PointCloud2, PointField
 from std_msgs.msg import String
 from tf2_ros import TransformBroadcaster
 
+from .fixed_map_localizer_core import FixedMapParameters, FixedMapPlanarLocalizer
 from .planar_fusion_core import FusionParameters, OnlinePlanarFusion, scan_observation_from_ranges
 
 
@@ -49,6 +50,7 @@ class ImuLidarPlanarFusionNode(Node):
         self.declare_parameter("live_map_max_points", 6000)
         self.declare_parameter("full_map_publish_rate_hz", 0.5)
         self.declare_parameter("full_map_max_points", 30000)
+        self.declare_parameter("estimation_backend", "online_submap")
 
         self.declare_parameter("median_window", 5)
         self.declare_parameter("ema_alpha", 0.25)
@@ -64,6 +66,25 @@ class ImuLidarPlanarFusionNode(Node):
         self.declare_parameter("low_confidence_residual_m", 0.16)
         self.declare_parameter("min_valid_correspondence_count", 14)
         self.declare_parameter("max_scan_optimization_evals", 80)
+        self.declare_parameter("fixed_map_yaml", "")
+        self.declare_parameter("fixed_map_distance_npy", "")
+        self.declare_parameter("fixed_map_visual_points_csv", "")
+        self.declare_parameter("fixed_map_max_match_points", 120)
+        self.declare_parameter("fixed_map_max_localization_iterations", 40)
+        self.declare_parameter("fixed_map_prior_translation_weight", 1.0)
+        self.declare_parameter("fixed_map_prior_yaw_weight", 1.4)
+        self.declare_parameter("fixed_map_startup_static_duration_s", 1.5)
+        self.declare_parameter("fixed_map_startup_gyro_stddev_threshold_rps", 0.04)
+        self.declare_parameter("fixed_map_startup_accel_stddev_threshold_mps2", 0.35)
+        self.declare_parameter("fixed_map_imu_filter_window", 7)
+        self.declare_parameter("fixed_map_imu_spike_mad_scale", 4.0)
+        self.declare_parameter("fixed_map_max_accel_axis_mps2", 3.2)
+        self.declare_parameter("fixed_map_max_yaw_rate_abs_rps", 2.6)
+        self.declare_parameter("fixed_map_low_support_distance_m", 0.90)
+        self.declare_parameter("fixed_map_low_support_in_bounds_ratio", 0.45)
+        self.declare_parameter("fixed_map_low_support_near_wall_ratio", 0.25)
+        self.declare_parameter("fixed_map_reduced_support_prior_gain", 1.35)
+        self.declare_parameter("fixed_map_low_support_prior_gain", 1.80)
 
         self._imu_topic = str(self.get_parameter("imu_topic").value)
         self._scan_topic = str(self.get_parameter("scan_topic").value)
@@ -75,6 +96,9 @@ class ImuLidarPlanarFusionNode(Node):
         self._status_topic = str(self.get_parameter("status_topic").value)
         self._odom_frame = str(self.get_parameter("odom_frame_id").value)
         self._child_frame = str(self.get_parameter("child_frame_id").value)
+        self._estimation_backend = str(self.get_parameter("estimation_backend").value).strip().lower()
+        if self._estimation_backend not in {"online_submap", "fixed_map"}:
+            self._estimation_backend = "online_submap"
         self._publish_tf = bool(self.get_parameter("publish_tf").value)
         self._status_publish_rate_hz = max(
             0.5, float(self.get_parameter("status_publish_rate_hz").value)
@@ -106,31 +130,85 @@ class ImuLidarPlanarFusionNode(Node):
         )
         self._point_stride = int(self.get_parameter("point_stride").value)
 
-        params = FusionParameters(
-            median_window=int(self.get_parameter("median_window").value),
-            ema_alpha=float(self.get_parameter("ema_alpha").value),
-            static_window_s=float(self.get_parameter("static_window_s").value),
-            static_search_s=float(self.get_parameter("static_search_s").value),
-            velocity_decay_tau_s=float(self.get_parameter("velocity_decay_tau_s").value),
-            submap_window_scans=int(self.get_parameter("submap_window_scans").value),
-            point_stride=int(self.get_parameter("point_stride").value),
-            max_correspondence_m=float(self.get_parameter("max_correspondence_m").value),
-            initial_scan_count_min=int(self.get_parameter("initial_scan_count_min").value),
-            max_initial_alignment_scans=int(
-                self.get_parameter("max_initial_alignment_scans").value
-            ),
-            corridor_bin_m=float(self.get_parameter("corridor_bin_m").value),
-            low_confidence_residual_m=float(
-                self.get_parameter("low_confidence_residual_m").value
-            ),
-            min_valid_correspondence_count=int(
-                self.get_parameter("min_valid_correspondence_count").value
-            ),
-            max_scan_optimization_evals=int(
-                self.get_parameter("max_scan_optimization_evals").value
-            ),
-        )
-        self._fusion = OnlinePlanarFusion(params)
+        if self._estimation_backend == "fixed_map":
+            fixed_map_params = FixedMapParameters(
+                fixed_map_yaml=str(self.get_parameter("fixed_map_yaml").value),
+                fixed_map_distance_npy=str(self.get_parameter("fixed_map_distance_npy").value),
+                fixed_map_visual_points_csv=str(
+                    self.get_parameter("fixed_map_visual_points_csv").value
+                ),
+                velocity_decay_tau_s=float(self.get_parameter("velocity_decay_tau_s").value),
+                max_match_points=int(self.get_parameter("fixed_map_max_match_points").value),
+                max_localization_iterations=int(
+                    self.get_parameter("fixed_map_max_localization_iterations").value
+                ),
+                max_correspondence_m=float(self.get_parameter("max_correspondence_m").value),
+                prior_translation_weight=float(
+                    self.get_parameter("fixed_map_prior_translation_weight").value
+                ),
+                prior_yaw_weight=float(self.get_parameter("fixed_map_prior_yaw_weight").value),
+                startup_static_duration_s=float(
+                    self.get_parameter("fixed_map_startup_static_duration_s").value
+                ),
+                startup_gyro_stddev_threshold_rps=float(
+                    self.get_parameter("fixed_map_startup_gyro_stddev_threshold_rps").value
+                ),
+                startup_accel_stddev_threshold_mps2=float(
+                    self.get_parameter("fixed_map_startup_accel_stddev_threshold_mps2").value
+                ),
+                imu_filter_window=int(self.get_parameter("fixed_map_imu_filter_window").value),
+                imu_spike_mad_scale=float(
+                    self.get_parameter("fixed_map_imu_spike_mad_scale").value
+                ),
+                max_accel_axis_mps2=float(
+                    self.get_parameter("fixed_map_max_accel_axis_mps2").value
+                ),
+                max_yaw_rate_abs_rps=float(
+                    self.get_parameter("fixed_map_max_yaw_rate_abs_rps").value
+                ),
+                low_support_distance_m=float(
+                    self.get_parameter("fixed_map_low_support_distance_m").value
+                ),
+                low_support_in_bounds_ratio=float(
+                    self.get_parameter("fixed_map_low_support_in_bounds_ratio").value
+                ),
+                low_support_near_wall_ratio=float(
+                    self.get_parameter("fixed_map_low_support_near_wall_ratio").value
+                ),
+                reduced_support_prior_gain=float(
+                    self.get_parameter("fixed_map_reduced_support_prior_gain").value
+                ),
+                low_support_prior_gain=float(
+                    self.get_parameter("fixed_map_low_support_prior_gain").value
+                ),
+            )
+            self._fusion = FixedMapPlanarLocalizer(fixed_map_params)
+        else:
+            params = FusionParameters(
+                median_window=int(self.get_parameter("median_window").value),
+                ema_alpha=float(self.get_parameter("ema_alpha").value),
+                static_window_s=float(self.get_parameter("static_window_s").value),
+                static_search_s=float(self.get_parameter("static_search_s").value),
+                velocity_decay_tau_s=float(self.get_parameter("velocity_decay_tau_s").value),
+                submap_window_scans=int(self.get_parameter("submap_window_scans").value),
+                point_stride=int(self.get_parameter("point_stride").value),
+                max_correspondence_m=float(self.get_parameter("max_correspondence_m").value),
+                initial_scan_count_min=int(self.get_parameter("initial_scan_count_min").value),
+                max_initial_alignment_scans=int(
+                    self.get_parameter("max_initial_alignment_scans").value
+                ),
+                corridor_bin_m=float(self.get_parameter("corridor_bin_m").value),
+                low_confidence_residual_m=float(
+                    self.get_parameter("low_confidence_residual_m").value
+                ),
+                min_valid_correspondence_count=int(
+                    self.get_parameter("min_valid_correspondence_count").value
+                ),
+                max_scan_optimization_evals=int(
+                    self.get_parameter("max_scan_optimization_evals").value
+                ),
+            )
+            self._fusion = OnlinePlanarFusion(params)
 
         self._scan_counter = 0
         self._last_status_payload = ""
@@ -171,8 +249,9 @@ class ImuLidarPlanarFusionNode(Node):
             self.create_timer(1.0 / self._predicted_odom_rate_hz, self._publish_predicted_odom)
 
         self.get_logger().info(
-            "ImuLidarPlanarFusionNode started (imu=%s scan=%s odom=%s path=%s pose=%s map=%s full_map=%s status=%s)"
+            "ImuLidarPlanarFusionNode started (backend=%s imu=%s scan=%s odom=%s path=%s pose=%s map=%s full_map=%s status=%s)"
             % (
+                self._estimation_backend,
                 self._imu_topic,
                 self._scan_topic,
                 self._odom_topic,
@@ -387,6 +466,7 @@ class ImuLidarPlanarFusionNode(Node):
     def _publish_status(self) -> None:
         snapshot = self._fusion.status_snapshot()
         payload = {
+            "estimation_backend": self._estimation_backend,
             "state": snapshot.state,
             "imu_initialized": snapshot.imu_initialized,
             "alignment_ready": snapshot.alignment_ready,

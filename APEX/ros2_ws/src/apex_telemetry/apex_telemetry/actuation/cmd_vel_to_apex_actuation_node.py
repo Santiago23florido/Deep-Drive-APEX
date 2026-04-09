@@ -37,6 +37,9 @@ class CmdVelToApexActuationNode(Node):
         self.declare_parameter("launch_boost_hold_s", 0.0)
         self.declare_parameter("steering_rate_limit_deg_per_s", 90.0)
         self.declare_parameter("active_brake_on_zero", False)
+        self.declare_parameter("actuation_backend", "sysfs_pwm")
+        self.declare_parameter("sim_motor_pwm_topic", "/apex/sim/pwm/motor_dc")
+        self.declare_parameter("sim_steering_pwm_topic", "/apex/sim/pwm/steering_dc")
 
         self.declare_parameter("steering_channel", 1)
         self.declare_parameter("steering_frequency_hz", 50.0)
@@ -92,6 +95,9 @@ class CmdVelToApexActuationNode(Node):
             0.0, float(self.get_parameter("steering_rate_limit_deg_per_s").value)
         )
         self._active_brake_on_zero = bool(self.get_parameter("active_brake_on_zero").value)
+        self._actuation_backend = str(self.get_parameter("actuation_backend").value).strip().lower()
+        self._sim_motor_pwm_topic = str(self.get_parameter("sim_motor_pwm_topic").value)
+        self._sim_steering_pwm_topic = str(self.get_parameter("sim_steering_pwm_topic").value)
 
         self._motor = MaverickESCMotor(
             channel=int(self.get_parameter("motor_channel").value),
@@ -104,6 +110,9 @@ class CmdVelToApexActuationNode(Node):
             reverse_neutral_hold_s=float(self.get_parameter("reverse_neutral_hold_s").value),
             reverse_exit_hold_s=float(self.get_parameter("reverse_exit_hold_s").value),
             logger=self.get_logger(),
+            backend=self._actuation_backend,
+            node=self,
+            publish_topic=self._sim_motor_pwm_topic,
         )
         self._steering = SteeringServo(
             channel=int(self.get_parameter("steering_channel").value),
@@ -115,6 +124,9 @@ class CmdVelToApexActuationNode(Node):
             direction_sign=float(self.get_parameter("steering_direction_sign").value),
             min_authority_ratio=float(self.get_parameter("steering_min_authority_ratio").value),
             logger=self.get_logger(),
+            backend=self._actuation_backend,
+            node=self,
+            publish_topic=self._sim_steering_pwm_topic,
         )
         self._steering.center()
         self._motor.hold_neutral(disable_pwm=False)
@@ -246,6 +258,7 @@ class CmdVelToApexActuationNode(Node):
         status.data = json.dumps(
             {
                 "state": "timeout_hold" if timed_out else "tracking",
+                "actuation_backend": self._actuation_backend,
                 "timed_out": bool(timed_out),
                 "desired_linear_x_mps": self._cmd_linear_x_mps,
                 "desired_angular_z_rps": self._cmd_angular_z_rps,
@@ -260,6 +273,8 @@ class CmdVelToApexActuationNode(Node):
                 "applied_speed_pct": self._last_applied_speed_pct,
                 "applied_steering_deg": self._last_applied_steering_deg,
                 "steering_saturated": self._last_steering_saturated,
+                "motor_pwm_state": self._motor.get_pwm_state(),
+                "steering_pwm_state": self._steering.get_pwm_state(),
             },
             separators=(",", ":"),
         )

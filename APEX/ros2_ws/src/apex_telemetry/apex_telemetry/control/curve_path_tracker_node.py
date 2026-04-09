@@ -210,6 +210,9 @@ class CurvePathTrackerNode(Node):
             % (self._path_topic, self._odom_topic, self._arm_topic, self._cmd_vel_topic)
         )
 
+    def _ros_time_s(self) -> float:
+        return 1.0e-9 * float(self.get_clock().now().nanoseconds)
+
     def _path_cb(self, msg: Path) -> None:
         if not msg.poses:
             return
@@ -431,7 +434,7 @@ class CurvePathTrackerNode(Node):
         elif (now_monotonic - self._tracking_started_monotonic) >= self._global_timeout_s:
             self._set_terminal("timeout")
 
-        odom_age_s = max(0.0, time.time() - float(self._latest_odom["stamp_s"]))
+        odom_age_s = max(0.0, self._ros_time_s() - float(self._latest_odom["stamp_s"]))
         if odom_age_s > self._odom_timeout_s:
             self._set_terminal("aborted_odom_timeout")
 

@@ -458,6 +458,9 @@ class RecognitionTourTrackerNode(Node):
             return planner_age_s
         return max(planner_age_s, received_age_s)
 
+    def _ros_time_s(self) -> float:
+        return 1.0e-9 * float(self.get_clock().now().nanoseconds)
+
     def _project_onto_path(self, point_xy: np.ndarray) -> dict[str, float | int | np.ndarray] | None:
         if self._path_points_xy is None or self._path_s is None or self._path_yaw is None:
             return None
@@ -645,7 +648,7 @@ class RecognitionTourTrackerNode(Node):
         if self._latest_odom is None:
             self._set_terminal("aborted_odom_timeout")
         else:
-            odom_age_s = max(0.0, time.time() - float(self._latest_odom["stamp_s"]))
+            odom_age_s = max(0.0, self._ros_time_s() - float(self._latest_odom["stamp_s"]))
             if odom_age_s > self._odom_timeout_s:
                 self._set_terminal("aborted_odom_timeout")
 

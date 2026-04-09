@@ -1,0 +1,239 @@
+{
+  "defaults": {
+    "world": "basic_track.world",
+    "spawn": {
+      "x": 0.0,
+      "y": -2.5,
+      "z": 0.02,
+      "yaw_deg": 0.0
+    },
+    "apex_params_overrides": {
+      "nano_accel_serial_node": {
+        "ros__parameters": {
+          "transport_backend": "sim_imu",
+          "sim_publish_latency_s": 0.006,
+          "sim_accel_noise_stddev_mps2": 0.09,
+          "sim_gyro_noise_stddev_rps": 0.014,
+          "sim_accel_drift_stddev_mps2_per_s": 0.004,
+          "sim_gyro_drift_stddev_rps_per_s": 0.001,
+          "sim_accel_bias_x_mps2": 0.03,
+          "sim_accel_bias_y_mps2": -0.02,
+          "sim_accel_bias_z_mps2": 0.02,
+          "sim_gyro_bias_z_rps": 0.01
+        }
+      },
+      "apex_rplidar_publisher": {
+        "ros__parameters": {
+          "source_backend": "sim_scan",
+          "sim_publish_latency_s": 0.035,
+          "sim_range_noise_stddev_m": 0.018,
+          "sim_dropout_ratio": 0.012,
+          "sim_inf_ratio": 0.025,
+          "sim_heading_jitter_deg": 0.35
+        }
+      },
+      "cmd_vel_to_apex_actuation_node": {
+        "ros__parameters": {
+          "actuation_backend": "sim_pwm_topic"
+        }
+      }
+    },
+    "vehicle_bridge": {
+      "publish_rate_hz": 120.0,
+      "wheel_radius_m": 0.06,
+      "wheelbase_m": 0.3,
+      "track_width_m": 0.29,
+      "steering_limit_deg": 18.0,
+      "steering_rate_limit_deg_per_s": 70.0,
+      "steering_response_tau_s": 0.085,
+      "steering_left_ratio": 1.0,
+      "steering_right_ratio": 0.96,
+      "motor_forward_deadband_dc": 7.72,
+      "motor_forward_top_dc": 8.55,
+      "motor_max_forward_speed_mps": 0.55,
+      "motor_min_effective_speed_mps": 0.07,
+      "motor_accel_limit_mps2": 0.85,
+      "motor_decel_limit_mps2": 1.2,
+      "motor_response_tau_s": 0.22
+    },
+    "ground_truth": {
+      "publish_rate_hz": 30.0,
+      "map_publish_rate_hz": 1.0,
+      "rear_axle_offset_x_m": -0.15,
+      "map_sample_step_m": 0.05
+    }
+  },
+  "scenarios": {
+    "baseline": {},
+    "precision_fusion": {
+      "apex_params_overrides": {
+        "nano_accel_serial_node": {
+          "ros__parameters": {
+            "sim_publish_latency_s": 0.001,
+            "sim_accel_noise_stddev_mps2": 0.015,
+            "sim_gyro_noise_stddev_rps": 0.003,
+            "sim_accel_drift_stddev_mps2_per_s": 0.0,
+            "sim_gyro_drift_stddev_rps_per_s": 0.0,
+            "sim_accel_bias_x_mps2": 0.0,
+            "sim_accel_bias_y_mps2": 0.0,
+            "sim_accel_bias_z_mps2": 0.0,
+            "sim_gyro_bias_x_rps": 0.0,
+            "sim_gyro_bias_y_rps": 0.0,
+            "sim_gyro_bias_z_rps": 0.0,
+            "sim_startup_accel_bias_x_mps2": 0.0,
+            "sim_startup_accel_bias_y_mps2": 0.0,
+            "sim_startup_accel_bias_z_mps2": 0.0,
+            "sim_startup_gyro_bias_x_rps": 0.0,
+            "sim_startup_gyro_bias_y_rps": 0.0,
+            "sim_startup_gyro_bias_z_rps": 0.0,
+            "sim_startup_bias_hold_s": 0.0,
+            "sim_initial_roll_deg": 0.0,
+            "sim_initial_pitch_deg": 0.0,
+            "sim_initial_yaw_deg": 0.0
+          }
+        },
+        "kinematics_estimator_node": {
+          "ros__parameters": {
+            "accel_bias_x": 0.0,
+            "accel_bias_y": 0.0,
+            "accel_bias_z": 0.0,
+            "gyro_bias_x": 0.0,
+            "gyro_bias_y": 0.0,
+            "gyro_bias_z": 0.0,
+            "deadband_mps2": 0.01,
+            "gyro_deadband_rps": 0.003,
+            "startup_static_calibration_duration_s": 3.0,
+            "calibration_max_total_duration_s": 8.0,
+            "stationary_accel_threshold_mps2": 0.03,
+            "stationary_gyro_threshold_rps": 0.008,
+            "stationary_speed_threshold_mps": 0.01,
+            "zero_velocity_update_enabled": false,
+            "velocity_decay_enabled": false,
+            "velocity_decay_tau_s": 8.0
+          }
+        },
+        "apex_rplidar_publisher": {
+          "ros__parameters": {
+            "sim_publish_latency_s": 0.005,
+            "sim_range_noise_stddev_m": 0.003,
+            "sim_dropout_ratio": 0.0,
+            "sim_inf_ratio": 0.0,
+            "sim_heading_jitter_deg": 0.0,
+            "sim_startup_heading_offset_deg": 0.0,
+            "sim_startup_heading_offset_hold_s": 0.0,
+            "sim_sector_dropout_width_deg": 0.0,
+            "sim_sector_dropout_ratio": 0.0,
+            "sim_sector_range_bias_m": 0.0
+          }
+        },
+        "imu_lidar_planar_fusion_node": {
+          "ros__parameters": {
+            "velocity_decay_tau_s": 10.0,
+            "submap_window_scans": 10,
+            "point_stride": 1,
+            "max_correspondence_m": 0.22,
+            "max_initial_alignment_scans": 10,
+            "low_confidence_residual_m": 0.09,
+            "min_valid_correspondence_count": 20
+          }
+        },
+        "recognition_tour_planner_node": {
+          "ros__parameters": {
+            "global_timeout_s": 180.0
+          }
+        },
+        "recognition_tour_tracker_node": {
+          "ros__parameters": {
+            "max_linear_speed_mps": 0.16,
+            "global_timeout_s": 180.0
+          }
+        },
+        "cmd_vel_to_apex_actuation_node": {
+          "ros__parameters": {
+            "max_linear_speed_mps": 0.16
+          }
+        }
+      },
+      "vehicle_bridge": {
+        "motor_max_forward_speed_mps": 0.34,
+        "motor_min_effective_speed_mps": 0.06,
+        "motor_accel_limit_mps2": 0.65,
+        "motor_decel_limit_mps2": 0.95,
+        "motor_response_tau_s": 0.18
+      },
+      "slam_params_overrides": {
+        "slam_toolbox": {
+          "ros__parameters": {
+            "throttle_scans": 2,
+            "transform_publish_period": 0.05,
+            "minimum_time_interval": 0.40,
+            "minimum_travel_distance": 0.12,
+            "minimum_travel_heading": 0.04,
+            "map_update_interval": 0.8,
+            "scan_buffer_size": 30,
+            "enable_interactive_mode": false
+          }
+        }
+      }
+    },
+    "tight_right_saturation": {
+      "world": "tight_right_saturation.world",
+      "vehicle_bridge": {
+        "steering_right_ratio": 0.92,
+        "motor_max_forward_speed_mps": 0.6,
+        "steering_response_tau_s": 0.1
+      },
+      "apex_params_overrides": {
+        "apex_rplidar_publisher": {
+          "ros__parameters": {
+            "sim_range_noise_stddev_m": 0.024,
+            "sim_dropout_ratio": 0.02,
+            "sim_inf_ratio": 0.03
+          }
+        }
+      }
+    },
+    "outer_long_inner_short": {
+      "world": "outer_long_inner_short.world"
+    },
+    "startup_pose_jump": {
+      "apex_params_overrides": {
+        "nano_accel_serial_node": {
+          "ros__parameters": {
+            "sim_startup_accel_bias_x_mps2": 0.45,
+            "sim_startup_accel_bias_y_mps2": -0.35,
+            "sim_startup_gyro_bias_z_rps": 0.16,
+            "sim_startup_bias_hold_s": 1.4,
+            "sim_initial_roll_deg": 2.5,
+            "sim_initial_pitch_deg": -1.8
+          }
+        },
+        "apex_rplidar_publisher": {
+          "ros__parameters": {
+            "sim_startup_heading_offset_deg": 8.0,
+            "sim_startup_heading_offset_hold_s": 1.4,
+            "sim_heading_jitter_deg": 0.6
+          }
+        }
+      }
+    },
+    "narrowing_false_corridor": {
+      "world": "narrowing_false_corridor.world",
+      "apex_params_overrides": {
+        "nano_accel_serial_node": {
+          "ros__parameters": {
+            "sim_gyro_bias_z_rps": 0.018
+          }
+        },
+        "apex_rplidar_publisher": {
+          "ros__parameters": {
+            "sim_range_noise_stddev_m": 0.026,
+            "sim_dropout_ratio": 0.03,
+            "sim_inf_ratio": 0.05,
+            "sim_heading_jitter_deg": 0.8
+          }
+        }
+      }
+    }
+  }
+}

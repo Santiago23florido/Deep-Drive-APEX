@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 import math
+import random
 import re
 import threading
 import time
@@ -36,6 +38,7 @@ class NanoAccelSerialNode(Node):
     def __init__(self) -> None:
         super().__init__("nano_accel_serial_node")
 
+        self.declare_parameter("transport_backend", "serial")
         self.declare_parameter("serial_port", "/dev/ttyACM0")
         self.declare_parameter("baudrate", 115200)
         self.declare_parameter("serial_timeout_s", 0.5)
@@ -59,7 +62,33 @@ class NanoAccelSerialNode(Node):
         self.declare_parameter("max_abs_accel_mps2", 30.0)
         self.declare_parameter("max_abs_gyro_rps", 15.0)
         self.declare_parameter("max_accel_norm_mps2", 30.0)
+        self.declare_parameter("sim_imu_topic", "/apex/sim/imu")
+        self.declare_parameter("sim_publish_latency_s", 0.004)
+        self.declare_parameter("sim_random_seed", 1337)
+        self.declare_parameter("sim_accel_noise_stddev_mps2", 0.08)
+        self.declare_parameter("sim_gyro_noise_stddev_rps", 0.012)
+        self.declare_parameter("sim_accel_drift_stddev_mps2_per_s", 0.003)
+        self.declare_parameter("sim_gyro_drift_stddev_rps_per_s", 0.0008)
+        self.declare_parameter("sim_accel_bias_x_mps2", 0.0)
+        self.declare_parameter("sim_accel_bias_y_mps2", 0.0)
+        self.declare_parameter("sim_accel_bias_z_mps2", 0.0)
+        self.declare_parameter("sim_gyro_bias_x_rps", 0.0)
+        self.declare_parameter("sim_gyro_bias_y_rps", 0.0)
+        self.declare_parameter("sim_gyro_bias_z_rps", 0.0)
+        self.declare_parameter("sim_startup_accel_bias_x_mps2", 0.0)
+        self.declare_parameter("sim_startup_accel_bias_y_mps2", 0.0)
+        self.declare_parameter("sim_startup_accel_bias_z_mps2", 0.0)
+        self.declare_parameter("sim_startup_gyro_bias_x_rps", 0.0)
+        self.declare_parameter("sim_startup_gyro_bias_y_rps", 0.0)
+        self.declare_parameter("sim_startup_gyro_bias_z_rps", 0.0)
+        self.declare_parameter("sim_startup_bias_hold_s", 0.0)
+        self.declare_parameter("sim_initial_roll_deg", 0.0)
+        self.declare_parameter("sim_initial_pitch_deg", 0.0)
+        self.declare_parameter("sim_initial_yaw_deg", 0.0)
 
+        self._transport_backend = (
+            str(self.get_parameter("transport_backend").value).strip().lower() or "serial"
+        )
         self._serial_port = str(self.get_parameter("serial_port").value)
         self._baudrate = int(self.get_parameter("baudrate").value)
         self._serial_timeout_s = max(0.05, float(self.get_parameter("serial_timeout_s").value))
@@ -95,6 +124,55 @@ class NanoAccelSerialNode(Node):
             self._max_abs_accel_mps2,
             float(self.get_parameter("max_accel_norm_mps2").value),
         )
+        self._sim_imu_topic = str(self.get_parameter("sim_imu_topic").value)
+        self._sim_publish_latency_s = max(
+            0.0, float(self.get_parameter("sim_publish_latency_s").value)
+        )
+        self._sim_rng = random.Random(int(self.get_parameter("sim_random_seed").value))
+        self._sim_accel_noise_stddev_mps2 = max(
+            0.0, float(self.get_parameter("sim_accel_noise_stddev_mps2").value)
+        )
+        self._sim_gyro_noise_stddev_rps = max(
+            0.0, float(self.get_parameter("sim_gyro_noise_stddev_rps").value)
+        )
+        self._sim_accel_drift_stddev_mps2_per_s = max(
+            0.0, float(self.get_parameter("sim_accel_drift_stddev_mps2_per_s").value)
+        )
+        self._sim_gyro_drift_stddev_rps_per_s = max(
+            0.0, float(self.get_parameter("sim_gyro_drift_stddev_rps_per_s").value)
+        )
+        self._sim_accel_bias = [
+            float(self.get_parameter("sim_accel_bias_x_mps2").value),
+            float(self.get_parameter("sim_accel_bias_y_mps2").value),
+            float(self.get_parameter("sim_accel_bias_z_mps2").value),
+        ]
+        self._sim_gyro_bias = [
+            float(self.get_parameter("sim_gyro_bias_x_rps").value),
+            float(self.get_parameter("sim_gyro_bias_y_rps").value),
+            float(self.get_parameter("sim_gyro_bias_z_rps").value),
+        ]
+        self._sim_startup_accel_bias = [
+            float(self.get_parameter("sim_startup_accel_bias_x_mps2").value),
+            float(self.get_parameter("sim_startup_accel_bias_y_mps2").value),
+            float(self.get_parameter("sim_startup_accel_bias_z_mps2").value),
+        ]
+        self._sim_startup_gyro_bias = [
+            float(self.get_parameter("sim_startup_gyro_bias_x_rps").value),
+            float(self.get_parameter("sim_startup_gyro_bias_y_rps").value),
+            float(self.get_parameter("sim_startup_gyro_bias_z_rps").value),
+        ]
+        self._sim_startup_bias_hold_s = max(
+            0.0, float(self.get_parameter("sim_startup_bias_hold_s").value)
+        )
+        self._sim_initial_roll_rad = math.radians(
+            float(self.get_parameter("sim_initial_roll_deg").value)
+        )
+        self._sim_initial_pitch_rad = math.radians(
+            float(self.get_parameter("sim_initial_pitch_deg").value)
+        )
+        self._sim_initial_yaw_rad = math.radians(
+            float(self.get_parameter("sim_initial_yaw_deg").value)
+        )
 
         self._accel_pub = self.create_publisher(
             Vector3Stamped,
@@ -121,13 +199,37 @@ class NanoAccelSerialNode(Node):
         self._preferred_profile_index = 0
         self._connection_profiles = self._build_connection_profiles()
         self._stop_event = threading.Event()
-        self._worker_thread = threading.Thread(target=self._serial_worker, daemon=True)
-        self._worker_thread.start()
+        self._worker_thread: threading.Thread | None = None
+        self._sim_queue: deque[tuple[float, tuple[float, float, float, float, float, float, bool]]] = deque()
+        self._sim_accel_drift = [0.0, 0.0, 0.0]
+        self._sim_gyro_drift = [0.0, 0.0, 0.0]
+        self._sim_last_sample_monotonic: float | None = None
+        self._sim_start_monotonic = time.monotonic()
+        self._sim_rotation_matrix = self._rotation_matrix_rpy(
+            self._sim_initial_roll_rad,
+            self._sim_initial_pitch_rad,
+            self._sim_initial_yaw_rad,
+        )
+        self._sim_flush_timer = None
+
+        if self._transport_backend == "serial":
+            self._worker_thread = threading.Thread(target=self._serial_worker, daemon=True)
+            self._worker_thread.start()
+        elif self._transport_backend == "sim_imu":
+            self.create_subscription(Imu, self._sim_imu_topic, self._sim_imu_cb, 50)
+            self._sim_flush_timer = self.create_timer(0.002, self._flush_sim_queue)
+        else:
+            raise ValueError(
+                "Unsupported transport_backend=%r (expected 'serial' or 'sim_imu')"
+                % self._transport_backend
+            )
 
         self.get_logger().info(
-            "NanoAccelSerialNode started (port=%s, baudrate=%d, accel=%s, gyro=%s, imu=%s, profiles=%s)"
+            "NanoAccelSerialNode started (backend=%s port=%s sim_imu=%s baudrate=%d accel=%s gyro=%s imu=%s profiles=%s)"
             % (
+                self._transport_backend,
                 self._serial_port,
+                self._sim_imu_topic,
                 self._baudrate,
                 self._accel_pub.topic_name,
                 self._gyro_pub.topic_name,
@@ -135,6 +237,140 @@ class NanoAccelSerialNode(Node):
                 ",".join(profile.name for profile in self._connection_profiles),
             )
         )
+
+    @staticmethod
+    def _rotation_matrix_rpy(
+        roll_rad: float,
+        pitch_rad: float,
+        yaw_rad: float,
+    ) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+        cr = math.cos(roll_rad)
+        sr = math.sin(roll_rad)
+        cp = math.cos(pitch_rad)
+        sp = math.sin(pitch_rad)
+        cy = math.cos(yaw_rad)
+        sy = math.sin(yaw_rad)
+        return (
+            ((cy * cp), (cy * sp * sr) - (sy * cr), (cy * sp * cr) + (sy * sr)),
+            ((sy * cp), (sy * sp * sr) + (cy * cr), (sy * sp * cr) - (cy * sr)),
+            ((-sp), cp * sr, cp * cr),
+        )
+
+    @staticmethod
+    def _rotate_vector(
+        matrix: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]],
+        vector: tuple[float, float, float],
+    ) -> tuple[float, float, float]:
+        return (
+            (matrix[0][0] * vector[0]) + (matrix[0][1] * vector[1]) + (matrix[0][2] * vector[2]),
+            (matrix[1][0] * vector[0]) + (matrix[1][1] * vector[1]) + (matrix[1][2] * vector[2]),
+            (matrix[2][0] * vector[0]) + (matrix[2][1] * vector[1]) + (matrix[2][2] * vector[2]),
+        )
+
+    def _update_sim_drift(self, *, dt_s: float) -> None:
+        if dt_s <= 0.0:
+            return
+        accel_sigma = self._sim_accel_drift_stddev_mps2_per_s * math.sqrt(dt_s)
+        gyro_sigma = self._sim_gyro_drift_stddev_rps_per_s * math.sqrt(dt_s)
+        if accel_sigma > 0.0:
+            for idx in range(3):
+                self._sim_accel_drift[idx] += self._sim_rng.gauss(0.0, accel_sigma)
+        if gyro_sigma > 0.0:
+            for idx in range(3):
+                self._sim_gyro_drift[idx] += self._sim_rng.gauss(0.0, gyro_sigma)
+
+    def _apply_sim_imu_effects(
+        self,
+        ax: float,
+        ay: float,
+        az: float,
+        gx: float,
+        gy: float,
+        gz: float,
+        *,
+        now_monotonic: float,
+    ) -> tuple[float, float, float, float, float, float]:
+        if self._sim_last_sample_monotonic is None:
+            dt_s = 0.0
+        else:
+            dt_s = max(0.0, now_monotonic - self._sim_last_sample_monotonic)
+        self._sim_last_sample_monotonic = now_monotonic
+        self._update_sim_drift(dt_s=dt_s)
+
+        accel = self._rotate_vector(self._sim_rotation_matrix, (ax, ay, az))
+        gyro = self._rotate_vector(self._sim_rotation_matrix, (gx, gy, gz))
+
+        startup_scale = 0.0
+        if self._sim_startup_bias_hold_s > 1.0e-6:
+            elapsed = max(0.0, now_monotonic - self._sim_start_monotonic)
+            if elapsed < self._sim_startup_bias_hold_s:
+                startup_scale = 1.0 - (elapsed / self._sim_startup_bias_hold_s)
+
+        accel_out = []
+        gyro_out = []
+        for idx in range(3):
+            accel_out.append(
+                accel[idx]
+                + self._sim_accel_bias[idx]
+                + self._sim_accel_drift[idx]
+                + (startup_scale * self._sim_startup_accel_bias[idx])
+                + self._sim_rng.gauss(0.0, self._sim_accel_noise_stddev_mps2)
+            )
+            gyro_out.append(
+                gyro[idx]
+                + self._sim_gyro_bias[idx]
+                + self._sim_gyro_drift[idx]
+                + (startup_scale * self._sim_startup_gyro_bias[idx])
+                + self._sim_rng.gauss(0.0, self._sim_gyro_noise_stddev_rps)
+            )
+
+        return (
+            accel_out[0],
+            accel_out[1],
+            accel_out[2],
+            gyro_out[0],
+            gyro_out[1],
+            gyro_out[2],
+        )
+
+    def _sim_imu_cb(self, msg: Imu) -> None:
+        now_monotonic = time.monotonic()
+        ax = float(msg.linear_acceleration.x)
+        ay = float(msg.linear_acceleration.y)
+        az = float(msg.linear_acceleration.z)
+        gx = float(msg.angular_velocity.x)
+        gy = float(msg.angular_velocity.y)
+        gz = float(msg.angular_velocity.z)
+
+        ax, ay, az, gx, gy, gz = self._apply_sim_imu_effects(
+            ax,
+            ay,
+            az,
+            gx,
+            gy,
+            gz,
+            now_monotonic=now_monotonic,
+        )
+        if not self._sample_is_physically_plausible(ax, ay, az, gx, gy, gz, True):
+            self._invalid_counter += 1
+            if self._invalid_counter % self._log_every_n_invalid == 0:
+                self.get_logger().warning(
+                    (
+                        "Skipping implausible simulated IMU sample: "
+                        "accel=(%.3f, %.3f, %.3f) gyro=(%.3f, %.3f, %.3f)"
+                    )
+                    % (ax, ay, az, gx, gy, gz)
+                )
+            return
+
+        ready_monotonic = now_monotonic + self._sim_publish_latency_s
+        self._sim_queue.append((ready_monotonic, (ax, ay, az, gx, gy, gz, True)))
+
+    def _flush_sim_queue(self) -> None:
+        now_monotonic = time.monotonic()
+        while self._sim_queue and self._sim_queue[0][0] <= now_monotonic:
+            _, sample = self._sim_queue.popleft()
+            self._publish_sample(*sample)
 
     def _append_profile_once(
         self,
@@ -492,8 +728,13 @@ class NanoAccelSerialNode(Node):
 
     def destroy_node(self) -> bool:
         self._stop_event.set()
-        if self._worker_thread.is_alive():
+        if self._worker_thread is not None and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=1.5)
+        if self._sim_flush_timer is not None:
+            try:
+                self._sim_flush_timer.cancel()
+            except Exception:
+                pass
         return super().destroy_node()
 
 

@@ -16,6 +16,8 @@ install(
   DESTINATION share/${PROJECT_NAME}
   FILES_MATCHING
     PATTERN "*.launch.py"
+    PATTERN "*.json"
+    PATTERN "*.yaml"
     PATTERN "*.xacro"
     PATTERN "*.rviz"
     PATTERN "*.world"
@@ -26,6 +28,14 @@ install(
 
 install(
   PROGRAMS
+    scripts/apex_gz_vehicle_bridge.py
+    scripts/apex_ground_truth_node.py
+    scripts/apex_refined_sensorfusion_map_node.py
+    scripts/apex_xbox_manual_teleop_node.py
+    scripts/apex_windows_gamepad_bridge_node.py
+    scripts/apex_offline_sensorfusion_map_publisher.py
+    scripts/apex_general_track_mapper.py
+    scripts/apex_general_track_map_publisher.py
     scripts/rear_wheel_speed_publisher.py
     scripts/turning_command_mapper.py
     scripts/control_system/voiture_control_node.py

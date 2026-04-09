@@ -144,6 +144,8 @@ docker exec "${CONTAINER_NAME}" /bin/bash -lc \
     --scan-topic /lidar/scan_localization \
     --lidar-offset-x-m 0.18 \
     --lidar-offset-y-m 0.0 \
+    --rear-axle-offset-x-m -0.15 \
+    --rear-axle-offset-y-m 0.0 \
     --output-dir '${CONTAINER_RUN_DIR}' \
     --timeout-s '${RUN_TIMEOUT_S}'" \
   > "${HOST_RUN_DIR}/recognition_tour_record.log" 2>&1 &

@@ -1,5 +1,6 @@
 nano_accel_serial_node:
   ros__parameters:
+    transport_backend: "serial"
     serial_port: "/dev/ttyACM0"
     baudrate: 115200
     serial_timeout_s: 1.0
@@ -23,6 +24,29 @@ nano_accel_serial_node:
     max_abs_accel_mps2: 30.0
     max_abs_gyro_rps: 15.0
     max_accel_norm_mps2: 30.0
+    sim_imu_topic: "/apex/sim/imu"
+    sim_publish_latency_s: 0.004
+    sim_random_seed: 1337
+    sim_accel_noise_stddev_mps2: 0.08
+    sim_gyro_noise_stddev_rps: 0.012
+    sim_accel_drift_stddev_mps2_per_s: 0.003
+    sim_gyro_drift_stddev_rps_per_s: 0.0008
+    sim_accel_bias_x_mps2: 0.0
+    sim_accel_bias_y_mps2: 0.0
+    sim_accel_bias_z_mps2: 0.0
+    sim_gyro_bias_x_rps: 0.0
+    sim_gyro_bias_y_rps: 0.0
+    sim_gyro_bias_z_rps: 0.0
+    sim_startup_accel_bias_x_mps2: 0.0
+    sim_startup_accel_bias_y_mps2: 0.0
+    sim_startup_accel_bias_z_mps2: 0.0
+    sim_startup_gyro_bias_x_rps: 0.0
+    sim_startup_gyro_bias_y_rps: 0.0
+    sim_startup_gyro_bias_z_rps: 0.0
+    sim_startup_bias_hold_s: 0.0
+    sim_initial_roll_deg: 0.0
+    sim_initial_pitch_deg: 0.0
+    sim_initial_yaw_deg: 0.0
 
 kinematics_estimator_node:
   ros__parameters:
@@ -94,6 +118,7 @@ kinematics_odometry_node:
 
 apex_rplidar_publisher:
   ros__parameters:
+    source_backend: "rplidar"
     port: "/dev/ttyUSB0"
     baudrate: 115200
     topic: "/lidar/scan"
@@ -108,9 +133,23 @@ apex_rplidar_publisher:
     fill_missing_bins: false
     range_min: 0.05
     range_max: 12.0
+    sim_scan_topic: "/apex/sim/scan"
+    sim_publish_latency_s: 0.03
+    sim_random_seed: 4242
+    sim_range_noise_stddev_m: 0.02
+    sim_dropout_ratio: 0.01
+    sim_inf_ratio: 0.02
+    sim_heading_jitter_deg: 0.0
+    sim_sector_dropout_center_deg: 0.0
+    sim_sector_dropout_width_deg: 0.0
+    sim_sector_dropout_ratio: 0.0
+    sim_sector_range_bias_m: 0.0
+    sim_startup_heading_offset_deg: 0.0
+    sim_startup_heading_offset_hold_s: 0.0
 
 imu_lidar_planar_fusion_node:
   ros__parameters:
+    estimation_backend: "online_submap"
     imu_topic: "/apex/imu/data_raw"
     scan_topic: "/lidar/scan_localization"
     odom_topic: "/apex/odometry/imu_lidar_fused"
@@ -146,6 +185,25 @@ imu_lidar_planar_fusion_node:
     low_confidence_residual_m: 0.16
     min_valid_correspondence_count: 14
     max_scan_optimization_evals: 80
+    fixed_map_yaml: ""
+    fixed_map_distance_npy: ""
+    fixed_map_visual_points_csv: ""
+    fixed_map_max_match_points: 120
+    fixed_map_max_localization_iterations: 40
+    fixed_map_prior_translation_weight: 1.0
+    fixed_map_prior_yaw_weight: 1.4
+    fixed_map_startup_static_duration_s: 1.5
+    fixed_map_startup_gyro_stddev_threshold_rps: 0.04
+    fixed_map_startup_accel_stddev_threshold_mps2: 0.35
+    fixed_map_imu_filter_window: 7
+    fixed_map_imu_spike_mad_scale: 4.0
+    fixed_map_max_accel_axis_mps2: 3.2
+    fixed_map_max_yaw_rate_abs_rps: 2.6
+    fixed_map_low_support_distance_m: 0.9
+    fixed_map_low_support_in_bounds_ratio: 0.45
+    fixed_map_low_support_near_wall_ratio: 0.25
+    fixed_map_reduced_support_prior_gain: 1.35
+    fixed_map_low_support_prior_gain: 1.8
 
 curve_entry_path_planner_node:
   ros__parameters:
@@ -226,10 +284,15 @@ recognition_tour_planner_node:
     local_path_topic: "/apex/planning/recognition_tour_local_path"
     route_topic: "/apex/planning/recognition_tour_route"
     status_topic: "/apex/planning/recognition_tour_status"
+    arm_topic: "/apex/tracking/arm"
     odom_frame_id: "odom_imu_lidar_fused"
     plan_rate_hz: 12.0
     status_publish_rate_hz: 5.0
     rolling_window_s: 0.5
+    dynamic_scan_window_s: 0.14
+    dynamic_scan_speed_threshold_mps: 0.08
+    dynamic_scan_yaw_rate_threshold_rps: 0.30
+    turn_scan_latest_only_yaw_rate_threshold_rps: 0.55
     planning_horizon_m: 1.8
     lidar_offset_x_m: 0.18
     lidar_offset_y_m: 0.0
@@ -346,6 +409,9 @@ cmd_vel_to_apex_actuation_node:
     applied_speed_topic: "/apex/vehicle/applied_speed_pct"
     applied_steering_topic: "/apex/vehicle/applied_steering_deg"
     status_topic: "/apex/vehicle/drive_bridge_status"
+    actuation_backend: "sysfs_pwm"
+    sim_motor_pwm_topic: "/apex/sim/pwm/motor_dc"
+    sim_steering_pwm_topic: "/apex/sim/pwm/steering_dc"
     control_rate_hz: 60.0
     command_timeout_s: 0.35
     wheelbase_m: 0.30
