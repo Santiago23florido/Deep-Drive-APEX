@@ -35,6 +35,7 @@ install(
     scripts/apex_refined_sensorfusion_map_node.py
     scripts/offline_submap_refiner.py
     scripts/offline_similarity_monitor.py
+    scripts/apex_sim_run_recorder.py
     scripts/online_distance_field_seed_node.py
     scripts/apex_xbox_manual_teleop_node.py
     scripts/apex_windows_gamepad_bridge_node.py

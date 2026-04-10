@@ -4,6 +4,7 @@ import json
 import math
 import os
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -146,6 +147,91 @@ def _prepare_launch(context, *args, **kwargs):
         LaunchConfiguration("offline_seed_odom_topic").perform(context).strip()
     )
     offline_input_dir = LaunchConfiguration("offline_input_dir").perform(context).strip()
+    online_use_external_prior = (
+        LaunchConfiguration("online_use_external_prior").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    online_prior_odom_topic = (
+        LaunchConfiguration("online_prior_odom_topic").perform(context).strip()
+    )
+    online_external_prior_weight_xy = float(
+        LaunchConfiguration("online_external_prior_weight_xy").perform(context).strip() or "0.45"
+    )
+    online_external_prior_weight_yaw = float(
+        LaunchConfiguration("online_external_prior_weight_yaw").perform(context).strip() or "0.85"
+    )
+    online_freeze_scan_insertion_on_low_confidence = (
+        LaunchConfiguration("online_freeze_scan_insertion_on_low_confidence")
+        .perform(context)
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
+    online_low_confidence_residual_threshold_m = float(
+        LaunchConfiguration("online_low_confidence_residual_threshold_m")
+        .perform(context)
+        .strip()
+        or "0.14"
+    )
+    online_low_confidence_inlier_ratio_threshold = float(
+        LaunchConfiguration("online_low_confidence_inlier_ratio_threshold")
+        .perform(context)
+        .strip()
+        or "0.24"
+    )
+    online_use_offline_correction = (
+        LaunchConfiguration("online_use_offline_correction").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    online_offline_correction_blend = float(
+        LaunchConfiguration("online_offline_correction_blend").perform(context).strip() or "0.25"
+    )
+    online_offline_correction_max_jump_xy = float(
+        LaunchConfiguration("online_offline_correction_max_jump_xy").perform(context).strip() or "0.30"
+    )
+    online_offline_correction_max_jump_yaw = float(
+        LaunchConfiguration("online_offline_correction_max_jump_yaw").perform(context).strip() or "0.18"
+    )
+    online_use_offline_reference = (
+        LaunchConfiguration("online_use_offline_reference").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    symmetric_steering_for_mapping = (
+        LaunchConfiguration("symmetric_steering_for_mapping")
+        .perform(context)
+        .strip()
+        .lower()
+        in {"1", "true", "yes", "on"}
+    )
+    offline_publish_global_correction = (
+        LaunchConfiguration("offline_publish_global_correction").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    record_run = (
+        LaunchConfiguration("record_run").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    record_run_base_dir_value = (
+        LaunchConfiguration("record_run_base_dir").perform(context).strip()
+    )
+    record_run_name_value = LaunchConfiguration("record_run_name").perform(context).strip()
+    use_track_geometry_prior = (
+        LaunchConfiguration("use_track_geometry_prior").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    track_geometry_file_value = LaunchConfiguration("track_geometry_file").perform(context).strip()
+    track_geometry_weight = float(
+        LaunchConfiguration("track_geometry_weight").perform(context).strip() or "0.08"
+    )
+    if track_geometry_file_value:
+        candidate_track_geometry = Path(track_geometry_file_value).expanduser()
+        if not candidate_track_geometry.is_absolute():
+            config_relative = (rc_share / "config" / candidate_track_geometry).resolve()
+            repo_relative = candidate_track_geometry.resolve()
+            candidate_track_geometry = config_relative if config_relative.exists() else repo_relative
+        track_geometry_file = str(candidate_track_geometry.resolve())
+    else:
+        track_geometry_file = ""
     lidar_noise_std_value = LaunchConfiguration("lidar_noise_std").perform(context).strip()
     imu_gyro_noise_stddev_rps_value = LaunchConfiguration(
         "imu_gyro_noise_stddev_rps"
@@ -202,6 +288,14 @@ def _prepare_launch(context, *args, **kwargs):
         and not offline_seed_odom_topic_override
     )
     distance_field_online_seed_mode = offline_online_fusion_seed_mode
+    if distance_field_online_seed_mode:
+        # For the noisy-sensor sim profile, keep the frontend as close as
+        # possible to the real-car setup: only IMU + LiDAR, no extra priors or
+        # backend feedback injected into the online pose estimate.
+        online_use_external_prior = False
+        online_prior_odom_topic = ""
+        online_use_offline_correction = False
+        online_use_offline_reference = False
     if ideal_medium_sensor_profile and offline_submaps_refinement_mode:
         if window_scan_count == 48:
             window_scan_count = 48
@@ -243,7 +337,7 @@ def _prepare_launch(context, *args, **kwargs):
     else:
         offline_seed_status_topic = ""
     if medium_distortion_profile and (rf2o_ekf_estimation_mode or ideal_estimation_mode):
-        default_lidar_noise_std = 0.018
+        default_lidar_noise_std = 0.010
         default_imu_gyro_noise_stddev_rps = 0.014
         default_imu_accel_noise_stddev_mps2 = 0.09
     else:
@@ -433,6 +527,21 @@ def _prepare_launch(context, *args, **kwargs):
 
     world_filename = str(scenario.get("world", "basic_track.world"))
     world_path = str((rc_share / "worlds" / world_filename).resolve())
+    if record_run_base_dir_value:
+        candidate_record_base_dir = Path(record_run_base_dir_value).expanduser()
+        if not candidate_record_base_dir.is_absolute():
+            candidate_record_base_dir = (repo_root / candidate_record_base_dir).resolve()
+        record_run_base_dir = candidate_record_base_dir.resolve()
+    else:
+        record_run_base_dir = (repo_root / "src" / "rc_sim_description" / "data" / "runs").resolve()
+    record_run_name = record_run_name_value.strip()
+    if not record_run_name:
+        record_run_name = f"manual_lap_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    record_run_name = "".join(
+        char if (char.isalnum() or char in {"-", "_"}) else "_"
+        for char in record_run_name
+    ).strip("_") or "manual_lap"
+    record_run_dir = (record_run_base_dir / record_run_name).resolve()
     spawn = scenario.get("spawn", {}) if isinstance(scenario.get("spawn"), dict) else {}
     spawn_x = float(spawn.get("x", 0.0))
     spawn_y = float(spawn.get("y", -2.5))
@@ -491,6 +600,12 @@ def _prepare_launch(context, *args, **kwargs):
         vehicle_bridge_params["motor_decel_limit_mps2"] = max(
             2.40, float(vehicle_bridge_params.get("motor_decel_limit_mps2", 0.0))
         )
+    if symmetric_steering_for_mapping and (
+        ideal_estimation_mode or offline_submaps_refinement_mode
+    ):
+        symmetric_ratio = float(vehicle_bridge_params.get("steering_left_ratio", 1.0))
+        vehicle_bridge_params["steering_left_ratio"] = symmetric_ratio
+        vehicle_bridge_params["steering_right_ratio"] = symmetric_ratio
     vehicle_bridge_params.setdefault("use_sim_time", True)
 
     ground_truth_params = scenario.get("ground_truth", {})
@@ -805,13 +920,47 @@ def _prepare_launch(context, *args, **kwargs):
                     "path_topic": "/apex/estimation/path",
                     "pose_topic": "/apex/estimation/current_pose",
                     "live_map_topic": "/apex/estimation/live_map_points",
+                    "corrected_odom_topic": "/apex/estimation/odom_corrected",
+                    "corrected_path_topic": "/apex/estimation/path_corrected",
+                    "corrected_pose_topic": "/apex/estimation/current_pose_corrected",
+                    "corrected_live_map_topic": "/apex/estimation/live_map_points_corrected",
                     "status_topic": "/apex/estimation/status",
                     "odom_frame_id": "odom_imu_lidar_fused",
+                    "corrected_frame_id": "map",
                     "child_frame_id": "base_link",
+                    "prior_odom_topic": online_prior_odom_topic,
+                    "use_external_prior": online_use_external_prior,
+                    "external_prior_weight_xy": online_external_prior_weight_xy,
+                    "external_prior_weight_yaw": online_external_prior_weight_yaw,
+                    "freeze_scan_insertion_on_low_confidence": online_freeze_scan_insertion_on_low_confidence,
+                    "low_confidence_residual_threshold_m": online_low_confidence_residual_threshold_m,
+                    "low_confidence_inlier_ratio_threshold": online_low_confidence_inlier_ratio_threshold,
+                    "use_offline_correction": online_use_offline_correction,
+                    "offline_correction_topic": "/apex/sim/offline_global_correction",
+                    "offline_correction_use_yaw": False,
+                    "offline_correction_blend": online_offline_correction_blend,
+                    "offline_correction_max_jump_xy": online_offline_correction_max_jump_xy,
+                    "offline_correction_max_jump_yaw": online_offline_correction_max_jump_yaw,
+                    "use_offline_submap_as_reference": online_use_offline_reference,
+                    "use_offline_grid_as_reference": online_use_offline_reference,
+                    "offline_submap_topic": "/apex/sim/offline_current_submap",
+                    "offline_grid_topic": "/apex/sim/offline_refined_grid",
                     "submap_window_scans": 24,
                     "point_stride": 1,
-                    "max_correspondence_m": 0.30,
-                    "max_scan_optimization_evals": 70,
+                    "max_correspondence_m": 0.24,
+                    "local_prior_weight_xy": 0.06,
+                    "local_prior_weight_yaw": 0.20,
+                    "lidar_residual_weight": 0.85,
+                    "max_scan_optimization_evals": 100,
+                    "correlative_search_forward_extent_m": 1.20,
+                    "correlative_search_lateral_extent_m": 0.35,
+                    "correlative_search_step_m": 0.10,
+                    "correlative_search_yaw_extent_rad": 0.14,
+                    "correlative_search_yaw_step_rad": 0.05,
+                    "correlative_search_top_k": 5,
+                    "low_confidence_pose_blend": 0.35,
+                    "low_confidence_pose_max_jump_xy": 0.35,
+                    "low_confidence_pose_max_jump_yaw": 0.12,
                     "yaw_bias_init_duration_s": 0.8,
                     "velocity_decay_tau_s": 0.9,
                     "live_map_max_points": 8000,
@@ -825,6 +974,7 @@ def _prepare_launch(context, *args, **kwargs):
     ekf_filter = None
     offline_submap_refiner = None
     offline_similarity_monitor = None
+    run_recorder = None
     if rf2o_ekf_estimation_mode:
         rf2o_laser_odometry = Node(
             package="rf2o_laser_odometry",
@@ -868,6 +1018,10 @@ def _prepare_launch(context, *args, **kwargs):
                     "input_dir": offline_input_dir,
                     "frame_id": "map",
                     "child_frame_id": "offline_refined_base_link",
+                    "publish_global_correction": offline_publish_global_correction,
+                    "global_correction_topic": "/apex/sim/offline_global_correction",
+                    "anchor_pose_topic": "/apex/sim/offline_anchor_pose",
+                    "seed_odom_frame_id": "odom_imu_lidar_fused",
                     "window_scan_count": window_scan_count,
                     "window_overlap_count": window_overlap_count,
                     "initial_scan_count": initial_scan_count,
@@ -875,6 +1029,9 @@ def _prepare_launch(context, *args, **kwargs):
                     "point_stride": offline_point_stride,
                     "max_correspondence_m": offline_max_correspondence_m,
                     "offline_update_period_sec": offline_update_period_sec,
+                    "use_track_geometry_prior": use_track_geometry_prior,
+                    "track_geometry_file": track_geometry_file,
+                    "track_geometry_weight": track_geometry_weight,
                 }
             ],
             additional_env=node_python_env,
@@ -892,9 +1049,40 @@ def _prepare_launch(context, *args, **kwargs):
                     "ground_truth_path_topic": "/apex/sim/ground_truth/path",
                     "offline_map_topic": "/apex/sim/offline_refined_map",
                     "offline_path_topic": "/apex/sim/offline_refined_path",
-                    "online_map_topic": "/apex/estimation/live_map_points",
-                    "online_path_topic": "/apex/estimation/path",
+                    "online_map_topic": "/apex/estimation/live_map_points_corrected",
+                    "online_path_topic": "/apex/estimation/path_corrected",
                     "status_topic": "/apex/sim/offline_similarity_status",
+                }
+            ],
+            additional_env=node_python_env,
+        )
+    if record_run:
+        run_recorder = Node(
+            package="rc_sim_description",
+            executable="apex_sim_run_recorder.py",
+            name="apex_sim_run_recorder",
+            output="screen",
+            parameters=[
+                {
+                    "use_sim_time": True,
+                    "run_dir": str(record_run_dir),
+                    "scan_topic": "/apex/sim/scan",
+                    "imu_topic": "/apex/sim/imu",
+                    "odom_topic": "/apex/odometry/imu_lidar_fused",
+                    "ground_truth_odom_topic": "/apex/sim/ground_truth/odom",
+                    "ground_truth_path_topic": "/apex/sim/ground_truth/path",
+                    "perfect_map_topic": "/apex/sim/ground_truth/perfect_map_points",
+                    "ground_truth_status_topic": "/apex/sim/ground_truth/status",
+                    "online_status_topic": "/apex/estimation/status",
+                    "scenario": scenario_name,
+                    "control_mode": control_mode,
+                    "mapping_mode": mapping_mode,
+                    "estimation_mode": estimation_mode,
+                    "distortion_profile": distortion_profile,
+                    "refinement_mode": refinement_mode,
+                    "offline_replay_mode": offline_replay_mode,
+                    "world_path": world_path,
+                    "write_online_status": True,
                 }
             ],
             additional_env=node_python_env,
@@ -956,6 +1144,14 @@ def _prepare_launch(context, *args, **kwargs):
                 f"(distortion_profile={distortion_profile} lidar_std={lidar_noise_std:.4f} m "
                 f"gyro_std={imu_gyro_noise_stddev_rps:.4f} rps "
                 f"accel_std={imu_accel_noise_stddev_mps2:.4f} m/s^2)"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] steering symmetry for mapping "
+                f"(enabled={str(symmetric_steering_for_mapping).lower()} "
+                f"left_ratio={float(vehicle_bridge_params.get('steering_left_ratio', 1.0)):.3f} "
+                f"right_ratio={float(vehicle_bridge_params.get('steering_right_ratio', 1.0)):.3f})"
             )
         ),
     ]
@@ -1020,11 +1216,31 @@ def _prepare_launch(context, *args, **kwargs):
                 "[apex_sim] offline_submaps online-seed tuning "
                 + (
                     "(online_distance_field_seed_node submap_window_scans=24 point_stride=1 "
-                    "max_correspondence_m=0.30 max_scan_optimization_evals=70 "
+                    "max_correspondence_m=0.24 local_prior_weight_xy=0.06 "
+                    "local_prior_weight_yaw=0.20 lidar_residual_weight=0.85 "
+                    "max_scan_optimization_evals=100 "
                     "yaw_bias_init_duration_s=0.8 velocity_decay_tau_s=0.9)"
                     if distance_field_online_seed_mode
                     else "(online seed tuning disabled for this mode)"
                 )
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] online/offline coupling "
+                f"(external_prior={str(online_use_external_prior).lower()} "
+                f"prior_topic={online_prior_odom_topic or '<none>'} "
+                f"offline_correction={str(online_use_offline_correction).lower()} "
+                f"offline_reference={str(online_use_offline_reference).lower()} "
+                f"publish_global_correction={str(offline_publish_global_correction).lower()})"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] offline track-geometry prior "
+                f"(enabled={str(use_track_geometry_prior).lower()} "
+                f"file={track_geometry_file or '<none>'} "
+                f"weight={track_geometry_weight:.3f})"
             )
         ),
         LogInfo(
@@ -1037,12 +1253,29 @@ def _prepare_launch(context, *args, **kwargs):
             )
         ),
     ]
+    run_record_logs = [
+        LogInfo(
+            msg=(
+                "[apex_sim] run recording "
+                f"(enabled={str(record_run).lower()} dir={record_run_dir})"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] run recording topics "
+                "(imu=/apex/sim/imu scan=/apex/sim/scan odom=/apex/odometry/imu_lidar_fused "
+                "gt_odom=/apex/sim/ground_truth/odom gt_path=/apex/sim/ground_truth/path "
+                "gt_map=/apex/sim/ground_truth/perfect_map_points)"
+            )
+        ),
+    ]
 
     actions = [
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_value),
         *(ideal_mode_logs if ideal_estimation_mode else []),
         *(rf2o_ekf_mode_logs if rf2o_ekf_estimation_mode else []),
         *(offline_submaps_logs if offline_submaps_refinement_mode else []),
+        *(run_record_logs if record_run else []),
         gz_sim,
         robot_state_publisher,
         sim_bridges,
@@ -1057,6 +1290,7 @@ def _prepare_launch(context, *args, **kwargs):
         TimerAction(period=3.6, actions=[offline_submap_refiner]) if offline_submap_refiner is not None else None,
         TimerAction(period=3.7, actions=[offline_similarity_monitor]) if offline_similarity_monitor is not None else None,
         TimerAction(period=3.8, actions=[refined_visual_map]) if refined_visual_map is not None else None,
+        TimerAction(period=3.9, actions=[run_recorder]) if run_recorder is not None else None,
         TimerAction(period=4.0, actions=[slam_toolbox]),
         TimerAction(period=4.5, actions=[rviz_node]),
     ]
@@ -1105,6 +1339,26 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("offline_update_period_sec", default_value="0.5"),
             DeclareLaunchArgument("offline_seed_odom_topic", default_value=""),
             DeclareLaunchArgument("offline_input_dir", default_value=""),
+            DeclareLaunchArgument("online_use_external_prior", default_value="false"),
+            DeclareLaunchArgument("online_prior_odom_topic", default_value=""),
+            DeclareLaunchArgument("online_external_prior_weight_xy", default_value="0.45"),
+            DeclareLaunchArgument("online_external_prior_weight_yaw", default_value="0.85"),
+            DeclareLaunchArgument("online_freeze_scan_insertion_on_low_confidence", default_value="true"),
+            DeclareLaunchArgument("online_low_confidence_residual_threshold_m", default_value="0.14"),
+            DeclareLaunchArgument("online_low_confidence_inlier_ratio_threshold", default_value="0.24"),
+            DeclareLaunchArgument("online_use_offline_correction", default_value="false"),
+            DeclareLaunchArgument("online_offline_correction_blend", default_value="0.25"),
+            DeclareLaunchArgument("online_offline_correction_max_jump_xy", default_value="0.30"),
+            DeclareLaunchArgument("online_offline_correction_max_jump_yaw", default_value="0.18"),
+            DeclareLaunchArgument("online_use_offline_reference", default_value="false"),
+            DeclareLaunchArgument("symmetric_steering_for_mapping", default_value="true"),
+            DeclareLaunchArgument("offline_publish_global_correction", default_value="true"),
+            DeclareLaunchArgument("record_run", default_value="false"),
+            DeclareLaunchArgument("record_run_base_dir", default_value=""),
+            DeclareLaunchArgument("record_run_name", default_value=""),
+            DeclareLaunchArgument("use_track_geometry_prior", default_value="false"),
+            DeclareLaunchArgument("track_geometry_file", default_value=""),
+            DeclareLaunchArgument("track_geometry_weight", default_value="0.08"),
             DeclareLaunchArgument("use_ideal_pose_for_slam", default_value="false"),
             DeclareLaunchArgument("use_ideal_lidar_for_slam", default_value="false"),
             DeclareLaunchArgument("degrade_odom", default_value="false"),

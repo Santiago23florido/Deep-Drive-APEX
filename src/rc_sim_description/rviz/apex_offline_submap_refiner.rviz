@@ -114,6 +114,72 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /apex/sim/offline_refined_path
       Value: true
+    - Alpha: 1
+      Axis: Z
+      Class: rviz_default_plugins/PointCloud2
+      Color: 140; 255; 140
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: false
+      Name: Online Live Map
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 2
+      Size (m): 0.025
+      Style: Flat Squares
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /apex/estimation/live_map_points_corrected
+      Use Fixed Frame: true
+      Value: false
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 120; 255; 120
+      Enabled: true
+      Head Diameter: 0.12
+      Head Length: 0.09
+      Length: 0.18
+      Line Style: Lines
+      Line Width: 0.03
+      Name: Online Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0.03
+      Pose Color: 120; 255; 120
+      Pose Style: None
+      Radius: 0.05
+      Shaft Diameter: 0.025
+      Shaft Length: 0.09
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /apex/estimation/path_corrected
+      Value: true
+    - Angle Tolerance: 0.1
+      Class: rviz_default_plugins/Odometry
+      Enabled: true
+      Keep: 50
+      Name: Online Odom
+      Position Tolerance: 0.1
+      Shape:
+        Alpha: 0.65
+        Axes Length: 0.22
+        Axes Radius: 0.025
+        Color: 120; 255; 120
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /apex/estimation/odom_corrected
+      Value: true
     - Angle Tolerance: 0.1
       Class: rviz_default_plugins/Odometry
       Enabled: true

@@ -16,10 +16,11 @@ import time
 from bisect import bisect_left, bisect_right
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped
 from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavPath
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -120,6 +121,7 @@ class ImuRecord:
 @dataclass(frozen=True)
 class OdomRecord:
     stamp_s: float
+    frame_id: str
     pose_xyyaw: np.ndarray
 
 
@@ -176,6 +178,13 @@ class OfflineSubmapRefiner(Node):
         self.declare_parameter("offline_update_period_sec", 0.5)
         self.declare_parameter("seed_status_timeout_sec", 2.0)
         self.declare_parameter("seed_status_max_median_submap_residual_m", 0.12)
+        self.declare_parameter("publish_global_correction", True)
+        self.declare_parameter("global_correction_topic", "/apex/sim/offline_global_correction")
+        self.declare_parameter("anchor_pose_topic", "/apex/sim/offline_anchor_pose")
+        self.declare_parameter("seed_odom_frame_id", "odom_imu_lidar_fused")
+        self.declare_parameter("use_track_geometry_prior", False)
+        self.declare_parameter("track_geometry_file", "")
+        self.declare_parameter("track_geometry_weight", 0.08)
 
         self._replay_mode = str(self.get_parameter("replay_mode").value).strip().lower()
         self._scan_topic = str(self.get_parameter("scan_topic").value)
@@ -210,6 +219,21 @@ class OfflineSubmapRefiner(Node):
         )
         self._seed_max_median_submap_residual_m = max(
             0.01, float(self.get_parameter("seed_status_max_median_submap_residual_m").value)
+        )
+        self._publish_global_correction = bool(
+            self.get_parameter("publish_global_correction").value
+        )
+        self._global_correction_topic = str(
+            self.get_parameter("global_correction_topic").value
+        )
+        self._anchor_pose_topic = str(self.get_parameter("anchor_pose_topic").value)
+        self._seed_odom_frame_id = str(self.get_parameter("seed_odom_frame_id").value).strip() or "odom_imu_lidar_fused"
+        self._use_track_geometry_prior = bool(
+            self.get_parameter("use_track_geometry_prior").value
+        )
+        self._track_geometry_file = str(self.get_parameter("track_geometry_file").value).strip()
+        self._track_geometry_weight = max(
+            0.0, float(self.get_parameter("track_geometry_weight").value)
         )
         self._global_voxel_size_m = 0.04
         self._submap_voxel_size_m = 0.025
@@ -255,6 +279,16 @@ class OfflineSubmapRefiner(Node):
             str(self.get_parameter("odom_topic").value),
             self._latched_qos,
         )
+        self._correction_pub = self.create_publisher(
+            TransformStamped,
+            self._global_correction_topic,
+            self._latched_qos,
+        )
+        self._anchor_pose_pub = self.create_publisher(
+            PoseStamped,
+            self._anchor_pose_topic,
+            self._latched_qos,
+        )
 
         self._tf_buffer = Buffer(cache_time=Duration(seconds=30.0))
         self._tf_listener = TransformListener(self._tf_buffer, self, spin_thread=True)
@@ -275,6 +309,8 @@ class OfflineSubmapRefiner(Node):
         self._latest_submap_points = np.empty((0, 2), dtype=np.float64)
         self._latest_path_poses = np.empty((0, 3), dtype=np.float64)
         self._latest_pose = np.zeros(3, dtype=np.float64)
+        self._latest_global_correction = np.zeros(3, dtype=np.float64)
+        self._latest_global_correction_child_frame_id = self._seed_odom_frame_id
         self._latest_status = String()
         self._latest_status.data = json.dumps(
             {
@@ -313,6 +349,21 @@ class OfflineSubmapRefiner(Node):
                     "input_dir": self._input_dir,
                 },
                 separators=(",", ":"),
+            )
+        self._track_geometry_points = self._load_track_geometry_points()
+        self._track_geometry_tree = (
+            cKDTree(self._track_geometry_points)
+            if self._track_geometry_points.shape[0] >= 2
+            else None
+        )
+        if self._use_track_geometry_prior and self._track_geometry_points.shape[0] < 2:
+            self.get_logger().info(
+                "Track geometry prior enabled but no valid geometry points were loaded"
+            )
+        elif self._track_geometry_points.shape[0] >= 2:
+            self.get_logger().info(
+                "Loaded %d track-geometry prior points from %s"
+                % (self._track_geometry_points.shape[0], self._track_geometry_file or "<embedded>")
             )
 
         self.create_timer(self._offline_update_period_s, self._tick)
@@ -355,6 +406,7 @@ class OfflineSubmapRefiner(Node):
         orientation = msg.pose.pose.orientation
         record = OdomRecord(
             stamp_s=float(msg.header.stamp.sec) + (1.0e-9 * float(msg.header.stamp.nanosec)),
+            frame_id=str(msg.header.frame_id).strip() or self._seed_odom_frame_id,
             pose_xyyaw=np.asarray(
                 [
                     float(msg.pose.pose.position.x),
@@ -371,6 +423,45 @@ class OfflineSubmapRefiner(Node):
         )
         with self._lock:
             self._odom_records.append(record)
+
+    def _load_track_geometry_points(self) -> np.ndarray:
+        if not self._use_track_geometry_prior:
+            return np.empty((0, 2), dtype=np.float64)
+        if not self._track_geometry_file:
+            return np.empty((0, 2), dtype=np.float64)
+        try:
+            payload = json.loads(Path(self._track_geometry_file).read_text(encoding="utf-8"))
+        except Exception:
+            try:
+                import yaml  # local import to keep the hot path small
+
+                payload = yaml.safe_load(Path(self._track_geometry_file).read_text(encoding="utf-8"))
+            except Exception:
+                return np.empty((0, 2), dtype=np.float64)
+        raw_points = payload
+        if isinstance(payload, dict):
+            for key in ("centerline", "points", "polyline"):
+                candidate = payload.get(key)
+                if isinstance(candidate, list):
+                    raw_points = candidate
+                    break
+        if not isinstance(raw_points, list):
+            return np.empty((0, 2), dtype=np.float64)
+        parsed_points: list[tuple[float, float]] = []
+        for entry in raw_points:
+            if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+                parsed_points.append((float(entry[0]), float(entry[1])))
+                continue
+            if isinstance(entry, dict):
+                if {"x_m", "y_m"}.issubset(entry):
+                    parsed_points.append((float(entry["x_m"]), float(entry["y_m"])))
+                    continue
+                if {"x", "y"}.issubset(entry):
+                    parsed_points.append((float(entry["x"]), float(entry["y"])))
+                    continue
+        if len(parsed_points) < 2:
+            return np.empty((0, 2), dtype=np.float64)
+        return np.asarray(parsed_points, dtype=np.float64)
 
     def _seed_status_cb(self, msg: String) -> None:
         try:
@@ -560,6 +651,11 @@ class OfflineSubmapRefiner(Node):
                 if accumulated_path_poses.shape[0]
                 else refined_poses[-1]
             )
+            global_correction, global_correction_child_frame_id = self._compute_global_correction(
+                window_records,
+                refined_poses,
+                seed_records,
+            )
             duration_ms = 1000.0 * (time.perf_counter() - start_perf)
             status = self._status_payload(
                 window_start_scan_index=window_start_scan_index,
@@ -571,12 +667,16 @@ class OfflineSubmapRefiner(Node):
                 latest_pose=latest_pose,
                 duration_ms=duration_ms,
                 seed_available=seed_available,
+                global_correction=global_correction,
+                global_correction_child_frame_id=global_correction_child_frame_id,
             )
             with self._lock:
                 self._latest_submap_points = current_submap_points
                 self._latest_map_points = accumulated_map_points
                 self._latest_path_poses = accumulated_path_poses
                 self._latest_pose = latest_pose
+                self._latest_global_correction = global_correction
+                self._latest_global_correction_child_frame_id = global_correction_child_frame_id
                 self._latest_status.data = json.dumps(status, separators=(",", ":"))
                 self._processed_window_count += 1
                 self._next_window_start_index = max(
@@ -810,6 +910,40 @@ class OfflineSubmapRefiner(Node):
         yaw_delta = _wrap_angle(float(next_record.pose_xyyaw[2] - previous_record.pose_xyyaw[2]))
         interp_yaw = _wrap_angle(float(previous_record.pose_xyyaw[2] + (alpha * yaw_delta)))
         return np.asarray([float(interp_xy[0]), float(interp_xy[1]), interp_yaw], dtype=np.float64)
+
+    def _track_geometry_residuals(
+        self,
+        poses_xyyaw: np.ndarray,
+        qualities: list[ScanQuality],
+    ) -> list[np.ndarray]:
+        if (
+            not self._use_track_geometry_prior
+            or self._track_geometry_tree is None
+            or self._track_geometry_points.shape[0] < 2
+            or self._track_geometry_weight <= 0.0
+        ):
+            return []
+        pose_points = poses_xyyaw[:, :2]
+        distances_m, indexes = self._track_geometry_tree.query(pose_points, k=1)
+        residuals: list[np.ndarray] = []
+        for index, nearest_index in enumerate(indexes):
+            confidence = qualities[index].confidence if index < len(qualities) else "low"
+            if confidence == "high":
+                quality_scale = 0.05
+            elif confidence == "medium":
+                quality_scale = 0.25
+            else:
+                quality_scale = 0.55
+            weight = self._track_geometry_weight * quality_scale
+            if weight <= 0.0:
+                continue
+            nearest_point = self._track_geometry_points[int(nearest_index)]
+            delta_xy = pose_points[index] - nearest_point
+            residuals.append((weight * delta_xy).astype(np.float64))
+            if math.isfinite(float(distances_m[index])) and float(distances_m[index]) <= 0.35:
+                continue
+            residuals.append(np.asarray([0.20 * weight * float(np.linalg.norm(delta_xy))], dtype=np.float64))
+        return residuals
 
     def _build_reference_deltas(
         self,
@@ -1086,6 +1220,7 @@ class OfflineSubmapRefiner(Node):
                             dtype=np.float64,
                         )
                     )
+            residuals.extend(self._track_geometry_residuals(poses, qualities))
             if not residuals:
                 return np.zeros(1, dtype=np.float64)
             return np.concatenate(residuals)
@@ -1175,6 +1310,8 @@ class OfflineSubmapRefiner(Node):
         latest_pose: np.ndarray,
         duration_ms: float,
         seed_available: bool,
+        global_correction: np.ndarray,
+        global_correction_child_frame_id: str,
     ) -> dict[str, object]:
         high_count = sum(1 for quality in qualities if quality.confidence == "high")
         medium_count = sum(1 for quality in qualities if quality.confidence == "medium")
@@ -1220,6 +1357,20 @@ class OfflineSubmapRefiner(Node):
                 "y_m": float(latest_pose[1]),
                 "yaw_rad": float(latest_pose[2]),
             },
+            "global_correction": {
+                "enabled": bool(self._publish_global_correction),
+                "child_frame_id": str(global_correction_child_frame_id),
+                "x_m": float(global_correction[0]),
+                "y_m": float(global_correction[1]),
+                "yaw_rad": float(global_correction[2]),
+                "translation_norm_m": float(np.linalg.norm(global_correction[:2])),
+            },
+            "track_geometry_prior": {
+                "enabled": bool(self._use_track_geometry_prior and self._track_geometry_tree is not None),
+                "point_count": int(self._track_geometry_points.shape[0]),
+                "weight": float(self._track_geometry_weight),
+                "file": self._track_geometry_file,
+            },
             "processing_ms": float(duration_ms),
         }
 
@@ -1230,6 +1381,10 @@ class OfflineSubmapRefiner(Node):
             submap_points = self._latest_submap_points.copy()
             path_poses = self._latest_path_poses.copy()
             latest_pose = self._latest_pose.copy()
+            latest_global_correction = self._latest_global_correction.copy()
+            latest_global_correction_child_frame_id = str(
+                self._latest_global_correction_child_frame_id
+            )
             status_msg = String()
             status_msg.data = str(self._latest_status.data)
         self._map_pub.publish(self._pointcloud_message_from_xy(map_points, now_msg))
@@ -1237,6 +1392,15 @@ class OfflineSubmapRefiner(Node):
         self._submap_pub.publish(self._pointcloud_message_from_xy(submap_points, now_msg))
         self._path_pub.publish(self._path_message_from_poses(path_poses, now_msg))
         self._odom_pub.publish(self._odom_message_from_pose(latest_pose, now_msg))
+        if self._publish_global_correction:
+            self._correction_pub.publish(
+                self._transform_message_from_pose(
+                    latest_global_correction,
+                    child_frame_id=latest_global_correction_child_frame_id,
+                    stamp_msg=now_msg,
+                )
+            )
+            self._anchor_pose_pub.publish(self._pose_message_from_pose(latest_pose, now_msg))
         self._status_pub.publish(status_msg)
 
     def _pointcloud_message_from_xy(self, points_xy: np.ndarray, stamp_msg) -> PointCloud2:
@@ -1271,18 +1435,21 @@ class OfflineSubmapRefiner(Node):
         message.header.stamp = stamp_msg
         message.header.frame_id = self._frame_id
         for pose in poses:
-            pose_msg = PoseStamped()
-            pose_msg.header.stamp = stamp_msg
-            pose_msg.header.frame_id = self._frame_id
-            pose_msg.pose.position.x = float(pose[0])
-            pose_msg.pose.position.y = float(pose[1])
-            qx, qy, qz, qw = _yaw_to_quat(float(pose[2]))
-            pose_msg.pose.orientation.x = qx
-            pose_msg.pose.orientation.y = qy
-            pose_msg.pose.orientation.z = qz
-            pose_msg.pose.orientation.w = qw
-            message.poses.append(pose_msg)
+            message.poses.append(self._pose_message_from_pose(pose, stamp_msg))
         return message
+
+    def _pose_message_from_pose(self, pose_xyyaw: np.ndarray, stamp_msg) -> PoseStamped:
+        pose_msg = PoseStamped()
+        pose_msg.header.stamp = stamp_msg
+        pose_msg.header.frame_id = self._frame_id
+        pose_msg.pose.position.x = float(pose_xyyaw[0])
+        pose_msg.pose.position.y = float(pose_xyyaw[1])
+        qx, qy, qz, qw = _yaw_to_quat(float(pose_xyyaw[2]))
+        pose_msg.pose.orientation.x = qx
+        pose_msg.pose.orientation.y = qy
+        pose_msg.pose.orientation.z = qz
+        pose_msg.pose.orientation.w = qw
+        return pose_msg
 
     def _occupancy_grid_message_from_xy(self, points_xy: np.ndarray, stamp_msg) -> OccupancyGrid:
         message = OccupancyGrid()
@@ -1333,6 +1500,73 @@ class OfflineSubmapRefiner(Node):
         message.pose.pose.orientation.z = qz
         message.pose.pose.orientation.w = qw
         return message
+
+    def _transform_message_from_pose(
+        self,
+        pose_xyyaw: np.ndarray,
+        *,
+        child_frame_id: str,
+        stamp_msg,
+    ) -> TransformStamped:
+        message = TransformStamped()
+        message.header.stamp = stamp_msg
+        message.header.frame_id = self._frame_id
+        message.child_frame_id = child_frame_id or self._seed_odom_frame_id
+        message.transform.translation.x = float(pose_xyyaw[0])
+        message.transform.translation.y = float(pose_xyyaw[1])
+        qx, qy, qz, qw = _yaw_to_quat(float(pose_xyyaw[2]))
+        message.transform.rotation.x = qx
+        message.transform.rotation.y = qy
+        message.transform.rotation.z = qz
+        message.transform.rotation.w = qw
+        return message
+
+    def _compute_global_correction(
+        self,
+        window_records: list[ScanRecord],
+        refined_poses: np.ndarray,
+        seed_records: list[OdomRecord],
+    ) -> tuple[np.ndarray, str]:
+        child_frame_id = self._seed_odom_frame_id
+        if not self._publish_global_correction or not seed_records:
+            return self._latest_global_correction.copy(), child_frame_id
+        corrections: list[np.ndarray] = []
+        start_index = max(0, len(window_records) - 8)
+        for window_index in range(start_index, len(window_records)):
+            record = window_records[window_index]
+            seed_pose = self._interpolate_odom(seed_records, float(record.stamp_s))
+            if seed_pose is None:
+                continue
+            seed_position = next(
+                (
+                    odom_record
+                    for odom_record in reversed(seed_records)
+                    if abs(float(odom_record.stamp_s - record.stamp_s)) <= 0.5
+                ),
+                None,
+            )
+            if seed_position is not None and seed_position.frame_id:
+                child_frame_id = seed_position.frame_id
+            refined_pose = refined_poses[window_index]
+            yaw = _wrap_angle(float(refined_pose[2] - seed_pose[2]))
+            cos_yaw = math.cos(yaw)
+            sin_yaw = math.sin(yaw)
+            tx = float(refined_pose[0]) - (
+                (cos_yaw * float(seed_pose[0])) - (sin_yaw * float(seed_pose[1]))
+            )
+            ty = float(refined_pose[1]) - (
+                (sin_yaw * float(seed_pose[0])) + (cos_yaw * float(seed_pose[1]))
+            )
+            corrections.append(np.asarray([tx, ty, yaw], dtype=np.float64))
+        if not corrections:
+            return self._latest_global_correction.copy(), child_frame_id
+        correction_stack = np.vstack(corrections)
+        mean_xy = np.mean(correction_stack[:, :2], axis=0)
+        mean_yaw = math.atan2(
+            float(np.mean(np.sin(correction_stack[:, 2]))),
+            float(np.mean(np.cos(correction_stack[:, 2]))),
+        )
+        return np.asarray([float(mean_xy[0]), float(mean_xy[1]), mean_yaw], dtype=np.float64), child_frame_id
 
 
 def main() -> None:
