@@ -87,6 +87,28 @@ def _prepare_launch(context, *args, **kwargs):
         LaunchConfiguration("use_ideal_lidar_for_slam").perform(context).strip().lower()
         in {"1", "true", "yes", "on"}
     )
+    degrade_odom = (
+        LaunchConfiguration("degrade_odom").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    odom_position_noise_std = float(
+        LaunchConfiguration("odom_position_noise_std").perform(context).strip() or "0.0"
+    )
+    odom_yaw_noise_std = float(
+        LaunchConfiguration("odom_yaw_noise_std").perform(context).strip() or "0.0"
+    )
+    odom_velocity_noise_std = float(
+        LaunchConfiguration("odom_velocity_noise_std").perform(context).strip() or "0.0"
+    )
+    odom_yaw_bias_per_sec = float(
+        LaunchConfiguration("odom_yaw_bias_per_sec").perform(context).strip() or "0.0"
+    )
+    odom_latency_sec = float(
+        LaunchConfiguration("odom_latency_sec").perform(context).strip() or "0.0"
+    )
+    lidar_noise_std = float(
+        LaunchConfiguration("lidar_noise_std").perform(context).strip() or "0.0"
+    )
     if mapping_mode not in {"current", "ideal"}:
         mapping_mode = "current"
     ideal_mapping_mode = mapping_mode == "ideal"
@@ -293,7 +315,17 @@ def _prepare_launch(context, *args, **kwargs):
         "cmd_vel_to_apex_actuation_node",
     )
 
-    robot_description = ParameterValue(Command(["xacro ", robot_xacro]), value_type=str)
+    robot_description = ParameterValue(
+        Command(
+            [
+                "xacro ",
+                robot_xacro,
+                " lidar_noise_std:=",
+                LaunchConfiguration("lidar_noise_std"),
+            ]
+        ),
+        value_type=str,
+    )
     gz_sim = ExecuteProcess(
         cmd=["gz", "sim", "-r", world_path],
         output="screen",
@@ -357,20 +389,36 @@ def _prepare_launch(context, *args, **kwargs):
         parameters=[ground_truth_params],
         additional_env={"PYTHONPATH": pythonpath_value},
     )
+    ground_truth_tf_bridge_params = {
+        "use_sim_time": True,
+        "source_odom_topic": "/apex/sim/ground_truth/odom",
+        "ideal_odom_topic": "/apex/sim/ideal_odom",
+        "odom_frame_id": "odom",
+        "child_frame_id": "base_link",
+    }
+    if ideal_mapping_mode:
+        ground_truth_tf_bridge_params.update(
+            {
+                "degrade_odom": degrade_odom,
+                # Position noise is applied only in x/y to keep the planar
+                # mapping experiments focused on odom drift, not sensor height.
+                "odom_position_noise_std": odom_position_noise_std,
+                # Yaw noise perturbs the pose heading before the TF is published.
+                "odom_yaw_noise_std": odom_yaw_noise_std,
+                # Velocity noise perturbs twist terms without touching the scan.
+                "odom_velocity_noise_std": odom_velocity_noise_std,
+                # Bias accumulates slowly over time to emulate heading drift.
+                "odom_yaw_bias_per_sec": odom_yaw_bias_per_sec,
+                # Latency delays the odom + TF publication as one unit.
+                "odom_latency_sec": odom_latency_sec,
+            }
+        )
     ground_truth_tf_bridge = Node(
         package="rc_sim_description",
         executable="apex_ground_truth_tf_bridge.py",
         name="apex_ground_truth_tf_bridge",
         output="screen",
-        parameters=[
-            {
-                "use_sim_time": True,
-                "source_odom_topic": "/apex/sim/ground_truth/odom",
-                "ideal_odom_topic": "/apex/sim/ideal_odom",
-                "odom_frame_id": "odom",
-                "child_frame_id": "base_link",
-            }
-        ],
+        parameters=[ground_truth_tf_bridge_params],
     )
     fixed_map_publisher = None
     if fixed_map_run_dir is not None:
@@ -556,6 +604,20 @@ def _prepare_launch(context, *args, **kwargs):
                 "uses apex_ground_truth_tf_bridge.py for odom -> base_link."
             )
         ),
+        LogInfo(
+            msg=(
+                "[apex_sim] ideal odom degradation "
+                f"(enabled={str(degrade_odom).lower()} pos_std={odom_position_noise_std:.4f} "
+                f"yaw_std={odom_yaw_noise_std:.4f} vel_std={odom_velocity_noise_std:.4f} "
+                f"yaw_bias_per_sec={odom_yaw_bias_per_sec:.4f} latency={odom_latency_sec:.4f})"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] ideal lidar noise "
+                f"(std={lidar_noise_std:.4f} m on /apex/sim/scan)"
+            )
+        ),
     ]
 
     actions = [
@@ -606,6 +668,13 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("mapping_mode", default_value="current"),
             DeclareLaunchArgument("use_ideal_pose_for_slam", default_value="false"),
             DeclareLaunchArgument("use_ideal_lidar_for_slam", default_value="false"),
+            DeclareLaunchArgument("degrade_odom", default_value="false"),
+            DeclareLaunchArgument("odom_position_noise_std", default_value="0.0"),
+            DeclareLaunchArgument("odom_yaw_noise_std", default_value="0.0"),
+            DeclareLaunchArgument("odom_velocity_noise_std", default_value="0.0"),
+            DeclareLaunchArgument("odom_yaw_bias_per_sec", default_value="0.0"),
+            DeclareLaunchArgument("odom_latency_sec", default_value="0.0"),
+            DeclareLaunchArgument("lidar_noise_std", default_value="0.0"),
             DeclareLaunchArgument("slam_params_file", default_value=default_slam_params_file),
             DeclareLaunchArgument("x", default_value=""),
             DeclareLaunchArgument("y", default_value=""),
