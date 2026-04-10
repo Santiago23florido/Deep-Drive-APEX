@@ -1,38 +1,29 @@
 {
   "pose_gt": {
-    "x_m": 4.341553148794769,
-    "y_m": -2.401376764514367,
-    "yaw_rad": 0.008962264594305084
+    "x_m": 5.946253755550581,
+    "y_m": 2.0069276825900078,
+    "yaw_rad": 1.6310736556394099
   },
   "rear_axle_gt": {
-    "x_m": 4.191559172918446,
-    "y_m": -2.4027210862068675,
-    "yaw_rad": 0.008962264594305084
+    "x_m": 5.955289880646422,
+    "y_m": 1.8572001018199562,
+    "yaw_rad": 1.6310736556394099
   },
-  "pose_gt_estimation_frame": {
-    "x_m": 4.341553148795897,
-    "y_m": 0.09862323548563312,
-    "yaw_rad": 0.008962264594305084
-  },
+  "pose_gt_estimation_frame": {},
   "twist_gt": {
     "vx_mps": 0.0,
-    "vy_mps": 0.0,
+    "vy_mps": -0.0,
     "yaw_rate_rps": 0.0
   },
-  "steering_real_deg": 1.0899940756481892e-204,
-  "front_left_steering_rad": 0.002260086098211635,
-  "front_right_steering_rad": 4.474887223943422e-06,
-  "clearance_left_m": 0.46163835574648293,
-  "clearance_right_m": 0.6425521070515039,
-  "clearance_inner_m": 0.46163835574648293,
-  "clearance_outer_m": 0.6425521070515039,
-  "nearest_wall_m": 0.459809694891394,
-  "fusion_error": {
-    "x_m": 0.8702792066320924,
-    "y_m": -7.1885478438010395,
-    "pos_m": 7.241036251815949,
-    "yaw_rad": -1.9744077530230066
-  },
+  "steering_real_deg": -1.0114246345279332e-67,
+  "front_left_steering_rad": 0.00030430776984972474,
+  "front_right_steering_rad": -0.00022232091295839812,
+  "clearance_left_m": 1.1633127799978804,
+  "clearance_right_m": 0.4449473061894694,
+  "clearance_inner_m": 0.4449473061894694,
+  "clearance_outer_m": 1.1633127799978804,
+  "nearest_wall_m": 0.36033368666874527,
+  "fusion_error": {},
   "local_path_error_m": NaN,
   "drive_bridge_status": {},
   "vehicle_state": {
@@ -41,7 +32,7 @@
     "target_speed_mps": 0.0,
     "applied_speed_mps": 0.0,
     "target_steering_deg": -0.0,
-    "applied_steering_deg": 1.0899940756481892e-204,
+    "applied_steering_deg": -1.0114246345279332e-67,
     "front_left_steering_rad": 0.0,
     "front_right_steering_rad": 0.0,
     "rear_left_wheel_radps": 0.0,

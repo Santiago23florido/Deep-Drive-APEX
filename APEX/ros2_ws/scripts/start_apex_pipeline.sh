@@ -23,6 +23,8 @@ ENABLE_PATH_TRACKER="${APEX_ENABLE_PATH_TRACKER:-0}"
 ENABLE_RECOGNITION_TOUR_PLANNER="${APEX_ENABLE_RECOGNITION_TOUR_PLANNER:-0}"
 ENABLE_RECOGNITION_TOUR_TRACKER="${APEX_ENABLE_RECOGNITION_TOUR_TRACKER:-0}"
 ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
+ENABLE_MANUAL_CONTROL_BRIDGE="${APEX_ENABLE_MANUAL_CONTROL_BRIDGE:-0}"
+ENABLE_RECOGNITION_SESSION_MANAGER="${APEX_ENABLE_RECOGNITION_SESSION_MANAGER:-0}"
 STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-modern}"
 STAGGERED_STARTUP="${APEX_STAGGERED_STARTUP:-1}"
 SERIAL_WARMUP_S="${APEX_SERIAL_WARMUP_S:-1.0}"
@@ -360,6 +362,26 @@ else
   echo "[APEX] CmdVel actuation bridge disabled for this run"
 fi
 
+if [[ "${ENABLE_MANUAL_CONTROL_BRIDGE}" == "1" ]]; then
+  python3 -m apex_telemetry.control.windows_gamepad_bridge_node \
+    --ros-args \
+    --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
+  startup_stage_sleep "manual control bridge"
+else
+  echo "[APEX] Manual control bridge disabled for this run"
+fi
+
+if [[ "${ENABLE_RECOGNITION_SESSION_MANAGER}" == "1" ]]; then
+  python3 -m apex_telemetry.control.recognition_session_manager_node \
+    --ros-args \
+    --params-file "${PARAMS_FILE}" &
+  PIDS+=("$!")
+  startup_stage_sleep "recognition session manager"
+else
+  echo "[APEX] Recognition session manager disabled for this run"
+fi
+
 ros2 run tf2_ros static_transform_publisher \
   --x "${APEX_LIDAR_X_M:-0.18}" \
   --y "${APEX_LIDAR_Y_M:-0.0}" \
@@ -392,6 +414,12 @@ if [[ "${ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
 fi
 if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
   PIPELINE_FEATURES+=("cmd_vel bridge")
+fi
+if [[ "${ENABLE_MANUAL_CONTROL_BRIDGE}" == "1" ]]; then
+  PIPELINE_FEATURES+=("manual control bridge")
+fi
+if [[ "${ENABLE_RECOGNITION_SESSION_MANAGER}" == "1" ]]; then
+  PIPELINE_FEATURES+=("session manager")
 fi
 PIPELINE_FEATURE_SUMMARY=""
 for FEATURE in "${PIPELINE_FEATURES[@]}"; do

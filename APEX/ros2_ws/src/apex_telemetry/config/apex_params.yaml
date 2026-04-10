@@ -403,6 +403,47 @@ recognition_tour_tracker_node:
     global_timeout_s: 60.0
     odom_timeout_s: 0.75
 
+windows_gamepad_bridge_node:
+  ros__parameters:
+    status_topic: "/apex/manual_control/status"
+    session_toggle_topic: "/apex/manual_control/session_toggle"
+    listen_host: "0.0.0.0"
+    listen_port: 8765
+    publish_rate_hz: 25.0
+    command_timeout_s: 0.50
+    start_button_field: "start_pressed"
+
+recognition_session_manager_node:
+  ros__parameters:
+    manual_control_status_topic: "/apex/manual_control/status"
+    session_toggle_topic: "/apex/manual_control/session_toggle"
+    arm_topic: "/apex/tracking/arm"
+    cmd_vel_topic: "/apex/cmd_vel_track"
+    session_status_topic: "/apex/recognition_session/status"
+    kinematics_status_topic: "/apex/kinematics/status"
+    fusion_status_topic: "/apex/estimation/status"
+    planner_status_topic: "/apex/planning/recognition_tour_status"
+    tracker_status_topic: "/apex/tracking/recognition_tour_status"
+    drive_bridge_status_topic: "/apex/vehicle/drive_bridge_status"
+    control_rate_hz: 20.0
+    status_publish_interval_s: 0.25
+    manual_status_stale_s: 1.0
+    bridge_disconnect_hold_s: 0.75
+    recorder_shutdown_grace_s: 20.0
+    run_id_prefix: "recognition_tour"
+    run_root_dir: "/work/ros2_ws/apex_recognition_tour"
+    runtime_status_path: "/work/repo/APEX/.apex_runtime/real_session/status.json"
+    sensor_capture_script_path: "/work/ros2_ws/scripts/capture/record_manual_sensorfusion_capture.py"
+    recognition_recorder_script_path: "/work/ros2_ws/scripts/capture/record_recognition_tour.py"
+    mapper_script_path: "/work/repo/src/rc_sim_description/scripts/apex_general_track_mapper.py"
+    evaluation_world: "/work/repo/src/rc_sim_description/worlds/basic_track.world"
+    record_timeout_s: 60.0
+    lidar_offset_x_m: 0.18
+    lidar_offset_y_m: 0.0
+    rear_axle_offset_x_m: -0.15
+    rear_axle_offset_y_m: 0.0
+    planner_wait_ready_states: "waiting_arm,tracking"
+
 cmd_vel_to_apex_actuation_node:
   ros__parameters:
     cmd_vel_topic: "/apex/cmd_vel_track"

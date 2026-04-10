@@ -12,7 +12,7 @@
   "control_mode": "manual_windows_bridge",
   "mapping_mode": "ideal",
   "estimation_mode": "ideal",
-  "distortion_profile": "medium",
+  "distortion_profile": "ideal",
   "refinement_mode": "offline_submaps",
   "offline_replay_mode": "live_buffer",
   "world_path": "/home/santiago/AiAtonomousRc/install/rc_sim_description/share/rc_sim_description/worlds/basic_track.world"

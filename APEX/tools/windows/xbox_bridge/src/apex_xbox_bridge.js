@@ -244,6 +244,7 @@ function computeCommand(rawState, cfg, rampState) {
     controller_connected: controllerConnected,
     enabled,
     device_name: rawState.device_name || "Xbox Controller",
+    start_pressed: !!rawState.start,
     raw_linear_axis: rawLinearAxis,
     raw_steering_axis: rawSteeringAxis,
     steering_source: cfg.steeringStick,

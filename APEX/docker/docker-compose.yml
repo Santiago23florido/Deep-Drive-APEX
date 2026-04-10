@@ -38,6 +38,8 @@ services:
       APEX_ENABLE_RECOGNITION_TOUR_PLANNER: "${APEX_ENABLE_RECOGNITION_TOUR_PLANNER:-0}"
       APEX_ENABLE_RECOGNITION_TOUR_TRACKER: "${APEX_ENABLE_RECOGNITION_TOUR_TRACKER:-0}"
       APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE: "${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
+      APEX_ENABLE_MANUAL_CONTROL_BRIDGE: "${APEX_ENABLE_MANUAL_CONTROL_BRIDGE:-0}"
+      APEX_ENABLE_RECOGNITION_SESSION_MANAGER: "${APEX_ENABLE_RECOGNITION_SESSION_MANAGER:-0}"
       APEX_STARTUP_COMPAT: "${APEX_STARTUP_COMPAT:-}"
       APEX_STAGGERED_STARTUP: "${APEX_STAGGERED_STARTUP:-}"
       APEX_SERIAL_WARMUP_S: "${APEX_SERIAL_WARMUP_S:-}"
@@ -112,6 +114,7 @@ services:
       APEX_DEBUG_OUTPUT_DIR: "${APEX_DEBUG_OUTPUT_DIR:-/work/ros2_ws/debug_runs}"
     volumes:
       - ../ros2_ws:/work/ros2_ws
+      - ../../:/work/repo
       - /sys/class/pwm:/sys/class/pwm
     working_dir: /work/ros2_ws
     command: ["/bin/bash", "/work/ros2_ws/scripts/start_apex_pipeline.sh"]
