@@ -9,9 +9,10 @@ slam_toolbox:
     base_frame: base_link
     # The ideal stage bypasses the degraded LiDAR pipeline and maps directly
     # from Gazebo's perfect LaserScan topic.
-    scan_topic: /apex/sim/scan_ideal
+    scan_topic: /apex/sim/scan
 
-    # Keep the async mapper queue short while validating the ideal geometry.
+    # Async mapping is most stable here with a single queued scan while we
+    # validate the URDF-based LiDAR geometry.
     scan_queue_size: 1
     throttle_scans: 1
     transform_publish_period: 0.05
@@ -24,15 +25,18 @@ slam_toolbox:
     stack_size_to_use: 40000000
     enable_interactive_mode: true
 
-    use_scan_matching: true
-    use_scan_barycenter: true
-    minimum_travel_distance: 0.03
-    minimum_travel_heading: 0.03
+    # In the first ideal-mapping stage we trust Gazebo ground-truth odom and
+    # use slam_toolbox mainly as an online occupancy mapper. This keeps the
+    # async matcher from bending the trajectory after tight curves.
+    use_scan_matching: false
+    use_scan_barycenter: false
+    minimum_travel_distance: 0.05
+    minimum_travel_heading: 0.05
     scan_buffer_size: 20
     scan_buffer_maximum_scan_distance: 15.0
     link_match_minimum_response_fine: 0.12
     link_scan_maximum_distance: 1.5
     loop_search_maximum_distance: 3.0
-    # Disable loop closure temporarily while diagnosing the ideal scan / TF
-    # geometry so curve distortion comes only from the live odom + scan chain.
+    # Keep loop closure off during the initial geometry / TF validation so the
+    # live scan + odom chain is the only thing shaping the map.
     do_loop_closing: false

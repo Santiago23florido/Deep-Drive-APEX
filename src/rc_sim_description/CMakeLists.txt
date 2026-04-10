@@ -30,7 +30,6 @@ install(
   PROGRAMS
     scripts/apex_gz_vehicle_bridge.py
     scripts/apex_cmd_vel_to_sim_pwm_node.py
-    scripts/apex_scan_frame_adapter.py
     scripts/apex_ground_truth_node.py
     scripts/apex_ground_truth_tf_bridge.py
     scripts/apex_refined_sensorfusion_map_node.py

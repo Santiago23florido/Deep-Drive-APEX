@@ -207,7 +207,7 @@ def _prepare_launch(context, *args, **kwargs):
     # In ideal mapping mode slam_toolbox consumes Gazebo's perfect scan directly
     # instead of the degraded LiDAR topics published by the telemetry pipeline.
     if slam_uses_ideal_lidar:
-        ideal_slam_ros_params["scan_topic"] = "/apex/sim/scan_ideal"
+        ideal_slam_ros_params["scan_topic"] = "/apex/sim/scan"
     # slam_toolbox tracks motion through TF, so the ideal Gazebo ground truth is
     # bridged into the standard odom -> base_link frames for this first mapping stage.
     if slam_uses_ideal_pose:
@@ -372,21 +372,6 @@ def _prepare_launch(context, *args, **kwargs):
             }
         ],
     )
-    ideal_scan_frame_adapter = Node(
-        package="rc_sim_description",
-        executable="apex_scan_frame_adapter.py",
-        name="apex_scan_frame_adapter",
-        output="screen",
-        parameters=[
-            {
-                "use_sim_time": True,
-                "source_scan_topic": "/apex/sim/scan",
-                "target_scan_topic": "/apex/sim/scan_ideal",
-                "target_frame_id": "laser",
-            }
-        ],
-    )
-
     fixed_map_publisher = None
     if fixed_map_run_dir is not None:
         fixed_map_dir = fixed_map_run_dir / "fixed_map"
@@ -559,11 +544,10 @@ def _prepare_launch(context, *args, **kwargs):
         ),
         LogInfo(
             msg=(
-                "[apex_sim] mapping_mode=ideal normalizes Gazebo scan "
-                "/apex/sim/scan -> /apex/sim/scan_ideal with frame 'laser'; "
-                "if Gazebo still publishes another scan frame, the adapter applies "
-                "TF-based yaw correction before slam_toolbox. No manual lidar "
-                "static TF is launched."
+                "[apex_sim] mapping_mode=ideal uses Gazebo scan topic "
+                "/apex/sim/scan directly, relies on the URDF-published "
+                "base_link -> laser TF only, and trusts ideal odom for the "
+                "initial mapping pass. No manual lidar static TF is launched."
             )
         ),
         LogInfo(
@@ -582,7 +566,6 @@ def _prepare_launch(context, *args, **kwargs):
         sim_bridges,
         TimerAction(period=2.0, actions=[spawn_rc]),
         TimerAction(period=2.5, actions=[vehicle_bridge, ground_truth]),
-        TimerAction(period=2.7, actions=[ideal_scan_frame_adapter]) if ideal_mapping_mode else None,
         TimerAction(period=2.8, actions=[ground_truth_tf_bridge]) if slam_uses_ideal_pose else None,
         TimerAction(period=3.0, actions=[ideal_cmd_vel_bridge]) if ideal_mapping_mode else None,
         TimerAction(period=3.0, actions=[apex_pipeline]) if apex_pipeline is not None else None,
