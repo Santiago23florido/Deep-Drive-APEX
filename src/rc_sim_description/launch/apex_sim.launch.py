@@ -97,6 +97,9 @@ def _prepare_launch(context, *args, **kwargs):
         LaunchConfiguration("offline_replay_mode").perform(context).strip().lower()
         or "live_buffer"
     )
+    sim_max_linear_speed_mps_value = (
+        LaunchConfiguration("sim_max_linear_speed_mps").perform(context).strip()
+    )
     use_ideal_pose_for_slam = (
         LaunchConfiguration("use_ideal_pose_for_slam").perform(context).strip().lower()
         in {"1", "true", "yes", "on"}
@@ -142,6 +145,9 @@ def _prepare_launch(context, *args, **kwargs):
     )
     offline_update_period_sec = float(
         LaunchConfiguration("offline_update_period_sec").perform(context).strip() or "0.5"
+    )
+    sim_max_linear_speed_mps = (
+        float(sim_max_linear_speed_mps_value) if sim_max_linear_speed_mps_value else None
     )
     offline_seed_odom_topic_override = (
         LaunchConfiguration("offline_seed_odom_topic").perform(context).strip()
@@ -839,7 +845,9 @@ def _prepare_launch(context, *args, **kwargs):
                 # The direct Gazebo PWM bridge keeps manual control alive in the
                 # sim-only estimation modes without pulling in the old pipeline.
                 "max_linear_speed_mps": float(
-                    cmd_vel_bridge_ros_params.get(
+                    sim_max_linear_speed_mps
+                    if sim_max_linear_speed_mps is not None
+                    else cmd_vel_bridge_ros_params.get(
                         "max_linear_speed_mps",
                         vehicle_bridge_params.get("motor_max_forward_speed_mps", 0.60),
                     )
@@ -858,7 +866,11 @@ def _prepare_launch(context, *args, **kwargs):
 
     enable_recognition_tour = control_mode not in {"manual_xbox", "manual_windows_bridge"}
 
-    sim_only_cmd_vel_bridge_required = ideal_estimation_mode or rf2o_ekf_estimation_mode
+    sim_only_cmd_vel_bridge_required = (
+        ideal_estimation_mode
+        or rf2o_ekf_estimation_mode
+        or control_mode in {"manual_xbox", "manual_windows_bridge"}
+    )
 
     apex_pipeline = None
     if current_estimation_mode or (offline_online_fusion_seed_mode and not distance_field_online_seed_mode):
@@ -1330,6 +1342,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("distortion_profile", default_value=""),
             DeclareLaunchArgument("refinement_mode", default_value="none"),
             DeclareLaunchArgument("offline_replay_mode", default_value="live_buffer"),
+            DeclareLaunchArgument("sim_max_linear_speed_mps", default_value=""),
             DeclareLaunchArgument("window_scan_count", default_value="48"),
             DeclareLaunchArgument("window_overlap_count", default_value="16"),
             DeclareLaunchArgument("initial_scan_count", default_value="24"),

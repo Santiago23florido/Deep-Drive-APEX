@@ -17,10 +17,11 @@ const DEFAULTS = {
   maxLinearSpeedMps: 1.50,
   maxSteeringDeg: 18.0,
   wheelbaseM: 0.30,
-  steeringStick: "left",
+  steeringStick: "right",
   holdForwardRampDelayS: 0.80,
   holdForwardRampDurationS: 3.00,
   holdForwardActivationAxis: 0.20,
+  sessionToggleTriggerThreshold: 0.65,
   requireAButton: false,
 };
 
@@ -35,9 +36,10 @@ Options:
   --max-linear-speed <m/s> Forward speed ceiling after hold boost. Default: 1.50
   --max-steering-deg <deg> Steering limit. Default: 18
   --wheelbase-m <m>        Wheelbase used for angular_z. Default: 0.30
-  --steering-stick <s>     left | right. Default: left
+  --steering-stick <s>     left | right. Default: right
   --hold-ramp-delay-s <s>  Time holding forward before boost starts. Default: 0.80
   --hold-ramp-duration-s <s> Time to ramp from base to max. Default: 3.00
+  --session-toggle-trigger-threshold <0..1> Trigger threshold for session toggle. Default: 0.65
   --require-a-button       Require A button to enable movement
   -h, --help               Show this help
 `);
@@ -75,6 +77,8 @@ function parseArgs(argv) {
       cfg.holdForwardRampDelayS = Number(next() || cfg.holdForwardRampDelayS);
     } else if (arg === "--hold-ramp-duration-s") {
       cfg.holdForwardRampDurationS = Number(next() || cfg.holdForwardRampDurationS);
+    } else if (arg === "--session-toggle-trigger-threshold") {
+      cfg.sessionToggleTriggerThreshold = Number(next() || cfg.sessionToggleTriggerThreshold);
     } else if (arg === "--require-a-button") {
       cfg.requireAButton = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -89,6 +93,7 @@ function parseArgs(argv) {
   cfg.holdForwardRampDelayS = Math.max(0.0, Number(cfg.holdForwardRampDelayS));
   cfg.holdForwardRampDurationS = Math.max(0.05, Number(cfg.holdForwardRampDurationS));
   cfg.holdForwardActivationAxis = clamp(Number(cfg.holdForwardActivationAxis), 0.05, 0.95);
+  cfg.sessionToggleTriggerThreshold = clamp(Number(cfg.sessionToggleTriggerThreshold), 0.05, 0.99);
   return cfg;
 }
 
@@ -177,6 +182,8 @@ while ($true) {
     left_y = [math]::Round((NormalizeThumb $state.Gamepad.sThumbLY 7849), 6)
     right_x = [math]::Round((NormalizeThumb $state.Gamepad.sThumbRX 8689), 6)
     right_y = [math]::Round((NormalizeThumb $state.Gamepad.sThumbRY 8689), 6)
+    left_trigger = [math]::Round(([double]$state.Gamepad.bLeftTrigger / 255.0), 6)
+    right_trigger = [math]::Round(([double]$state.Gamepad.bRightTrigger / 255.0), 6)
     a = (($buttons -band 0x1000) -ne 0)
     b = (($buttons -band 0x2000) -ne 0)
     x = (($buttons -band 0x4000) -ne 0)
@@ -202,7 +209,7 @@ function createTempPowerShellScript(pollMs) {
 function computeCommand(rawState, cfg, rampState) {
   const controllerConnected = !!rawState.controller_connected;
   const rawLinearAxis = controllerConnected
-    ? Math.max(0.0, applyDeadband(Number(rawState.left_y || 0.0), cfg.axisDeadband))
+    ? clamp(applyDeadband(Number(rawState.left_y || 0.0), cfg.axisDeadband), -1.0, 1.0)
     : 0.0;
   const steeringValue =
     cfg.steeringStick === "left" ? Number(rawState.left_x || 0.0) : Number(rawState.right_x || 0.0);
@@ -211,6 +218,12 @@ function computeCommand(rawState, cfg, rampState) {
     : 0.0;
   const enabled = controllerConnected && (!cfg.requireAButton || !!rawState.a);
   const nowMs = Number(rawState.stamp_ms || Date.now());
+  const leftTrigger = controllerConnected ? clamp(Number(rawState.left_trigger || 0.0), 0.0, 1.0) : 0.0;
+  const rightTrigger = controllerConnected ? clamp(Number(rawState.right_trigger || 0.0), 0.0, 1.0) : 0.0;
+  const sessionTogglePressed =
+    controllerConnected &&
+    leftTrigger >= cfg.sessionToggleTriggerThreshold &&
+    rightTrigger >= cfg.sessionToggleTriggerThreshold;
 
   if (enabled && rawLinearAxis >= cfg.holdForwardActivationAxis) {
     if (rampState.forwardHoldStartMs === null) {
@@ -234,17 +247,21 @@ function computeCommand(rawState, cfg, rampState) {
     }
   }
 
-  const linearX = enabled ? rawLinearAxis * currentLinearCapMps : 0.0;
+  const linearCapMps = rawLinearAxis >= 0.0 ? currentLinearCapMps : cfg.baseLinearSpeedMps;
+  const linearX = enabled ? rawLinearAxis * linearCapMps : 0.0;
   const steeringDeg = enabled ? rawSteeringAxis * cfg.maxSteeringDeg : 0.0;
   const angularZ =
-    linearX > 1.0e-4
+    Math.abs(linearX) > 1.0e-4
       ? (linearX * Math.tan((steeringDeg * Math.PI) / 180.0)) / cfg.wheelbaseM
       : 0.0;
   return {
     controller_connected: controllerConnected,
     enabled,
     device_name: rawState.device_name || "Xbox Controller",
-    start_pressed: !!rawState.start,
+    start_pressed: sessionTogglePressed,
+    left_trigger: leftTrigger,
+    right_trigger: rightTrigger,
+    start_button: !!rawState.start,
     raw_linear_axis: rawLinearAxis,
     raw_steering_axis: rawSteeringAxis,
     steering_source: cfg.steeringStick,
@@ -367,6 +384,9 @@ function main() {
   console.log("[APEX][xbox-bridge] started");
   console.log(
     `[APEX][xbox-bridge] mapping: left stick Y -> speed, ${cfg.steeringStick} stick X -> steering`
+  );
+  console.log(
+    `[APEX][xbox-bridge] session toggle: both triggers >= ${cfg.sessionToggleTriggerThreshold.toFixed(2)}`
   );
   console.log(
     `[APEX][xbox-bridge] forward hold boost: ${cfg.baseLinearSpeedMps.toFixed(2)} -> ` +

@@ -38,6 +38,8 @@ SERIAL_CONNECT_PROFILE_NAME="${APEX_SERIAL_CONNECT_PROFILE_NAME:-}"
 SERIAL_NO_DATA_RECONNECT_S="${APEX_SERIAL_NO_DATA_RECONNECT_S:-}"
 BRIDGE_MIN_EFFECTIVE_SPEED_PCT="${APEX_BRIDGE_MIN_EFFECTIVE_SPEED_PCT:-}"
 BRIDGE_MAX_SPEED_PCT="${APEX_BRIDGE_MAX_SPEED_PCT:-}"
+BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT="${APEX_BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT:-}"
+BRIDGE_MAX_REVERSE_SPEED_PCT="${APEX_BRIDGE_MAX_REVERSE_SPEED_PCT:-}"
 BRIDGE_LAUNCH_BOOST_SPEED_PCT="${APEX_BRIDGE_LAUNCH_BOOST_SPEED_PCT:-}"
 BRIDGE_LAUNCH_BOOST_HOLD_S="${APEX_BRIDGE_LAUNCH_BOOST_HOLD_S:-}"
 BRIDGE_ACTIVE_BRAKE_ON_ZERO="${APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO:-}"
@@ -147,19 +149,30 @@ force_steering_center_from_params() {
   if [ ! -d /sys/class/pwm ]; then
     return
   fi
-  local chip_path channel frequency_hz dc_min dc_max trim_dc center_dc pwm_dir
+  local chip_path channel frequency_hz dc_min dc_max trim_dc min_authority_ratio center_dc pwm_dir
   chip_path="$(first_pwm_chip_path)"
   channel="$(read_param_value "steering_channel")"
   frequency_hz="$(read_param_value "steering_frequency_hz")"
   dc_min="$(read_param_value "steering_dc_min")"
   dc_max="$(read_param_value "steering_dc_max")"
   trim_dc="$(read_param_value "steering_center_trim_dc")"
-  center_dc="$(python3 - "${dc_min}" "${dc_max}" "${trim_dc}" <<'PY'
+  min_authority_ratio="$(read_param_value "steering_min_authority_ratio")"
+  center_dc="$(python3 - "${dc_min}" "${dc_max}" "${trim_dc}" "${min_authority_ratio}" <<'PY'
 import sys
 dc_min = float(sys.argv[1])
 dc_max = float(sys.argv[2])
 trim_dc = float(sys.argv[3])
-print((0.5 * (dc_min + dc_max)) + trim_dc)
+min_authority_ratio = float(sys.argv[4])
+raw_dc_center = 0.5 * (dc_min + dc_max) + trim_dc
+half_span = 0.5 * (dc_max - dc_min)
+required_half_span = max(0.0, min(1.0, min_authority_ratio)) * half_span
+dc_center_min = dc_min + required_half_span
+dc_center_max = dc_max - required_half_span
+if dc_center_min <= dc_center_max:
+    dc_center = min(max(raw_dc_center, dc_center_min), dc_center_max)
+else:
+    dc_center = 0.5 * (dc_min + dc_max)
+print(dc_center)
 PY
 )"
   pwm_dir="$(ensure_pwm_channel_dir "${chip_path}" "${channel}")"
@@ -332,7 +345,7 @@ else
 fi
 
 if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
-  echo "[APEX] CmdVel bridge launch config: min=${BRIDGE_MIN_EFFECTIVE_SPEED_PCT:-yaml}% max=${BRIDGE_MAX_SPEED_PCT:-yaml}% launch_boost=${BRIDGE_LAUNCH_BOOST_SPEED_PCT:-yaml}% hold=${BRIDGE_LAUNCH_BOOST_HOLD_S:-yaml}s active_brake=${BRIDGE_ACTIVE_BRAKE_ON_ZERO:-yaml}"
+  echo "[APEX] CmdVel bridge launch config: min=${BRIDGE_MIN_EFFECTIVE_SPEED_PCT:-yaml}% max=${BRIDGE_MAX_SPEED_PCT:-yaml}% rev_min=${BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT:-yaml}% rev_max=${BRIDGE_MAX_REVERSE_SPEED_PCT:-yaml}% launch_boost=${BRIDGE_LAUNCH_BOOST_SPEED_PCT:-yaml}% hold=${BRIDGE_LAUNCH_BOOST_HOLD_S:-yaml}s active_brake=${BRIDGE_ACTIVE_BRAKE_ON_ZERO:-yaml}"
   CMD=(python3 -m apex_telemetry.actuation.cmd_vel_to_apex_actuation_node
     --ros-args
     --params-file "${PARAMS_FILE}")
@@ -341,6 +354,12 @@ if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
   fi
   if [[ -n "${BRIDGE_MAX_SPEED_PCT}" ]]; then
     CMD+=(-p "max_speed_pct:=${BRIDGE_MAX_SPEED_PCT}")
+  fi
+  if [[ -n "${BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT}" ]]; then
+    CMD+=(-p "min_effective_reverse_speed_pct:=${BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT}")
+  fi
+  if [[ -n "${BRIDGE_MAX_REVERSE_SPEED_PCT}" ]]; then
+    CMD+=(-p "max_reverse_speed_pct:=${BRIDGE_MAX_REVERSE_SPEED_PCT}")
   fi
   if [[ -n "${BRIDGE_LAUNCH_BOOST_SPEED_PCT}" ]]; then
     CMD+=(-p "launch_boost_speed_pct:=${BRIDGE_LAUNCH_BOOST_SPEED_PCT}")

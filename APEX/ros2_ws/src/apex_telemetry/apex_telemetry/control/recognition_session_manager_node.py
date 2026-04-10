@@ -98,6 +98,12 @@ class RecognitionSessionManagerNode(Node):
             "/work/repo/src/rc_sim_description/worlds/basic_track.world",
         )
         self.declare_parameter("record_timeout_s", 60.0)
+        self.declare_parameter("publish_tracker_arm", False)
+        self.declare_parameter("sensor_capture_max_total_bytes", 134217728)
+        self.declare_parameter("recognition_recorder_max_total_bytes", 134217728)
+        self.declare_parameter("run_max_total_bytes", 268435456)
+        self.declare_parameter("min_free_disk_bytes", 536870912)
+        self.declare_parameter("storage_check_interval_s", 1.0)
         self.declare_parameter("lidar_offset_x_m", 0.18)
         self.declare_parameter("lidar_offset_y_m", 0.0)
         self.declare_parameter("rear_axle_offset_x_m", -0.15)
@@ -151,6 +157,18 @@ class RecognitionSessionManagerNode(Node):
             str(self.get_parameter("evaluation_world").value)
         ).expanduser().resolve()
         self._record_timeout_s = max(5.0, float(self.get_parameter("record_timeout_s").value))
+        self._publish_tracker_arm = bool(self.get_parameter("publish_tracker_arm").value)
+        self._sensor_capture_max_total_bytes = max(
+            0, int(self.get_parameter("sensor_capture_max_total_bytes").value)
+        )
+        self._recognition_recorder_max_total_bytes = max(
+            0, int(self.get_parameter("recognition_recorder_max_total_bytes").value)
+        )
+        self._run_max_total_bytes = max(0, int(self.get_parameter("run_max_total_bytes").value))
+        self._min_free_disk_bytes = max(0, int(self.get_parameter("min_free_disk_bytes").value))
+        self._storage_check_interval_s = max(
+            0.25, float(self.get_parameter("storage_check_interval_s").value)
+        )
         self._lidar_offset_x_m = float(self.get_parameter("lidar_offset_x_m").value)
         self._lidar_offset_y_m = float(self.get_parameter("lidar_offset_y_m").value)
         self._rear_axle_offset_x_m = float(self.get_parameter("rear_axle_offset_x_m").value)
@@ -207,6 +225,9 @@ class RecognitionSessionManagerNode(Node):
         self._mapper_process: ManagedProcess | None = None
         self._stopping_started_monotonic: float | None = None
         self._last_status_publish_monotonic = 0.0
+        self._last_storage_check_monotonic = 0.0
+        self._current_run_total_bytes = 0
+        self._current_run_free_disk_bytes: int | None = None
 
         self._run_root_dir.mkdir(parents=True, exist_ok=True)
         self._runtime_status_path.parent.mkdir(parents=True, exist_ok=True)
@@ -268,14 +289,14 @@ class RecognitionSessionManagerNode(Node):
             if self._system_ready_for_start():
                 self._start_session()
         elif self._state == "arming":
-            self._publish_arm(True)
+            self._publish_arm(self._publish_tracker_arm)
             stop_cause = self._active_stop_cause(now_monotonic)
             if stop_cause is not None:
                 self._begin_stop(stop_cause)
-            elif self._arming_confirmed():
+            elif not self._publish_tracker_arm or self._arming_confirmed():
                 self._set_state("running")
         elif self._state == "running":
-            self._publish_arm(True)
+            self._publish_arm(self._publish_tracker_arm)
             stop_cause = self._active_stop_cause(now_monotonic)
             if stop_cause is not None:
                 self._begin_stop(stop_cause)
@@ -341,6 +362,10 @@ class RecognitionSessionManagerNode(Node):
             self._requested_stop_cause = None
             return cause
 
+        storage_cause = self._storage_stop_cause(now_monotonic)
+        if storage_cause is not None:
+            return storage_cause
+
         if not self._manual_status_is_fresh() or not bool(
             self._last_manual_status.get("bridge_connected", False)
         ):
@@ -363,6 +388,10 @@ class RecognitionSessionManagerNode(Node):
         if planner_state in PLANNER_FAILURE_STATES:
             return "planner_failed"
 
+        recorder_limit_cause = self._recorder_limit_cause()
+        if recorder_limit_cause is not None:
+            return recorder_limit_cause
+
         if self._sensor_capture is not None and self._sensor_capture.process.poll() is not None:
             return "sensor_capture_exit"
         if self._recognition_recorder is not None and self._recognition_recorder.process.poll() is not None:
@@ -382,6 +411,9 @@ class RecognitionSessionManagerNode(Node):
         self._current_session_started_monotonic = time.monotonic()
         self._bridge_disconnect_since_monotonic = None
         self._stopping_started_monotonic = None
+        self._last_storage_check_monotonic = 0.0
+        self._current_run_total_bytes = 0
+        self._current_run_free_disk_bytes = None
 
         bridge_min_effective_speed_pct = self._drive_bridge_min_effective_speed_pct()
         self._write_capture_meta(
@@ -391,6 +423,10 @@ class RecognitionSessionManagerNode(Node):
                 "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "record_timeout_s": self._record_timeout_s,
                 "bridge_min_effective_speed_pct": bridge_min_effective_speed_pct,
+                "sensor_capture_max_total_bytes": self._sensor_capture_max_total_bytes,
+                "recognition_recorder_max_total_bytes": self._recognition_recorder_max_total_bytes,
+                "run_max_total_bytes": self._run_max_total_bytes,
+                "min_free_disk_bytes": self._min_free_disk_bytes,
             }
         )
 
@@ -419,6 +455,10 @@ class RecognitionSessionManagerNode(Node):
                     str(self._current_run_dir / "sensor_capture_summary.json"),
                     "--status-json",
                     str(self._current_run_dir / "sensor_capture_status.json"),
+                    "--max-total-bytes",
+                    str(self._sensor_capture_max_total_bytes),
+                    "--min-free-disk-bytes",
+                    str(self._min_free_disk_bytes),
                 ],
                 sensor_log,
             )
@@ -455,6 +495,10 @@ class RecognitionSessionManagerNode(Node):
                     str(self._rear_axle_offset_x_m),
                     "--rear-axle-offset-y-m",
                     str(self._rear_axle_offset_y_m),
+                    "--max-total-bytes",
+                    str(self._recognition_recorder_max_total_bytes),
+                    "--min-free-disk-bytes",
+                    str(self._min_free_disk_bytes),
                 ],
                 recognition_log,
             )
@@ -469,7 +513,7 @@ class RecognitionSessionManagerNode(Node):
             self._set_error("recorder_start_failed")
             return
 
-        self._set_state("arming")
+        self._set_state("arming" if self._publish_tracker_arm else "running")
         self.get_logger().info("Recognition session started: %s" % self._current_run_dir)
         self._flush_status(force=True)
 
@@ -678,6 +722,95 @@ class RecognitionSessionManagerNode(Node):
         except Exception:
             return None
 
+    def _storage_stop_cause(self, now_monotonic: float) -> str | None:
+        if self._current_run_dir is None:
+            return None
+        if self._run_max_total_bytes > 0 and self._current_run_total_bytes >= self._run_max_total_bytes:
+            return "storage_limit"
+        if (
+            self._min_free_disk_bytes > 0
+            and self._current_run_free_disk_bytes is not None
+            and self._current_run_free_disk_bytes <= self._min_free_disk_bytes
+        ):
+            return "low_disk_space"
+        if (now_monotonic - self._last_storage_check_monotonic) < self._storage_check_interval_s:
+            return None
+        self._last_storage_check_monotonic = now_monotonic
+        self._current_run_total_bytes = self._measure_directory_bytes(self._current_run_dir)
+        self._current_run_free_disk_bytes = self._free_disk_bytes(self._current_run_dir)
+        if self._run_max_total_bytes > 0 and self._current_run_total_bytes >= self._run_max_total_bytes:
+            self.get_logger().error(
+                "Stopping recognition session because run_total_bytes=%d reached run_max_total_bytes=%d"
+                % (self._current_run_total_bytes, self._run_max_total_bytes)
+            )
+            return "storage_limit"
+        if (
+            self._min_free_disk_bytes > 0
+            and self._current_run_free_disk_bytes is not None
+            and self._current_run_free_disk_bytes <= self._min_free_disk_bytes
+        ):
+            self.get_logger().error(
+                "Stopping recognition session because free_disk_bytes=%d fell below min_free_disk_bytes=%d"
+                % (self._current_run_free_disk_bytes, self._min_free_disk_bytes)
+            )
+            return "low_disk_space"
+        return None
+
+    def _recorder_limit_cause(self) -> str | None:
+        for path in (
+            self._sensor_capture_summary_path(),
+            self._recognition_summary_path(),
+        ):
+            if path is None or not path.exists():
+                continue
+            payload = self._read_json_file(path)
+            if not isinstance(payload, dict):
+                continue
+            end_cause = str(payload.get("end_cause", "")).strip()
+            if end_cause in {"storage_limit", "low_disk_space"}:
+                return end_cause
+        return None
+
+    def _sensor_capture_summary_path(self) -> Path | None:
+        if self._current_run_dir is None:
+            return None
+        return self._current_run_dir / "sensor_capture_summary.json"
+
+    def _recognition_summary_path(self) -> Path | None:
+        if self._current_run_dir is None:
+            return None
+        return self._current_run_dir / "analysis_recognition_tour" / "recognition_tour_summary.json"
+
+    @staticmethod
+    def _measure_directory_bytes(root: Path) -> int:
+        total_bytes = 0
+        stack = [root]
+        while stack:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_symlink():
+                                continue
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(Path(entry.path))
+                            elif entry.is_file(follow_symlinks=False):
+                                total_bytes += int(entry.stat(follow_symlinks=False).st_size)
+                        except FileNotFoundError:
+                            continue
+            except FileNotFoundError:
+                continue
+        return total_bytes
+
+    @staticmethod
+    def _free_disk_bytes(path: Path) -> int | None:
+        try:
+            stats = os.statvfs(str(path))
+        except Exception:
+            return None
+        return int(stats.f_bavail) * int(stats.f_frsize)
+
     def _session_payload(self) -> dict[str, Any]:
         session_elapsed_s = None
         if self._current_session_started_monotonic is not None:
@@ -758,6 +891,14 @@ class RecognitionSessionManagerNode(Node):
                     if self._current_run_dir is not None
                     else ""
                 ),
+            },
+            "storage": {
+                "run_total_bytes": self._current_run_total_bytes,
+                "run_max_total_bytes": self._run_max_total_bytes,
+                "free_disk_bytes": self._current_run_free_disk_bytes,
+                "min_free_disk_bytes": self._min_free_disk_bytes,
+                "sensor_capture_max_total_bytes": self._sensor_capture_max_total_bytes,
+                "recognition_recorder_max_total_bytes": self._recognition_recorder_max_total_bytes,
             },
             "updated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }

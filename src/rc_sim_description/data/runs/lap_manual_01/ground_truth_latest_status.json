@@ -1,28 +1,28 @@
 {
   "pose_gt": {
-    "x_m": 5.946253755550581,
-    "y_m": 2.0069276825900078,
-    "yaw_rad": 1.6310736556394099
+    "x_m": -3.2771369568704416,
+    "y_m": 2.3918441821470515,
+    "yaw_rad": -3.094015704721952
   },
   "rear_axle_gt": {
-    "x_m": 5.955289880646422,
-    "y_m": 1.8572001018199562,
-    "yaw_rad": 1.6310736556394099
+    "x_m": -3.127306692304305,
+    "y_m": 2.398978032442754,
+    "yaw_rad": -3.094015704721952
   },
   "pose_gt_estimation_frame": {},
   "twist_gt": {
-    "vx_mps": 0.0,
-    "vy_mps": -0.0,
+    "vx_mps": -0.0,
+    "vy_mps": 0.0,
     "yaw_rate_rps": 0.0
   },
-  "steering_real_deg": -1.0114246345279332e-67,
-  "front_left_steering_rad": 0.00030430776984972474,
-  "front_right_steering_rad": -0.00022232091295839812,
-  "clearance_left_m": 1.1633127799978804,
-  "clearance_right_m": 0.4449473061894694,
-  "clearance_inner_m": 0.4449473061894694,
-  "clearance_outer_m": 1.1633127799978804,
-  "nearest_wall_m": 0.36033368666874527,
+  "steering_real_deg": 0.0,
+  "front_left_steering_rad": 2.0609863948236006e-05,
+  "front_right_steering_rad": 1.030402850484388e-05,
+  "clearance_left_m": 0.4494866578620072,
+  "clearance_right_m": 0.6517594787432399,
+  "clearance_inner_m": 0.4494866578620072,
+  "clearance_outer_m": 0.6517594787432399,
+  "nearest_wall_m": 0.4489780324427539,
   "fusion_error": {},
   "local_path_error_m": NaN,
   "drive_bridge_status": {},
@@ -32,7 +32,7 @@
     "target_speed_mps": 0.0,
     "applied_speed_mps": 0.0,
     "target_steering_deg": -0.0,
-    "applied_steering_deg": -1.0114246345279332e-67,
+    "applied_steering_deg": 0.0,
     "front_left_steering_rad": 0.0,
     "front_right_steering_rad": 0.0,
     "rear_left_wheel_radps": 0.0,

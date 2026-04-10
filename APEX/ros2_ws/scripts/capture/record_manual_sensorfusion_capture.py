@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import signal
 import time
 from pathlib import Path
@@ -30,6 +31,8 @@ class ManualSensorCaptureNode(Node):
         odom_output: Path | None,
         summary_json: Path,
         status_json: Path | None,
+        max_total_bytes: int | None,
+        min_free_disk_bytes: int | None,
     ) -> None:
         super().__init__("manual_sensorfusion_capture")
         self._start_monotonic = time.monotonic()
@@ -41,6 +44,18 @@ class ManualSensorCaptureNode(Node):
         self._summary_json = summary_json
         self._status_json = status_json
         self._finalized = False
+        self._end_cause = "finished"
+        self._output_root_dir = imu_output.parent
+        self._max_total_bytes = (
+            max(1, int(max_total_bytes)) if max_total_bytes is not None and int(max_total_bytes) > 0 else None
+        )
+        self._min_free_disk_bytes = (
+            max(1, int(min_free_disk_bytes))
+            if min_free_disk_bytes is not None and int(min_free_disk_bytes) > 0
+            else None
+        )
+        self._last_csv_total_bytes = 0
+        self._last_free_disk_bytes: int | None = None
 
         imu_output.parent.mkdir(parents=True, exist_ok=True)
         lidar_output.parent.mkdir(parents=True, exist_ok=True)
@@ -119,8 +134,56 @@ class ManualSensorCaptureNode(Node):
             )
         )
 
-    def request_stop(self) -> None:
+    def request_stop(self, cause: str | None = None) -> None:
+        if cause:
+            self._end_cause = str(cause)
         self._stop_requested = True
+
+    def _current_csv_total_bytes(self) -> int:
+        total_bytes = 0
+        for handle in (self._imu_file, self._lidar_file, self._odom_file):
+            if handle is None or handle.closed:
+                continue
+            try:
+                handle.flush()
+            except Exception:
+                pass
+            try:
+                total_bytes += int(os.fstat(handle.fileno()).st_size)
+            except Exception:
+                pass
+        self._last_csv_total_bytes = total_bytes
+        return total_bytes
+
+    def _free_disk_bytes(self) -> int | None:
+        try:
+            stats = os.statvfs(str(self._output_root_dir))
+        except Exception:
+            return None
+        free_bytes = int(stats.f_bavail) * int(stats.f_frsize)
+        self._last_free_disk_bytes = free_bytes
+        return free_bytes
+
+    def _check_limits(self) -> None:
+        if self._finalized:
+            return
+        total_bytes = self._current_csv_total_bytes()
+        free_bytes = self._free_disk_bytes()
+        if self._max_total_bytes is not None and total_bytes >= self._max_total_bytes:
+            if not self._stop_requested:
+                self.get_logger().error(
+                    "Stopping manual sensor capture because csv_total_bytes=%d reached max_total_bytes=%d"
+                    % (total_bytes, self._max_total_bytes)
+                )
+            self.request_stop("storage_limit")
+            return
+        if self._min_free_disk_bytes is not None and free_bytes is not None and free_bytes <= self._min_free_disk_bytes:
+            if not self._stop_requested:
+                self.get_logger().error(
+                    "Stopping manual sensor capture because free_disk_bytes=%d fell below min_free_disk_bytes=%d"
+                    % (free_bytes, self._min_free_disk_bytes)
+                )
+            self.request_stop("low_disk_space")
 
     def _imu_cb(self, msg: Imu) -> None:
         self._imu_writer.writerow(
@@ -138,6 +201,7 @@ class ManualSensorCaptureNode(Node):
         self._imu_count += 1
         if self._imu_count % 50 == 0:
             self._imu_file.flush()
+            self._check_limits()
 
     def _scan_cb(self, msg: LaserScan) -> None:
         stamp_sec = int(msg.header.stamp.sec)
@@ -175,6 +239,7 @@ class ManualSensorCaptureNode(Node):
         self._scan_count += 1
         if wrote_points:
             self._lidar_file.flush()
+            self._check_limits()
 
     def _odom_cb(self, msg: Odometry) -> None:
         if self._odom_writer is None:
@@ -199,6 +264,7 @@ class ManualSensorCaptureNode(Node):
         self._odom_count += 1
         if (self._odom_count % 25) == 0 and self._odom_file is not None:
             self._odom_file.flush()
+            self._check_limits()
 
     def _tick(self) -> None:
         if not self._stop_requested:
@@ -216,18 +282,26 @@ class ManualSensorCaptureNode(Node):
             "scan_count": self._scan_count,
             "lidar_point_count": self._lidar_point_count,
             "odom_row_count": self._odom_count,
-            "state": "capturing",
+            "csv_total_bytes": self._current_csv_total_bytes(),
+            "max_total_bytes": self._max_total_bytes,
+            "free_disk_bytes": self._free_disk_bytes(),
+            "min_free_disk_bytes": self._min_free_disk_bytes,
+            "end_cause": self._end_cause,
+            "state": "stopping" if self._stop_requested else "capturing",
         }
         try:
             self._status_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except Exception:
             pass
+        self._check_limits()
 
     def finalize(self) -> None:
         if self._finalized:
             return
         self._finalized = True
         duration_s = time.monotonic() - self._start_monotonic
+        self._current_csv_total_bytes()
+        self._free_disk_bytes()
         try:
             self._imu_file.flush()
             self._lidar_file.flush()
@@ -244,6 +318,11 @@ class ManualSensorCaptureNode(Node):
             "scan_count": self._scan_count,
             "lidar_point_count": self._lidar_point_count,
             "odom_row_count": self._odom_count,
+            "csv_total_bytes": self._last_csv_total_bytes,
+            "max_total_bytes": self._max_total_bytes,
+            "free_disk_bytes": self._last_free_disk_bytes,
+            "min_free_disk_bytes": self._min_free_disk_bytes,
+            "end_cause": self._end_cause,
             "state": "finished",
         }
         self._summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -253,13 +332,15 @@ class ManualSensorCaptureNode(Node):
             except Exception:
                 pass
         self.get_logger().info(
-            "Manual sensor capture finished (duration=%.2fs imu=%d scans=%d points=%d odom=%d)"
+            "Manual sensor capture finished (cause=%s duration=%.2fs imu=%d scans=%d points=%d odom=%d csv_total_bytes=%d)"
             % (
+                self._end_cause,
                 duration_s,
                 self._imu_count,
                 self._scan_count,
                 self._lidar_point_count,
                 self._odom_count,
+                self._last_csv_total_bytes,
             )
         )
 
@@ -274,6 +355,8 @@ def main() -> None:
     parser.add_argument("--odom-output", default="")
     parser.add_argument("--summary-json", required=True)
     parser.add_argument("--status-json", default="")
+    parser.add_argument("--max-total-bytes", type=int, default=0)
+    parser.add_argument("--min-free-disk-bytes", type=int, default=0)
     args = parser.parse_args()
 
     rclpy.init()
@@ -291,6 +374,10 @@ def main() -> None:
         summary_json=Path(args.summary_json).expanduser().resolve(),
         status_json=(
             Path(args.status_json).expanduser().resolve() if str(args.status_json).strip() else None
+        ),
+        max_total_bytes=(int(args.max_total_bytes) if int(args.max_total_bytes) > 0 else None),
+        min_free_disk_bytes=(
+            int(args.min_free_disk_bytes) if int(args.min_free_disk_bytes) > 0 else None
         ),
     )
 

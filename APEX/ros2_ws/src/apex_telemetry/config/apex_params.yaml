@@ -438,6 +438,12 @@ recognition_session_manager_node:
     mapper_script_path: "/work/repo/src/rc_sim_description/scripts/apex_general_track_mapper.py"
     evaluation_world: "/work/repo/src/rc_sim_description/worlds/basic_track.world"
     record_timeout_s: 60.0
+    publish_tracker_arm: false
+    sensor_capture_max_total_bytes: 134217728
+    recognition_recorder_max_total_bytes: 134217728
+    run_max_total_bytes: 268435456
+    min_free_disk_bytes: 536870912
+    storage_check_interval_s: 1.0
     lidar_offset_x_m: 0.18
     lidar_offset_y_m: 0.0
     rear_axle_offset_x_m: -0.15
@@ -450,16 +456,21 @@ cmd_vel_to_apex_actuation_node:
     applied_speed_topic: "/apex/vehicle/applied_speed_pct"
     applied_steering_topic: "/apex/vehicle/applied_steering_deg"
     status_topic: "/apex/vehicle/drive_bridge_status"
+    manual_control_status_topic: "/apex/manual_control/status"
     actuation_backend: "sysfs_pwm"
     sim_motor_pwm_topic: "/apex/sim/pwm/motor_dc"
     sim_steering_pwm_topic: "/apex/sim/pwm/steering_dc"
     control_rate_hz: 60.0
     command_timeout_s: 0.35
+    manual_status_stale_s: 0.50
+    use_direct_manual_steering: true
     wheelbase_m: 0.30
     max_steering_deg: 18.0
     max_linear_speed_mps: 0.24
     min_effective_speed_pct: 17.0
     max_speed_pct: 25.0
+    min_effective_reverse_speed_pct: 25.0
+    max_reverse_speed_pct: 25.0
     speed_pct_ramp_duration_s: 0.70
     speed_pct_ramp_exp_k: 3.0
     speed_pct_ramp_down_per_s: 18.0
@@ -471,10 +482,10 @@ cmd_vel_to_apex_actuation_node:
     steering_frequency_hz: 50.0
     steering_limit_deg: 18.0
     steering_dc_min: 5.0
-    steering_dc_max: 8.6
-    steering_center_trim_dc: 1.4
+    steering_dc_max: 10.0
+    steering_center_trim_dc: 0.7
     steering_direction_sign: -1.0
-    steering_min_authority_ratio: 0.90
+    steering_min_authority_ratio: 0.0
     motor_channel: 0
     motor_frequency_hz: 50.0
     motor_dc_min: 5.0
@@ -491,8 +502,8 @@ apex_vehicle:
     steering_frequency_hz: 50.0
     steering_limit_deg: 18.0
     steering_dc_min: 5.0
-    steering_dc_max: 8.6
-    steering_center_trim_dc: 1.4
+    steering_dc_max: 10.0
+    steering_center_trim_dc: 0.7
     steering_direction_sign: -1.0
     motor_channel: 0
     motor_frequency_hz: 50.0

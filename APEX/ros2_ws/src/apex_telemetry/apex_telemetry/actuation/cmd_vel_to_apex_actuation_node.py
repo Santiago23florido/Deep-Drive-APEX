@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from typing import Any
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -23,13 +24,18 @@ class CmdVelToApexActuationNode(Node):
         self.declare_parameter("applied_speed_topic", "/apex/vehicle/applied_speed_pct")
         self.declare_parameter("applied_steering_topic", "/apex/vehicle/applied_steering_deg")
         self.declare_parameter("status_topic", "/apex/vehicle/drive_bridge_status")
+        self.declare_parameter("manual_control_status_topic", "/apex/manual_control/status")
         self.declare_parameter("control_rate_hz", 50.0)
         self.declare_parameter("command_timeout_s", 0.35)
+        self.declare_parameter("manual_status_stale_s", 0.50)
+        self.declare_parameter("use_direct_manual_steering", True)
         self.declare_parameter("wheelbase_m", 0.30)
         self.declare_parameter("max_steering_deg", 18.0)
         self.declare_parameter("max_linear_speed_mps", 0.55)
         self.declare_parameter("min_effective_speed_pct", 40.0)
         self.declare_parameter("max_speed_pct", 55.0)
+        self.declare_parameter("min_effective_reverse_speed_pct", 25.0)
+        self.declare_parameter("max_reverse_speed_pct", 25.0)
         self.declare_parameter("speed_pct_ramp_duration_s", 1.0)
         self.declare_parameter("speed_pct_ramp_exp_k", 4.0)
         self.declare_parameter("speed_pct_ramp_down_per_s", 24.0)
@@ -64,8 +70,17 @@ class CmdVelToApexActuationNode(Node):
         self._applied_speed_topic = str(self.get_parameter("applied_speed_topic").value)
         self._applied_steering_topic = str(self.get_parameter("applied_steering_topic").value)
         self._status_topic = str(self.get_parameter("status_topic").value)
+        self._manual_control_status_topic = str(
+            self.get_parameter("manual_control_status_topic").value
+        )
         self._control_rate_hz = max(1.0, float(self.get_parameter("control_rate_hz").value))
         self._command_timeout_s = max(0.05, float(self.get_parameter("command_timeout_s").value))
+        self._manual_status_stale_s = max(
+            0.05, float(self.get_parameter("manual_status_stale_s").value)
+        )
+        self._use_direct_manual_steering = bool(
+            self.get_parameter("use_direct_manual_steering").value
+        )
         self._wheelbase_m = max(1e-3, float(self.get_parameter("wheelbase_m").value))
         self._max_steering_deg = max(1.0, float(self.get_parameter("max_steering_deg").value))
         self._max_linear_speed_mps = max(0.05, float(self.get_parameter("max_linear_speed_mps").value))
@@ -75,6 +90,17 @@ class CmdVelToApexActuationNode(Node):
         self._max_speed_pct = max(
             self._min_effective_speed_pct,
             min(100.0, float(self.get_parameter("max_speed_pct").value)),
+        )
+        self._min_effective_reverse_speed_pct = max(
+            0.0,
+            min(
+                100.0,
+                float(self.get_parameter("min_effective_reverse_speed_pct").value),
+            ),
+        )
+        self._max_reverse_speed_pct = max(
+            self._min_effective_reverse_speed_pct,
+            min(100.0, float(self.get_parameter("max_reverse_speed_pct").value)),
         )
         self._speed_pct_ramp_duration_s = max(
             0.0, float(self.get_parameter("speed_pct_ramp_duration_s").value)
@@ -132,6 +158,12 @@ class CmdVelToApexActuationNode(Node):
         self._motor.hold_neutral(disable_pwm=False)
 
         self.create_subscription(Twist, self._cmd_vel_topic, self._cmd_cb, 20)
+        self.create_subscription(
+            String,
+            self._manual_control_status_topic,
+            self._manual_status_cb,
+            20,
+        )
         self._speed_pub = self.create_publisher(Float64, self._applied_speed_topic, 20)
         self._steering_pub = self.create_publisher(Float64, self._applied_steering_topic, 20)
         self._status_pub = self.create_publisher(String, self._status_topic, 20)
@@ -145,6 +177,8 @@ class CmdVelToApexActuationNode(Node):
         self._last_requested_steering_deg = 0.0
         self._last_desired_speed_pct = 0.0
         self._last_desired_steering_deg = 0.0
+        self._last_manual_status: dict[str, Any] = {}
+        self._last_manual_status_monotonic = 0.0
         self._last_steering_saturated = False
         self._last_control_monotonic = time.monotonic()
         self._speed_ramp_start_monotonic: float | None = None
@@ -153,30 +187,70 @@ class CmdVelToApexActuationNode(Node):
         self._launch_boost_until_monotonic = 0.0
 
         self.get_logger().info(
-            "CmdVelToApexActuationNode started (cmd=%s max_linear=%.2f m/s speed_pct=%.1f..%.1f)"
+            "CmdVelToApexActuationNode started (cmd=%s max_linear=%.2f m/s forward_pct=%.1f..%.1f reverse_pct=%.1f..%.1f)"
             % (
                 self._cmd_vel_topic,
                 self._max_linear_speed_mps,
                 self._min_effective_speed_pct,
                 self._max_speed_pct,
+                self._min_effective_reverse_speed_pct,
+                self._max_reverse_speed_pct,
             )
         )
 
     def _cmd_cb(self, msg: Twist) -> None:
-        self._cmd_linear_x_mps = max(0.0, float(msg.linear.x))
+        self._cmd_linear_x_mps = float(msg.linear.x)
         self._cmd_angular_z_rps = float(msg.angular.z)
         self._last_cmd_monotonic = time.monotonic()
 
+    def _manual_status_cb(self, msg: String) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(payload, dict):
+            return
+        self._last_manual_status = payload
+        self._last_manual_status_monotonic = time.monotonic()
+
+    def _manual_status_is_fresh(self, now_monotonic: float) -> bool:
+        if self._last_manual_status_monotonic <= 0.0:
+            return False
+        return (now_monotonic - self._last_manual_status_monotonic) <= self._manual_status_stale_s
+
+    def _direct_manual_steering_deg(self, now_monotonic: float) -> float | None:
+        if not self._use_direct_manual_steering:
+            return None
+        if not self._manual_status_is_fresh(now_monotonic):
+            return None
+        status = self._last_manual_status
+        if not bool(status.get("bridge_connected", False)):
+            return None
+        if not bool(status.get("controller_connected", False)):
+            return None
+        if not bool(status.get("enabled", False)):
+            return None
+        try:
+            steering_deg = float(status.get("steering_deg", 0.0))
+        except Exception:
+            return None
+        return max(-self._max_steering_deg, min(self._max_steering_deg, steering_deg))
+
     def _map_linear_speed_to_pct(self, linear_x_mps: float) -> float:
-        if linear_x_mps <= 1e-4:
+        if abs(linear_x_mps) <= 1e-4:
             return 0.0
-        ratio = max(0.0, min(1.0, linear_x_mps / self._max_linear_speed_mps))
-        return self._min_effective_speed_pct + (
-            ratio * (self._max_speed_pct - self._min_effective_speed_pct)
+        ratio = max(0.0, min(1.0, abs(linear_x_mps) / self._max_linear_speed_mps))
+        if linear_x_mps > 0.0:
+            return self._min_effective_speed_pct + (
+                ratio * (self._max_speed_pct - self._min_effective_speed_pct)
+            )
+        return -(
+            self._min_effective_reverse_speed_pct
+            + (ratio * (self._max_reverse_speed_pct - self._min_effective_reverse_speed_pct))
         )
 
     def _compute_steering_deg(self, linear_x_mps: float, angular_z_rps: float) -> float:
-        if linear_x_mps <= 1e-4:
+        if abs(linear_x_mps) <= 1e-4:
             return 0.0
         steering_rad = math.atan((self._wheelbase_m * angular_z_rps) / linear_x_mps)
         return math.degrees(steering_rad)
@@ -267,6 +341,8 @@ class CmdVelToApexActuationNode(Node):
                 "requested_steering_deg": self._last_requested_steering_deg,
                 "min_effective_speed_pct": self._min_effective_speed_pct,
                 "max_speed_pct": self._max_speed_pct,
+                "min_effective_reverse_speed_pct": self._min_effective_reverse_speed_pct,
+                "max_reverse_speed_pct": self._max_reverse_speed_pct,
                 "max_linear_speed_mps": self._max_linear_speed_mps,
                 "speed_ramp_start_pct": self._speed_ramp_start_pct,
                 "speed_ramp_target_pct": self._speed_ramp_target_pct,
@@ -278,6 +354,7 @@ class CmdVelToApexActuationNode(Node):
                 "steering_saturated": self._last_steering_saturated,
                 "motor_pwm_state": self._motor.get_pwm_state(),
                 "steering_pwm_state": self._steering.get_pwm_state(),
+                "steering_servo_state": self._steering.get_state(),
             },
             separators=(",", ":"),
         )
@@ -299,6 +376,9 @@ class CmdVelToApexActuationNode(Node):
             desired_linear_x_mps,
             desired_angular_z_rps,
         )
+        manual_steering_deg = self._direct_manual_steering_deg(now_monotonic)
+        if manual_steering_deg is not None:
+            desired_steering_deg = manual_steering_deg
         desired_speed_pct = self._map_linear_speed_to_pct(desired_linear_x_mps)
 
         requested_steering_deg = self._apply_rate_limit(
@@ -323,12 +403,18 @@ class CmdVelToApexActuationNode(Node):
                 and self._speed_ramp_start_pct > desired_speed_pct
             ):
                 applied_speed_pct = max(applied_speed_pct, self._speed_ramp_start_pct)
+        elif desired_speed_pct < -1e-6:
+            self._speed_ramp_start_monotonic = None
+            self._speed_ramp_start_pct = self._last_applied_speed_pct
+            self._speed_ramp_target_pct = desired_speed_pct
+            self._launch_boost_until_monotonic = 0.0
+            applied_speed_pct = desired_speed_pct
         else:
             self._speed_ramp_start_monotonic = None
             self._speed_ramp_start_pct = self._last_applied_speed_pct
             self._speed_ramp_target_pct = 0.0
             self._launch_boost_until_monotonic = 0.0
-            if self._active_brake_on_zero and self._last_applied_speed_pct > 1.0:
+            if self._active_brake_on_zero and abs(self._last_applied_speed_pct) > 1.0:
                 requested_steering_deg = 0.0
                 self._steering.set_angle_deg(0.0)
                 self._motor.brake_to_neutral()
