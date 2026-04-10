@@ -123,23 +123,21 @@ def _prepare_launch(context, *args, **kwargs):
     odom_latency_sec = float(
         LaunchConfiguration("odom_latency_sec").perform(context).strip() or "0.0"
     )
-    window_scan_count = int(
-        LaunchConfiguration("window_scan_count").perform(context).strip() or "48"
+    window_scan_count_value = LaunchConfiguration("window_scan_count").perform(context).strip()
+    window_overlap_count_value = LaunchConfiguration("window_overlap_count").perform(context).strip()
+    initial_scan_count_value = LaunchConfiguration("initial_scan_count").perform(context).strip()
+    submap_window_scans_value = LaunchConfiguration("submap_window_scans").perform(context).strip()
+    offline_point_stride_value = LaunchConfiguration("point_stride").perform(context).strip()
+    offline_max_correspondence_m_value = (
+        LaunchConfiguration("max_correspondence_m").perform(context).strip()
     )
-    window_overlap_count = int(
-        LaunchConfiguration("window_overlap_count").perform(context).strip() or "16"
-    )
-    initial_scan_count = int(
-        LaunchConfiguration("initial_scan_count").perform(context).strip() or "24"
-    )
-    submap_window_scans = int(
-        LaunchConfiguration("submap_window_scans").perform(context).strip() or "8"
-    )
-    offline_point_stride = int(
-        LaunchConfiguration("point_stride").perform(context).strip() or "2"
-    )
+    window_scan_count = int(window_scan_count_value or "48")
+    window_overlap_count = int(window_overlap_count_value or "16")
+    initial_scan_count = int(initial_scan_count_value or "24")
+    submap_window_scans = int(submap_window_scans_value or "8")
+    offline_point_stride = int(offline_point_stride_value or "2")
     offline_max_correspondence_m = float(
-        LaunchConfiguration("max_correspondence_m").perform(context).strip() or "0.35"
+        offline_max_correspondence_m_value or "0.35"
     )
     offline_update_period_sec = float(
         LaunchConfiguration("offline_update_period_sec").perform(context).strip() or "0.5"
@@ -203,6 +201,20 @@ def _prepare_launch(context, *args, **kwargs):
         and ideal_medium_sensor_profile
         and not offline_seed_odom_topic_override
     )
+    distance_field_online_seed_mode = offline_online_fusion_seed_mode
+    if ideal_medium_sensor_profile and offline_submaps_refinement_mode:
+        if window_scan_count == 48:
+            window_scan_count = 48
+        if window_overlap_count == 16:
+            window_overlap_count = 24
+        if initial_scan_count == 24:
+            initial_scan_count = 24
+        if submap_window_scans == 8:
+            submap_window_scans = 10
+        if offline_point_stride == 2:
+            offline_point_stride = 1
+        if abs(offline_max_correspondence_m - 0.35) <= 1.0e-9:
+            offline_max_correspondence_m = 0.30
     slam_uses_ideal_pose = (
         not rf2o_ekf_estimation_mode
         and (ideal_estimation_mode or use_ideal_pose_for_slam)
@@ -226,6 +238,10 @@ def _prepare_launch(context, *args, **kwargs):
         offline_seed_odom_topic = "/apex/odometry/imu_lidar_fused"
     else:
         offline_seed_odom_topic = ""
+    if offline_seed_odom_topic == "/apex/odometry/imu_lidar_fused":
+        offline_seed_status_topic = "/apex/estimation/status"
+    else:
+        offline_seed_status_topic = ""
     if medium_distortion_profile and (rf2o_ekf_estimation_mode or ideal_estimation_mode):
         default_lidar_noise_std = 0.018
         default_imu_gyro_noise_stddev_rps = 0.014
@@ -323,6 +339,26 @@ def _prepare_launch(context, *args, **kwargs):
                         "max_speed_pct": 42.0,
                         "launch_boost_speed_pct": 8.8,
                         "launch_boost_hold_s": 0.08,
+                    }
+                }
+            },
+        )
+    if offline_online_fusion_seed_mode:
+        merged_params = _deep_merge(
+            merged_params,
+            {
+                "imu_lidar_planar_fusion_node": {
+                    "ros__parameters": {
+                        "submap_window_scans": 10,
+                        "point_stride": 1,
+                        "max_correspondence_m": 0.28,
+                        "max_initial_alignment_scans": 8,
+                        "min_valid_correspondence_count": 20,
+                        "low_confidence_residual_m": 0.12,
+                        "max_scan_optimization_evals": 100,
+                        "publish_predicted_odom_between_scans": True,
+                        "predicted_odom_rate_hz": 30.0,
+                        "max_prediction_horizon_s": 0.18,
                     }
                 }
             },
@@ -465,6 +501,8 @@ def _prepare_launch(context, *args, **kwargs):
     ground_truth_params.setdefault("world_name", "default")
     ground_truth_params.setdefault("model_name", "rc_car")
     ground_truth_params.setdefault("world_path", world_path)
+    if distance_field_online_seed_mode:
+        ground_truth_params["fusion_odom_topic"] = "/apex/odometry/imu_lidar_fused"
     cmd_vel_bridge_ros_params = _node_ros_parameters(
         merged_params,
         "cmd_vel_to_apex_actuation_node",
@@ -708,7 +746,7 @@ def _prepare_launch(context, *args, **kwargs):
     sim_only_cmd_vel_bridge_required = ideal_estimation_mode or rf2o_ekf_estimation_mode
 
     apex_pipeline = None
-    if current_estimation_mode or offline_online_fusion_seed_mode:
+    if current_estimation_mode or (offline_online_fusion_seed_mode and not distance_field_online_seed_mode):
         apex_pipeline = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(pipeline_launch),
             launch_arguments={
@@ -751,10 +789,42 @@ def _prepare_launch(context, *args, **kwargs):
             }.items(),
         )
 
+    online_distance_field_seed = None
+    if distance_field_online_seed_mode:
+        online_distance_field_seed = Node(
+            package="rc_sim_description",
+            executable="online_distance_field_seed_node.py",
+            name="online_distance_field_seed_node",
+            output="screen",
+            parameters=[
+                {
+                    "use_sim_time": True,
+                    "scan_topic": "/apex/sim/scan",
+                    "imu_topic": "/apex/sim/imu",
+                    "odom_topic": "/apex/odometry/imu_lidar_fused",
+                    "path_topic": "/apex/estimation/path",
+                    "pose_topic": "/apex/estimation/current_pose",
+                    "live_map_topic": "/apex/estimation/live_map_points",
+                    "status_topic": "/apex/estimation/status",
+                    "odom_frame_id": "odom_imu_lidar_fused",
+                    "child_frame_id": "base_link",
+                    "submap_window_scans": 24,
+                    "point_stride": 1,
+                    "max_correspondence_m": 0.30,
+                    "max_scan_optimization_evals": 70,
+                    "yaw_bias_init_duration_s": 0.8,
+                    "velocity_decay_tau_s": 0.9,
+                    "live_map_max_points": 8000,
+                }
+            ],
+            additional_env=node_python_env,
+        )
+
     ekf_params_file = (rc_share / "config" / "ekf_sim_lidar_imu.yaml").resolve()
     rf2o_laser_odometry = None
     ekf_filter = None
     offline_submap_refiner = None
+    offline_similarity_monitor = None
     if rf2o_ekf_estimation_mode:
         rf2o_laser_odometry = Node(
             package="rf2o_laser_odometry",
@@ -794,6 +864,7 @@ def _prepare_launch(context, *args, **kwargs):
                     "scan_topic": "/apex/sim/scan",
                     "imu_topic": "/apex/sim/imu",
                     "seed_odom_topic": offline_seed_odom_topic,
+                    "seed_status_topic": offline_seed_status_topic,
                     "input_dir": offline_input_dir,
                     "frame_id": "map",
                     "child_frame_id": "offline_refined_base_link",
@@ -804,6 +875,26 @@ def _prepare_launch(context, *args, **kwargs):
                     "point_stride": offline_point_stride,
                     "max_correspondence_m": offline_max_correspondence_m,
                     "offline_update_period_sec": offline_update_period_sec,
+                }
+            ],
+            additional_env=node_python_env,
+        )
+        offline_similarity_monitor = Node(
+            package="rc_sim_description",
+            executable="offline_similarity_monitor.py",
+            name="offline_similarity_monitor",
+            output="screen",
+            parameters=[
+                {
+                    "use_sim_time": True,
+                    "ground_truth_status_topic": "/apex/sim/ground_truth/status",
+                    "perfect_map_topic": "/apex/sim/ground_truth/perfect_map_points",
+                    "ground_truth_path_topic": "/apex/sim/ground_truth/path",
+                    "offline_map_topic": "/apex/sim/offline_refined_map",
+                    "offline_path_topic": "/apex/sim/offline_refined_path",
+                    "online_map_topic": "/apex/estimation/live_map_points",
+                    "online_path_topic": "/apex/estimation/path",
+                    "status_topic": "/apex/sim/offline_similarity_status",
                 }
             ],
             additional_env=node_python_env,
@@ -917,11 +1008,23 @@ def _prepare_launch(context, *args, **kwargs):
                 f"(distortion_profile={distortion_profile} "
                 + (
                     "ideal sensor-noise run seeds the offline refiner from /apex/odometry/imu_lidar_fused "
-                    "via the online IMU+LiDAR fusion path"
+                    "via an online occupancy/distance-field LiDAR+IMU seed"
                     if ideal_medium_sensor_profile
                     else "seed odom follows the active estimation route"
                 )
                 + ")"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] offline_submaps online-seed tuning "
+                + (
+                    "(online_distance_field_seed_node submap_window_scans=24 point_stride=1 "
+                    "max_correspondence_m=0.30 max_scan_optimization_evals=70 "
+                    "yaw_bias_init_duration_s=0.8 velocity_decay_tau_s=0.9)"
+                    if distance_field_online_seed_mode
+                    else "(online seed tuning disabled for this mode)"
+                )
             )
         ),
         LogInfo(
@@ -948,9 +1051,11 @@ def _prepare_launch(context, *args, **kwargs):
         TimerAction(period=2.8, actions=[ground_truth_tf_bridge]) if slam_uses_ideal_pose else None,
         TimerAction(period=3.0, actions=[ideal_cmd_vel_bridge]) if sim_only_cmd_vel_bridge_required else None,
         TimerAction(period=3.0, actions=[apex_pipeline]) if apex_pipeline is not None else None,
+        TimerAction(period=3.2, actions=[online_distance_field_seed]) if online_distance_field_seed is not None else None,
         TimerAction(period=3.2, actions=[rf2o_laser_odometry]) if rf2o_laser_odometry is not None else None,
         TimerAction(period=3.4, actions=[ekf_filter]) if ekf_filter is not None else None,
         TimerAction(period=3.6, actions=[offline_submap_refiner]) if offline_submap_refiner is not None else None,
+        TimerAction(period=3.7, actions=[offline_similarity_monitor]) if offline_similarity_monitor is not None else None,
         TimerAction(period=3.8, actions=[refined_visual_map]) if refined_visual_map is not None else None,
         TimerAction(period=4.0, actions=[slam_toolbox]),
         TimerAction(period=4.5, actions=[rviz_node]),

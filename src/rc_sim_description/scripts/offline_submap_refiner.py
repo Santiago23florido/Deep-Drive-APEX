@@ -131,6 +131,22 @@ class ScanQuality:
     confidence: str
 
 
+@dataclass(frozen=True)
+class SeedStatusRecord:
+    received_wall_s: float
+    latest_pose_t_s: float
+    state: str
+    latest_confidence: str
+    median_submap_residual_m: float
+
+
+@dataclass(frozen=True)
+class RelativeMotionEstimate:
+    delta_pose_xyyaw: np.ndarray
+    valid_match_count: int
+    median_residual_m: float
+
+
 class OfflineSubmapRefiner(Node):
     def __init__(self) -> None:
         super().__init__("offline_submap_refiner")
@@ -141,6 +157,7 @@ class OfflineSubmapRefiner(Node):
         self.declare_parameter("scan_topic", "/apex/sim/scan")
         self.declare_parameter("imu_topic", "/apex/sim/imu")
         self.declare_parameter("seed_odom_topic", "")
+        self.declare_parameter("seed_status_topic", "")
         self.declare_parameter("input_dir", "")
         self.declare_parameter("frame_id", "map")
         self.declare_parameter("child_frame_id", "offline_refined_base_link")
@@ -157,11 +174,14 @@ class OfflineSubmapRefiner(Node):
         self.declare_parameter("point_stride", 2)
         self.declare_parameter("max_correspondence_m", 0.35)
         self.declare_parameter("offline_update_period_sec", 0.5)
+        self.declare_parameter("seed_status_timeout_sec", 2.0)
+        self.declare_parameter("seed_status_max_median_submap_residual_m", 0.12)
 
         self._replay_mode = str(self.get_parameter("replay_mode").value).strip().lower()
         self._scan_topic = str(self.get_parameter("scan_topic").value)
         self._imu_topic = str(self.get_parameter("imu_topic").value)
         self._seed_odom_topic = str(self.get_parameter("seed_odom_topic").value).strip()
+        self._seed_status_topic = str(self.get_parameter("seed_status_topic").value).strip()
         self._input_dir = str(self.get_parameter("input_dir").value).strip()
         self._frame_id = str(self.get_parameter("frame_id").value)
         self._child_frame_id = str(self.get_parameter("child_frame_id").value)
@@ -184,6 +204,12 @@ class OfflineSubmapRefiner(Node):
         )
         self._offline_update_period_s = max(
             0.1, float(self.get_parameter("offline_update_period_sec").value)
+        )
+        self._seed_status_timeout_s = max(
+            0.5, float(self.get_parameter("seed_status_timeout_sec").value)
+        )
+        self._seed_max_median_submap_residual_m = max(
+            0.01, float(self.get_parameter("seed_status_max_median_submap_residual_m").value)
         )
         self._global_voxel_size_m = 0.04
         self._submap_voxel_size_m = 0.025
@@ -237,10 +263,12 @@ class OfflineSubmapRefiner(Node):
         self._scan_records: deque[ScanRecord] = deque(maxlen=self._max_scan_buffer)
         self._imu_records: deque[ImuRecord] = deque(maxlen=self._max_imu_buffer)
         self._odom_records: deque[OdomRecord] = deque(maxlen=self._max_odom_buffer)
+        self._seed_status_records: deque[SeedStatusRecord] = deque(maxlen=256)
         self._next_scan_index = 0
         self._next_window_start_index = 0
         self._processing_thread: threading.Thread | None = None
         self._processed_window_count = 0
+        self._last_gate_reason = ""
 
         self._refined_records: dict[int, dict[str, object]] = {}
         self._latest_map_points = np.empty((0, 2), dtype=np.float64)
@@ -271,6 +299,8 @@ class OfflineSubmapRefiner(Node):
             )
             if self._seed_odom_topic:
                 self.create_subscription(Odometry, self._seed_odom_topic, self._odom_cb, 40)
+            if self._seed_status_topic:
+                self.create_subscription(String, self._seed_status_topic, self._seed_status_cb, 20)
         else:
             self.get_logger().info(
                 "offline_replay_mode=%s is accepted but not implemented in v1"
@@ -287,11 +317,12 @@ class OfflineSubmapRefiner(Node):
 
         self.create_timer(self._offline_update_period_s, self._tick)
         self.get_logger().info(
-            "OfflineSubmapRefiner started (scan=%s imu=%s seed_odom=%s mode=%s window=%d overlap=%d)"
+            "OfflineSubmapRefiner started (scan=%s imu=%s seed_odom=%s seed_status=%s mode=%s window=%d overlap=%d)"
             % (
                 self._scan_topic,
                 self._imu_topic,
                 self._seed_odom_topic or "<none>",
+                self._seed_status_topic or "<none>",
                 self._replay_mode,
                 self._window_scan_count,
                 self._window_overlap_count,
@@ -341,6 +372,34 @@ class OfflineSubmapRefiner(Node):
         with self._lock:
             self._odom_records.append(record)
 
+    def _seed_status_cb(self, msg: String) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+        latest_pose = payload.get("latest_pose", {})
+        quality = payload.get("quality", {})
+        if not isinstance(latest_pose, dict):
+            latest_pose = {}
+        if not isinstance(quality, dict):
+            quality = {}
+        latest_pose_t_s = float(latest_pose.get("t_s", float("nan")))
+        if not math.isfinite(latest_pose_t_s):
+            latest_pose_t_s = float(payload.get("t_s", float("nan")))
+        record = SeedStatusRecord(
+            received_wall_s=time.monotonic(),
+            latest_pose_t_s=latest_pose_t_s,
+            state=str(payload.get("state", "")),
+            latest_confidence=str(latest_pose.get("confidence", "")),
+            median_submap_residual_m=float(
+                quality.get("median_submap_residual_m", float("nan"))
+            ),
+        )
+        with self._lock:
+            self._seed_status_records.append(record)
+
     def _scan_points_in_base_frame(self, msg: LaserScan) -> np.ndarray:
         points_xy: list[tuple[float, float]] = []
         angle_rad = float(msg.angle_min)
@@ -388,24 +447,47 @@ class OfflineSubmapRefiner(Node):
             return
         if self._processing_thread is not None and self._processing_thread.is_alive():
             return
-        if not self._has_pending_window():
+        pending_window, gate_reason = self._has_pending_window()
+        if gate_reason and gate_reason != self._last_gate_reason:
+            self.get_logger().info(f"Deferring offline window: {gate_reason}")
+            self._last_gate_reason = gate_reason
+        if not pending_window:
             return
+        self._last_gate_reason = ""
         self._processing_thread = threading.Thread(target=self._process_next_window, daemon=True)
         self._processing_thread.start()
 
-    def _has_pending_window(self) -> bool:
+    def _has_pending_window(self) -> tuple[bool, str]:
         with self._lock:
             scan_records = list(self._scan_records)
             next_window_start = self._next_window_start_index
+            seed_status_records = list(self._seed_status_records)
         if len(scan_records) < self._initial_scan_count:
-            return False
+            return False, ""
         oldest_index = int(scan_records[0].scan_index)
         newest_index = int(scan_records[-1].scan_index)
         effective_window_start = max(next_window_start, oldest_index)
         available_count = newest_index - effective_window_start + 1
         if effective_window_start == 0:
-            return available_count >= self._initial_scan_count
-        return available_count >= self._window_scan_count
+            if available_count < self._initial_scan_count:
+                return False, ""
+            window_end = min(newest_index, effective_window_start + self._window_scan_count - 1)
+        else:
+            if available_count < self._window_scan_count:
+                return False, ""
+            window_end = effective_window_start + self._window_scan_count - 1
+        window_records = [
+            record
+            for record in scan_records
+            if effective_window_start <= int(record.scan_index) <= window_end
+        ]
+        if len(window_records) < self._initial_scan_count:
+            return False, ""
+        seed_gate_ok, seed_gate_reason = self._seed_status_allows_window(
+            window_records,
+            seed_status_records,
+        )
+        return seed_gate_ok, seed_gate_reason
 
     def _process_next_window(self) -> None:
         try:
@@ -426,18 +508,49 @@ class OfflineSubmapRefiner(Node):
                 seed_records,
             )
             overlap_anchor_points = self._build_overlap_anchor_points(window_start_scan_index)
-            correspondences, qualities = self._build_correspondences(
-                window_records,
-                initial_poses,
-                overlap_anchor_points,
-            )
-            refined_poses = self._refine_window_poses(
+            reference_deltas = self._build_reference_deltas(
                 window_records,
                 initial_poses,
                 imu_records,
                 seed_available,
-                correspondences,
-                qualities,
+            )
+            refined_poses = initial_poses.copy()
+            for _ in range(3):
+                correspondences, qualities = self._build_correspondences(
+                    window_records,
+                    refined_poses,
+                    overlap_anchor_points,
+                )
+                updated_poses = self._refine_window_poses(
+                    window_records,
+                    refined_poses,
+                    initial_poses,
+                    imu_records,
+                    seed_available,
+                    correspondences,
+                    qualities,
+                    reference_deltas,
+                )
+                translation_update_m = float(
+                    np.max(np.linalg.norm(updated_poses[:, :2] - refined_poses[:, :2], axis=1))
+                )
+                yaw_update_rad = float(
+                    np.max(
+                        np.abs(
+                            [
+                                _wrap_angle(float(updated_poses[index, 2] - refined_poses[index, 2]))
+                                for index in range(updated_poses.shape[0])
+                            ]
+                        )
+                    )
+                )
+                refined_poses = updated_poses
+                if translation_update_m < 0.015 and yaw_update_rad < 0.02:
+                    break
+            correspondences, qualities = self._build_correspondences(
+                window_records,
+                refined_poses,
+                overlap_anchor_points,
             )
             current_submap_points = self._build_window_submap_points(window_records, refined_poses)
             self._merge_window_results(window_records, refined_poses, qualities)
@@ -505,6 +618,10 @@ class OfflineSubmapRefiner(Node):
                 return None
             imu_records = list(self._imu_records)
             seed_records = list(self._odom_records)
+            seed_status_records = list(self._seed_status_records)
+        seed_gate_ok, _ = self._seed_status_allows_window(window_records, seed_status_records)
+        if not seed_gate_ok:
+            return None
         t_start = float(window_records[0].stamp_s)
         t_end = float(window_records[-1].stamp_s)
         imu_window = [record for record in imu_records if (t_start - 0.2) <= record.stamp_s <= (t_end + 0.2)]
@@ -516,6 +633,43 @@ class OfflineSubmapRefiner(Node):
             int(window_records[0].scan_index),
             int(window_records[-1].scan_index),
         )
+
+    def _seed_status_allows_window(
+        self,
+        window_records: list[ScanRecord],
+        seed_status_records: list[SeedStatusRecord],
+    ) -> tuple[bool, str]:
+        if not self._seed_status_topic:
+            return True, ""
+        if not seed_status_records:
+            return False, "waiting for /apex/estimation/status"
+        window_end_t_s = float(window_records[-1].stamp_s)
+        now_wall_s = time.monotonic()
+        relevant_records = [
+            record
+            for record in seed_status_records
+            if math.isfinite(record.latest_pose_t_s)
+            and record.latest_pose_t_s >= (window_end_t_s - 1.0)
+            and (now_wall_s - record.received_wall_s) <= self._seed_status_timeout_s
+        ]
+        if not relevant_records:
+            return False, "recent online seed status not available"
+        candidate = max(relevant_records, key=lambda record: record.latest_pose_t_s)
+        if candidate.state != "tracking":
+            return False, f"online seed state={candidate.state or 'unknown'}"
+        if candidate.latest_confidence == "low":
+            return False, "online seed latest_pose.confidence=low"
+        if (
+            math.isfinite(candidate.median_submap_residual_m)
+            and candidate.median_submap_residual_m > self._seed_max_median_submap_residual_m
+        ):
+            return (
+                False,
+                "online seed median_submap_residual_m="
+                f"{candidate.median_submap_residual_m:.3f} exceeds "
+                f"{self._seed_max_median_submap_residual_m:.3f}",
+            )
+        return True, ""
 
     def _build_initial_pose_chain(
         self,
@@ -552,11 +706,12 @@ class OfflineSubmapRefiner(Node):
                 interval_start_s,
                 interval_end_s,
             )
-            relative_delta = self._estimate_relative_scan_motion(
+            relative_motion = self._estimate_relative_scan_motion(
                 window_records[index - 1].points_xy,
                 window_records[index].points_xy,
                 yaw_delta,
             )
+            relative_delta = relative_motion.delta_pose_xyyaw.copy()
             relative_delta[2] = _wrap_angle(float((0.70 * yaw_delta) + (0.30 * relative_delta[2])))
             poses[index] = _compose_poses(poses[index - 1], relative_delta)
         return poses, False
@@ -566,14 +721,28 @@ class OfflineSubmapRefiner(Node):
         previous_points_xy: np.ndarray,
         current_points_xy: np.ndarray,
         yaw_delta_guess_rad: float,
-    ) -> np.ndarray:
+    ) -> RelativeMotionEstimate:
         if previous_points_xy.shape[0] < 12 or current_points_xy.shape[0] < 12:
-            return np.asarray([0.0, 0.0, _wrap_angle(float(yaw_delta_guess_rad))], dtype=np.float64)
+            return RelativeMotionEstimate(
+                delta_pose_xyyaw=np.asarray(
+                    [0.0, 0.0, _wrap_angle(float(yaw_delta_guess_rad))],
+                    dtype=np.float64,
+                ),
+                valid_match_count=0,
+                median_residual_m=float("nan"),
+            )
 
         target_points = _voxel_downsample(previous_points_xy, self._submap_voxel_size_m)
         source_points = _voxel_downsample(current_points_xy, self._submap_voxel_size_m)
         if target_points.shape[0] < 12 or source_points.shape[0] < 12:
-            return np.asarray([0.0, 0.0, _wrap_angle(float(yaw_delta_guess_rad))], dtype=np.float64)
+            return RelativeMotionEstimate(
+                delta_pose_xyyaw=np.asarray(
+                    [0.0, 0.0, _wrap_angle(float(yaw_delta_guess_rad))],
+                    dtype=np.float64,
+                ),
+                valid_match_count=0,
+                median_residual_m=float("nan"),
+            )
 
         relative_pose = np.asarray(
             [0.0, 0.0, _wrap_angle(float(yaw_delta_guess_rad))],
@@ -581,6 +750,8 @@ class OfflineSubmapRefiner(Node):
         )
         tree = cKDTree(target_points)
         min_required_matches = max(10, min(40, source_points.shape[0] // 6))
+        last_valid_match_count = 0
+        last_median_residual_m = float("nan")
         for _ in range(6):
             transformed_source = _transform_points(source_points, relative_pose)
             distances_m, nearest_indexes = tree.query(
@@ -590,7 +761,10 @@ class OfflineSubmapRefiner(Node):
             valid_mask = np.isfinite(distances_m) & (
                 distances_m < max(self._max_correspondence_m * 1.25, 0.40)
             )
-            if int(np.count_nonzero(valid_mask)) < min_required_matches:
+            last_valid_match_count = int(np.count_nonzero(valid_mask))
+            if last_valid_match_count > 0:
+                last_median_residual_m = float(np.median(distances_m[valid_mask]))
+            if last_valid_match_count < min_required_matches:
                 break
             incremental_pose = _best_fit_rigid_transform_2d(
                 transformed_source[valid_mask],
@@ -603,7 +777,11 @@ class OfflineSubmapRefiner(Node):
         relative_pose[0] = float(np.clip(relative_pose[0], -max_translation_m, max_translation_m))
         relative_pose[1] = float(np.clip(relative_pose[1], -max_translation_m, max_translation_m))
         relative_pose[2] = _wrap_angle(float(relative_pose[2]))
-        return relative_pose
+        return RelativeMotionEstimate(
+            delta_pose_xyyaw=relative_pose,
+            valid_match_count=last_valid_match_count,
+            median_residual_m=last_median_residual_m,
+        )
 
     def _interpolate_odom(
         self,
@@ -632,6 +810,64 @@ class OfflineSubmapRefiner(Node):
         yaw_delta = _wrap_angle(float(next_record.pose_xyyaw[2] - previous_record.pose_xyyaw[2]))
         interp_yaw = _wrap_angle(float(previous_record.pose_xyyaw[2] + (alpha * yaw_delta)))
         return np.asarray([float(interp_xy[0]), float(interp_xy[1]), interp_yaw], dtype=np.float64)
+
+    def _build_reference_deltas(
+        self,
+        window_records: list[ScanRecord],
+        initial_poses: np.ndarray,
+        imu_records: list[ImuRecord],
+        seed_available: bool,
+    ) -> np.ndarray:
+        if len(window_records) < 2:
+            return np.empty((0, 3), dtype=np.float64)
+        reference_deltas = np.zeros((len(window_records) - 1, 3), dtype=np.float64)
+        for index in range(1, len(window_records)):
+            seed_delta = np.asarray(
+                [
+                    float(initial_poses[index, 0] - initial_poses[index - 1, 0]),
+                    float(initial_poses[index, 1] - initial_poses[index - 1, 1]),
+                    _wrap_angle(float(initial_poses[index, 2] - initial_poses[index - 1, 2])),
+                ],
+                dtype=np.float64,
+            )
+            yaw_delta = self._integrated_imu_yaw_delta(
+                imu_records,
+                float(window_records[index - 1].stamp_s),
+                float(window_records[index].stamp_s),
+            )
+            relative_motion = self._estimate_relative_scan_motion(
+                window_records[index - 1].points_xy,
+                window_records[index].points_xy,
+                yaw_delta,
+            )
+            scan_delta = relative_motion.delta_pose_xyyaw.copy()
+            if seed_available:
+                if (
+                    relative_motion.valid_match_count >= 18
+                    and math.isfinite(relative_motion.median_residual_m)
+                    and relative_motion.median_residual_m <= 0.10
+                ):
+                    blend_weight = 0.65
+                elif (
+                    relative_motion.valid_match_count >= 12
+                    and math.isfinite(relative_motion.median_residual_m)
+                    and relative_motion.median_residual_m <= 0.16
+                ):
+                    blend_weight = 0.45
+                else:
+                    blend_weight = 0.0
+                blended_delta = seed_delta.copy()
+                blended_delta[:2] = (
+                    ((1.0 - blend_weight) * seed_delta[:2]) + (blend_weight * scan_delta[:2])
+                )
+                blended_delta[2] = _wrap_angle(
+                    float(((1.0 - blend_weight) * seed_delta[2]) + (blend_weight * scan_delta[2]))
+                )
+                reference_deltas[index - 1] = blended_delta
+            else:
+                scan_delta[2] = _wrap_angle(float((0.70 * yaw_delta) + (0.30 * scan_delta[2])))
+                reference_deltas[index - 1] = scan_delta
+        return reference_deltas
 
     def _integrated_imu_yaw_delta(
         self,
@@ -690,21 +926,13 @@ class OfflineSubmapRefiner(Node):
             _transform_points(record.points_xy, initial_poses[index])
             for index, record in enumerate(window_records)
         ]
-        anchor_count = min(self._submap_window_scans, len(window_records))
         for index, record in enumerate(window_records):
             target_clouds: list[np.ndarray] = []
             if overlap_anchor_points.size:
                 target_clouds.append(overlap_anchor_points)
-            if index >= anchor_count:
-                for candidate_index, candidate_points in enumerate(transformed_points):
-                    if candidate_index == index:
-                        continue
-                    target_clouds.append(candidate_points)
-            else:
-                for candidate_index in range(anchor_count):
-                    if candidate_index == index:
-                        continue
-                    target_clouds.append(transformed_points[candidate_index])
+            prior_start = max(0, index - self._submap_window_scans)
+            for candidate_index in range(prior_start, index):
+                target_clouds.append(transformed_points[candidate_index])
             if not target_clouds:
                 correspondences.append(
                     (
@@ -772,21 +1000,17 @@ class OfflineSubmapRefiner(Node):
     def _refine_window_poses(
         self,
         window_records: list[ScanRecord],
+        current_poses: np.ndarray,
         initial_poses: np.ndarray,
         imu_records: list[ImuRecord],
         seed_available: bool,
         correspondences: list[tuple[np.ndarray, np.ndarray]],
         qualities: list[ScanQuality],
+        reference_deltas: np.ndarray,
     ) -> np.ndarray:
         scan_times_s = np.asarray([record.stamp_s for record in window_records], dtype=np.float64)
-        initial_flat = initial_poses.reshape(-1)
-        sequential_deltas = np.zeros((max(0, len(window_records) - 1), 3), dtype=np.float64)
-        for index in range(1, len(window_records)):
-            previous_pose = initial_poses[index - 1]
-            current_pose = initial_poses[index]
-            sequential_deltas[index - 1, 0] = float(current_pose[0] - previous_pose[0])
-            sequential_deltas[index - 1, 1] = float(current_pose[1] - previous_pose[1])
-            sequential_deltas[index - 1, 2] = _wrap_angle(float(current_pose[2] - previous_pose[2]))
+        initial_flat = current_poses.reshape(-1)
+        sequential_deltas = reference_deltas.copy()
 
         def _quality_weight(label: str) -> float:
             if label == "high":
@@ -809,16 +1033,17 @@ class OfflineSubmapRefiner(Node):
                 pose_delta = pose - initial_poses[index]
                 pose_delta[2] = _wrap_angle(float(pose_delta[2]))
                 if seed_available:
-                    residuals.append(
-                        np.asarray(
-                            [
-                                0.35 * float(pose_delta[0]),
-                                0.35 * float(pose_delta[1]),
-                                0.75 * float(pose_delta[2]),
-                            ],
-                            dtype=np.float64,
+                    if index == 0:
+                        residuals.append(
+                            np.asarray(
+                                [
+                                    0.60 * float(pose_delta[0]),
+                                    0.60 * float(pose_delta[1]),
+                                    1.00 * float(pose_delta[2]),
+                                ],
+                                dtype=np.float64,
+                            )
                         )
-                    )
                 else:
                     residuals.append(
                         np.asarray([0.08 * float(pose_delta[2])], dtype=np.float64)
@@ -826,22 +1051,41 @@ class OfflineSubmapRefiner(Node):
             for index in range(1, len(window_records)):
                 delta_pose = poses[index] - poses[index - 1]
                 delta_pose[2] = _wrap_angle(float(delta_pose[2]))
-                reference_delta = sequential_deltas[index - 1].copy()
                 yaw_from_imu = self._integrated_imu_yaw_delta(
                     imu_records,
                     float(scan_times_s[index - 1]),
                     float(scan_times_s[index]),
                 )
-                residuals.append(
-                    np.asarray(
-                        [
-                            0.18 * float(delta_pose[0] - reference_delta[0]),
-                            0.18 * float(delta_pose[1] - reference_delta[1]),
-                            0.70 * _wrap_angle(float(delta_pose[2] - yaw_from_imu)),
-                        ],
-                        dtype=np.float64,
+                if seed_available:
+                    reference_delta = sequential_deltas[index - 1].copy()
+                    residuals.append(
+                        np.asarray(
+                            [
+                                0.14 * float(delta_pose[0] - reference_delta[0]),
+                                0.14 * float(delta_pose[1] - reference_delta[1]),
+                                0.35 * _wrap_angle(float(delta_pose[2] - reference_delta[2])),
+                            ],
+                            dtype=np.float64,
+                        )
                     )
-                )
+                    residuals.append(
+                        np.asarray(
+                            [0.55 * _wrap_angle(float(delta_pose[2] - yaw_from_imu))],
+                            dtype=np.float64,
+                        )
+                    )
+                else:
+                    reference_delta = sequential_deltas[index - 1].copy()
+                    residuals.append(
+                        np.asarray(
+                            [
+                                0.18 * float(delta_pose[0] - reference_delta[0]),
+                                0.18 * float(delta_pose[1] - reference_delta[1]),
+                                0.70 * _wrap_angle(float(delta_pose[2] - yaw_from_imu)),
+                            ],
+                            dtype=np.float64,
+                        )
+                    )
             if not residuals:
                 return np.zeros(1, dtype=np.float64)
             return np.concatenate(residuals)
