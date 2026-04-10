@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import (
+    PackageNotFoundError,
+    get_package_prefix,
+    get_package_share_directory,
+)
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, LogInfo, OpaqueFunction, SetEnvironmentVariable, TimerAction
 from launch.conditions import IfCondition
@@ -75,9 +79,22 @@ def _prepare_launch(context, *args, **kwargs):
         LaunchConfiguration("use_slam").perform(context).strip().lower()
         in {"1", "true", "yes", "on"}
     )
+    estimation_mode_raw = (
+        LaunchConfiguration("estimation_mode").perform(context).strip().lower()
+    )
     mapping_mode = (
         LaunchConfiguration("mapping_mode").perform(context).strip().lower()
         or "current"
+    )
+    distortion_profile_raw = (
+        LaunchConfiguration("distortion_profile").perform(context).strip().lower()
+    )
+    refinement_mode_raw = (
+        LaunchConfiguration("refinement_mode").perform(context).strip().lower()
+    )
+    offline_replay_mode = (
+        LaunchConfiguration("offline_replay_mode").perform(context).strip().lower()
+        or "live_buffer"
     )
     use_ideal_pose_for_slam = (
         LaunchConfiguration("use_ideal_pose_for_slam").perform(context).strip().lower()
@@ -106,17 +123,131 @@ def _prepare_launch(context, *args, **kwargs):
     odom_latency_sec = float(
         LaunchConfiguration("odom_latency_sec").perform(context).strip() or "0.0"
     )
-    lidar_noise_std = float(
-        LaunchConfiguration("lidar_noise_std").perform(context).strip() or "0.0"
+    window_scan_count = int(
+        LaunchConfiguration("window_scan_count").perform(context).strip() or "48"
     )
+    window_overlap_count = int(
+        LaunchConfiguration("window_overlap_count").perform(context).strip() or "16"
+    )
+    initial_scan_count = int(
+        LaunchConfiguration("initial_scan_count").perform(context).strip() or "24"
+    )
+    submap_window_scans = int(
+        LaunchConfiguration("submap_window_scans").perform(context).strip() or "8"
+    )
+    offline_point_stride = int(
+        LaunchConfiguration("point_stride").perform(context).strip() or "2"
+    )
+    offline_max_correspondence_m = float(
+        LaunchConfiguration("max_correspondence_m").perform(context).strip() or "0.35"
+    )
+    offline_update_period_sec = float(
+        LaunchConfiguration("offline_update_period_sec").perform(context).strip() or "0.5"
+    )
+    offline_seed_odom_topic_override = (
+        LaunchConfiguration("offline_seed_odom_topic").perform(context).strip()
+    )
+    offline_input_dir = LaunchConfiguration("offline_input_dir").perform(context).strip()
+    lidar_noise_std_value = LaunchConfiguration("lidar_noise_std").perform(context).strip()
+    imu_gyro_noise_stddev_rps_value = LaunchConfiguration(
+        "imu_gyro_noise_stddev_rps"
+    ).perform(context).strip()
+    imu_accel_noise_stddev_mps2_value = LaunchConfiguration(
+        "imu_accel_noise_stddev_mps2"
+    ).perform(context).strip()
     if mapping_mode not in {"current", "ideal"}:
         mapping_mode = "current"
-    ideal_mapping_mode = mapping_mode == "ideal"
-    slam_uses_ideal_pose = ideal_mapping_mode or use_ideal_pose_for_slam
-    slam_uses_ideal_lidar = ideal_mapping_mode or use_ideal_lidar_for_slam
+    if estimation_mode_raw in {"current", "ideal", "rf2o_ekf"}:
+        estimation_mode = estimation_mode_raw
+    else:
+        estimation_mode = mapping_mode
+    if estimation_mode not in {"current", "ideal", "rf2o_ekf"}:
+        estimation_mode = "current"
+    current_estimation_mode = estimation_mode == "current"
+    ideal_estimation_mode = estimation_mode == "ideal"
+    rf2o_ekf_estimation_mode = estimation_mode == "rf2o_ekf"
+    if rf2o_ekf_estimation_mode:
+        missing_packages: list[str] = []
+        for package_name in ("rf2o_laser_odometry", "robot_localization"):
+            try:
+                get_package_prefix(package_name)
+            except PackageNotFoundError:
+                missing_packages.append(package_name)
+        if missing_packages:
+            install_hints = [
+                "robot_localization: sudo apt install ros-jazzy-robot-localization",
+                "rf2o_laser_odometry: add the ROS 2 package to an overlay workspace "
+                "(it is not present in the current Jazzy apt sources on this machine)",
+            ]
+            raise RuntimeError(
+                "estimation_mode=rf2o_ekf requires missing ROS 2 packages: "
+                + ", ".join(missing_packages)
+                + ". Install hints: "
+                + " | ".join(install_hints)
+            )
+    if distortion_profile_raw in {"ideal", "medium"}:
+        distortion_profile = distortion_profile_raw
+    elif rf2o_ekf_estimation_mode:
+        distortion_profile = "medium"
+    else:
+        distortion_profile = "ideal"
+    if refinement_mode_raw not in {"none", "offline_submaps"}:
+        refinement_mode = "none"
+    else:
+        refinement_mode = refinement_mode_raw
+    offline_submaps_refinement_mode = refinement_mode == "offline_submaps"
+    medium_distortion_profile = distortion_profile == "medium"
+    ideal_medium_sensor_profile = ideal_estimation_mode and medium_distortion_profile
+    offline_online_fusion_seed_mode = (
+        offline_submaps_refinement_mode
+        and ideal_medium_sensor_profile
+        and not offline_seed_odom_topic_override
+    )
+    slam_uses_ideal_pose = (
+        not rf2o_ekf_estimation_mode
+        and (ideal_estimation_mode or use_ideal_pose_for_slam)
+    )
+    slam_uses_ideal_lidar = (
+        not rf2o_ekf_estimation_mode
+        and (ideal_estimation_mode or use_ideal_lidar_for_slam)
+    )
+    if offline_seed_odom_topic_override:
+        offline_seed_odom_topic = offline_seed_odom_topic_override
+    elif rf2o_ekf_estimation_mode:
+        offline_seed_odom_topic = "/apex/sim/odom_fused"
+    elif offline_online_fusion_seed_mode:
+        # In the ideal+medium offline case, seed the submap optimizer from the
+        # same online IMU+LiDAR fusion used on the real car, not from perfect
+        # simulated odometry.
+        offline_seed_odom_topic = "/apex/odometry/imu_lidar_fused"
+    elif slam_uses_ideal_pose:
+        offline_seed_odom_topic = "/apex/sim/ideal_odom"
+    elif current_estimation_mode:
+        offline_seed_odom_topic = "/apex/odometry/imu_lidar_fused"
+    else:
+        offline_seed_odom_topic = ""
+    if medium_distortion_profile and (rf2o_ekf_estimation_mode or ideal_estimation_mode):
+        default_lidar_noise_std = 0.018
+        default_imu_gyro_noise_stddev_rps = 0.014
+        default_imu_accel_noise_stddev_mps2 = 0.09
+    else:
+        default_lidar_noise_std = 0.0
+        default_imu_gyro_noise_stddev_rps = 0.002
+        default_imu_accel_noise_stddev_mps2 = 0.02
+    lidar_noise_std = float(lidar_noise_std_value or str(default_lidar_noise_std))
+    imu_gyro_noise_stddev_rps = float(
+        imu_gyro_noise_stddev_rps_value or str(default_imu_gyro_noise_stddev_rps)
+    )
+    imu_accel_noise_stddev_mps2 = float(
+        imu_accel_noise_stddev_mps2_value or str(default_imu_accel_noise_stddev_mps2)
+    )
     control_mode = (
         LaunchConfiguration("control_mode").perform(context).strip().lower()
         or "recognition_tour"
+    )
+    gazebo_gui = (
+        LaunchConfiguration("gazebo_gui").perform(context).strip().lower()
+        in {"1", "true", "yes", "on"}
     )
     use_refined_visual_map = (
         LaunchConfiguration("use_refined_visual_map").perform(context).strip().lower()
@@ -129,7 +260,11 @@ def _prepare_launch(context, *args, **kwargs):
     rviz_config_value = LaunchConfiguration("rviz_config").perform(context).strip()
     if rviz_config_value:
         rviz_config = Path(rviz_config_value).expanduser().resolve()
-    elif ideal_mapping_mode:
+    elif offline_submaps_refinement_mode:
+        rviz_config = (rc_share / "rviz" / "apex_offline_submap_refiner.rviz").resolve()
+    elif rf2o_ekf_estimation_mode:
+        rviz_config = (rc_share / "rviz" / "apex_manual_mapping_rf2o_ekf.rviz").resolve()
+    elif ideal_estimation_mode:
         rviz_config = (rc_share / "rviz" / "apex_manual_mapping_ideal.rviz").resolve()
     else:
         if fixed_map_run_dir is not None:
@@ -192,7 +327,7 @@ def _prepare_launch(context, *args, **kwargs):
                 }
             },
         )
-    if use_slam and not ideal_mapping_mode:
+    if use_slam and current_estimation_mode:
         merged_params = _deep_merge(
             merged_params,
             {
@@ -211,8 +346,12 @@ def _prepare_launch(context, *args, **kwargs):
 
     selected_slam_params_file = (
         (rc_share / "config" / "slam_toolbox_sim_ideal.yaml").resolve()
-        if ideal_mapping_mode
-        else slam_params_file
+        if ideal_estimation_mode
+        else (
+            (rc_share / "config" / "slam_toolbox_sim_rf2o_ekf.yaml").resolve()
+            if rf2o_ekf_estimation_mode
+            else slam_params_file
+        )
     )
     try:
         base_slam_params = yaml.safe_load(
@@ -220,7 +359,11 @@ def _prepare_launch(context, *args, **kwargs):
         ) or {}
     except Exception:
         base_slam_params = {}
-    slam_params_overrides = {} if ideal_mapping_mode else scenario.get("slam_params_overrides", {})
+    slam_params_overrides = (
+        {}
+        if not current_estimation_mode
+        else scenario.get("slam_params_overrides", {})
+    )
     if not isinstance(slam_params_overrides, dict):
         slam_params_overrides = {}
     merged_slam_params = _deep_merge(base_slam_params, slam_params_overrides)
@@ -228,11 +371,11 @@ def _prepare_launch(context, *args, **kwargs):
     ideal_slam_ros_params = ideal_slam_overrides["slam_toolbox"]["ros__parameters"]
     # In ideal mapping mode slam_toolbox consumes Gazebo's perfect scan directly
     # instead of the degraded LiDAR topics published by the telemetry pipeline.
-    if slam_uses_ideal_lidar:
+    if slam_uses_ideal_lidar or rf2o_ekf_estimation_mode:
         ideal_slam_ros_params["scan_topic"] = "/apex/sim/scan"
     # slam_toolbox tracks motion through TF, so the ideal Gazebo ground truth is
     # bridged into the standard odom -> base_link frames for this first mapping stage.
-    if slam_uses_ideal_pose:
+    if slam_uses_ideal_pose or rf2o_ekf_estimation_mode:
         ideal_slam_ros_params["map_frame"] = "map"
         ideal_slam_ros_params["odom_frame"] = "odom"
         ideal_slam_ros_params["base_frame"] = "base_link"
@@ -285,6 +428,18 @@ def _prepare_launch(context, *args, **kwargs):
     if existing_pythonpath:
         pythonpath_parts.append(existing_pythonpath)
     pythonpath_value = ":".join(pythonpath_parts)
+    node_python_env = {"PYTHONPATH": pythonpath_value}
+    software_gui_env: dict[str, str] = {}
+    for env_name in (
+        "LIBGL_ALWAYS_SOFTWARE",
+        "QT_XCB_GL_INTEGRATION",
+        "QT_QUICK_BACKEND",
+    ):
+        env_value = os.environ.get(env_name, "").strip()
+        if env_value:
+            software_gui_env[env_name] = env_value
+    sim_gui_env = dict(node_python_env)
+    sim_gui_env.update(software_gui_env)
 
     vehicle_bridge_params = scenario.get("vehicle_bridge", {})
     if not isinstance(vehicle_bridge_params, dict):
@@ -321,14 +476,23 @@ def _prepare_launch(context, *args, **kwargs):
                 "xacro ",
                 robot_xacro,
                 " lidar_noise_std:=",
-                LaunchConfiguration("lidar_noise_std"),
+                str(lidar_noise_std),
+                " imu_gyro_noise_stddev_rps:=",
+                str(imu_gyro_noise_stddev_rps),
+                " imu_accel_noise_stddev_mps2:=",
+                str(imu_accel_noise_stddev_mps2),
             ]
         ),
         value_type=str,
     )
+    gz_cmd = ["gz", "sim", "-r"]
+    if not gazebo_gui:
+        gz_cmd.append("-s")
+    gz_cmd.append(world_path)
     gz_sim = ExecuteProcess(
-        cmd=["gz", "sim", "-r", world_path],
+        cmd=gz_cmd,
         output="screen",
+        additional_env=sim_gui_env,
     )
 
     robot_state_publisher = Node(
@@ -387,7 +551,7 @@ def _prepare_launch(context, *args, **kwargs):
         name="apex_ground_truth_node",
         output="screen",
         parameters=[ground_truth_params],
-        additional_env={"PYTHONPATH": pythonpath_value},
+        additional_env=node_python_env,
     )
     ground_truth_tf_bridge_params = {
         "use_sim_time": True,
@@ -396,7 +560,7 @@ def _prepare_launch(context, *args, **kwargs):
         "odom_frame_id": "odom",
         "child_frame_id": "base_link",
     }
-    if ideal_mapping_mode:
+    if ideal_estimation_mode:
         ground_truth_tf_bridge_params.update(
             {
                 "degrade_odom": degrade_odom,
@@ -419,6 +583,7 @@ def _prepare_launch(context, *args, **kwargs):
         name="apex_ground_truth_tf_bridge",
         output="screen",
         parameters=[ground_truth_tf_bridge_params],
+        additional_env=node_python_env,
     )
     fixed_map_publisher = None
     if fixed_map_run_dir is not None:
@@ -442,10 +607,11 @@ def _prepare_launch(context, *args, **kwargs):
                     "point_stride": 1,
                 }
             ],
+            additional_env=node_python_env,
         )
 
     refined_visual_map = None
-    if not ideal_mapping_mode:
+    if current_estimation_mode:
         refined_visual_map = Node(
             package="rc_sim_description",
             executable="apex_refined_sensorfusion_map_node.py",
@@ -459,6 +625,7 @@ def _prepare_launch(context, *args, **kwargs):
                     "odom_topic": "/apex/odometry/imu_lidar_fused",
                 }
             ],
+            additional_env=node_python_env,
             condition=IfCondition(LaunchConfiguration("use_refined_visual_map")),
         )
 
@@ -474,6 +641,7 @@ def _prepare_launch(context, *args, **kwargs):
                 "status_topic": "/apex/sim/manual_control/status",
             },
         ],
+        additional_env=node_python_env,
     )
     manual_windows_bridge = Node(
         package="rc_sim_description",
@@ -487,6 +655,7 @@ def _prepare_launch(context, *args, **kwargs):
                 "status_topic": "/apex/sim/manual_control/status",
             },
         ],
+        additional_env=node_python_env,
     )
     ideal_cmd_vel_bridge = Node(
         package="rc_sim_description",
@@ -514,8 +683,8 @@ def _prepare_launch(context, *args, **kwargs):
                 "steering_min_authority_ratio": float(
                     vehicle_bridge_params.get("steering_min_authority_ratio", 0.90)
                 ),
-                # In ideal mapping the car still moves through Gazebo PWM topics,
-                # but the SLAM stack no longer depends on the degraded APEX pipeline.
+                # The direct Gazebo PWM bridge keeps manual control alive in the
+                # sim-only estimation modes without pulling in the old pipeline.
                 "max_linear_speed_mps": float(
                     cmd_vel_bridge_ros_params.get(
                         "max_linear_speed_mps",
@@ -531,12 +700,15 @@ def _prepare_launch(context, *args, **kwargs):
                 ),
             }
         ],
+        additional_env=node_python_env,
     )
 
     enable_recognition_tour = control_mode not in {"manual_xbox", "manual_windows_bridge"}
 
+    sim_only_cmd_vel_bridge_required = ideal_estimation_mode or rf2o_ekf_estimation_mode
+
     apex_pipeline = None
-    if not ideal_mapping_mode:
+    if current_estimation_mode or offline_online_fusion_seed_mode:
         apex_pipeline = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(pipeline_launch),
             launch_arguments={
@@ -551,16 +723,90 @@ def _prepare_launch(context, *args, **kwargs):
                 "sim_motor_pwm_topic": "/apex/sim/pwm/motor_dc",
                 "sim_steering_pwm_topic": "/apex/sim/pwm/steering_dc",
                 "enable_imu_lidar_fusion": "true",
-                "enable_curve_entry_planner": "false",
+                "enable_imu_source": "true",
+                "enable_lidar_source": "true",
+                "enable_kinematics_estimator": (
+                    "true" if current_estimation_mode else "false"
+                ),
+                "enable_kinematics_odometry": (
+                    "true" if current_estimation_mode else "false"
+                ),
+                "enable_curve_entry_planner": (
+                    "true" if current_estimation_mode and enable_recognition_tour else "false"
+                ),
                 "enable_path_tracker": "false",
                 "enable_recognition_tour_planner": (
-                    "true" if enable_recognition_tour else "false"
+                    "true"
+                    if current_estimation_mode and enable_recognition_tour
+                    else "false"
                 ),
                 "enable_recognition_tour_tracker": (
-                    "true" if enable_recognition_tour else "false"
+                    "true"
+                    if current_estimation_mode and enable_recognition_tour
+                    else "false"
                 ),
-                "enable_cmdvel_actuation_bridge": "true",
+                "enable_cmdvel_actuation_bridge": (
+                    "true" if current_estimation_mode else "false"
+                ),
             }.items(),
+        )
+
+    ekf_params_file = (rc_share / "config" / "ekf_sim_lidar_imu.yaml").resolve()
+    rf2o_laser_odometry = None
+    ekf_filter = None
+    offline_submap_refiner = None
+    if rf2o_ekf_estimation_mode:
+        rf2o_laser_odometry = Node(
+            package="rf2o_laser_odometry",
+            executable="rf2o_laser_odometry_node",
+            output="screen",
+            parameters=[
+                {
+                    "use_sim_time": True,
+                    "laser_scan_topic": "/apex/sim/scan",
+                    "odom_topic": "/apex/sim/rf2o_odom",
+                    "publish_tf": False,
+                    "base_frame_id": "base_link",
+                    "odom_frame_id": "odom",
+                    "init_pose_from_topic": "",
+                    "freq": 20.0,
+                }
+            ],
+        )
+        ekf_filter = Node(
+            package="robot_localization",
+            executable="ekf_node",
+            name="apex_sim_ekf_filter_node",
+            output="screen",
+            parameters=[str(ekf_params_file)],
+            remappings=[("odometry/filtered", "/apex/sim/odom_fused")],
+        )
+    if offline_submaps_refinement_mode:
+        offline_submap_refiner = Node(
+            package="rc_sim_description",
+            executable="offline_submap_refiner.py",
+            name="offline_submap_refiner",
+            output="screen",
+            parameters=[
+                {
+                    "use_sim_time": True,
+                    "replay_mode": offline_replay_mode,
+                    "scan_topic": "/apex/sim/scan",
+                    "imu_topic": "/apex/sim/imu",
+                    "seed_odom_topic": offline_seed_odom_topic,
+                    "input_dir": offline_input_dir,
+                    "frame_id": "map",
+                    "child_frame_id": "offline_refined_base_link",
+                    "window_scan_count": window_scan_count,
+                    "window_overlap_count": window_overlap_count,
+                    "initial_scan_count": initial_scan_count,
+                    "submap_window_scans": submap_window_scans,
+                    "point_stride": offline_point_stride,
+                    "max_correspondence_m": offline_max_correspondence_m,
+                    "offline_update_period_sec": offline_update_period_sec,
+                }
+            ],
+            additional_env=node_python_env,
         )
 
     slam_toolbox = IncludeLaunchDescription(
@@ -581,18 +827,19 @@ def _prepare_launch(context, *args, **kwargs):
         arguments=["-d", str(rviz_config)],
         parameters=[{"use_sim_time": True}],
         output="screen",
+        additional_env=software_gui_env,
         condition=IfCondition(LaunchConfiguration("rviz")),
     )
     ideal_mode_logs = [
         LogInfo(
             msg=(
-                "[apex_sim] mapping_mode=ideal uses slam params file: "
+                "[apex_sim] estimation_mode=ideal uses slam params file: "
                 f"{selected_slam_params_file}"
             )
         ),
         LogInfo(
             msg=(
-                "[apex_sim] mapping_mode=ideal uses Gazebo scan topic "
+                "[apex_sim] estimation_mode=ideal uses Gazebo scan topic "
                 "/apex/sim/scan directly, relies on the URDF-published "
                 "base_link -> laser TF only, and trusts ideal odom for the "
                 "initial mapping pass. No manual lidar static TF is launched."
@@ -600,7 +847,7 @@ def _prepare_launch(context, *args, **kwargs):
         ),
         LogInfo(
             msg=(
-                "[apex_sim] mapping_mode=ideal bypasses the old APEX SLAM pipeline and "
+                "[apex_sim] estimation_mode=ideal bypasses the old APEX SLAM pipeline and "
                 "uses apex_ground_truth_tf_bridge.py for odom -> base_link."
             )
         ),
@@ -614,23 +861,96 @@ def _prepare_launch(context, *args, **kwargs):
         ),
         LogInfo(
             msg=(
-                "[apex_sim] ideal lidar noise "
-                f"(std={lidar_noise_std:.4f} m on /apex/sim/scan)"
+                "[apex_sim] ideal sensor noise "
+                f"(distortion_profile={distortion_profile} lidar_std={lidar_noise_std:.4f} m "
+                f"gyro_std={imu_gyro_noise_stddev_rps:.4f} rps "
+                f"accel_std={imu_accel_noise_stddev_mps2:.4f} m/s^2)"
+            )
+        ),
+    ]
+    rf2o_ekf_mode_logs = [
+        LogInfo(
+            msg=(
+                "[apex_sim] estimation_mode=rf2o_ekf uses slam params file: "
+                f"{selected_slam_params_file}"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] estimation_mode=rf2o_ekf uses EKF params file: "
+                f"{ekf_params_file}"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] rf2o_laser_odometry consumes /apex/sim/scan and "
+                "publishes /apex/sim/rf2o_odom without TF. robot_localization "
+                "then fuses /apex/sim/rf2o_odom + /apex/sim/imu into "
+                "/apex/sim/odom_fused and TF odom -> base_link. The RF2O "
+                "executable owns two internal ROS nodes, so it is launched "
+                "without a global node-name override to avoid duplicate names "
+                "in the graph."
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] distortion_profile="
+                f"{distortion_profile} applies local Gazebo sensor noise "
+                f"(lidar_std={lidar_noise_std:.4f} m gyro_std={imu_gyro_noise_stddev_rps:.4f} rps "
+                f"accel_std={imu_accel_noise_stddev_mps2:.4f} m/s^2). "
+                "Pipeline-only dropout, heading jitter, and publish latency stay disabled in "
+                "rf2o_ekf because this route bypasses the old degraded chain."
+            )
+        ),
+    ]
+    offline_submaps_logs = [
+        LogInfo(
+            msg=(
+                "[apex_sim] refinement_mode=offline_submaps launches offline_submap_refiner.py "
+                f"(replay_mode={offline_replay_mode} scan=/apex/sim/scan imu=/apex/sim/imu "
+                f"seed_odom={offline_seed_odom_topic or '<none>'})"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] offline_submaps distortion handling "
+                f"(distortion_profile={distortion_profile} "
+                + (
+                    "ideal sensor-noise run seeds the offline refiner from /apex/odometry/imu_lidar_fused "
+                    "via the online IMU+LiDAR fusion path"
+                    if ideal_medium_sensor_profile
+                    else "seed odom follows the active estimation route"
+                )
+                + ")"
+            )
+        ),
+        LogInfo(
+            msg=(
+                "[apex_sim] offline_submaps windowing "
+                f"(window_scan_count={window_scan_count} overlap={window_overlap_count} "
+                f"initial_scan_count={initial_scan_count} submap_window_scans={submap_window_scans} "
+                f"point_stride={offline_point_stride} max_correspondence_m={offline_max_correspondence_m:.3f} "
+                f"update_period_s={offline_update_period_sec:.3f})"
             )
         ),
     ]
 
     actions = [
         SetEnvironmentVariable("GZ_SIM_RESOURCE_PATH", resource_value),
-        *(ideal_mode_logs if ideal_mapping_mode else []),
+        *(ideal_mode_logs if ideal_estimation_mode else []),
+        *(rf2o_ekf_mode_logs if rf2o_ekf_estimation_mode else []),
+        *(offline_submaps_logs if offline_submaps_refinement_mode else []),
         gz_sim,
         robot_state_publisher,
         sim_bridges,
         TimerAction(period=2.0, actions=[spawn_rc]),
         TimerAction(period=2.5, actions=[vehicle_bridge, ground_truth]),
         TimerAction(period=2.8, actions=[ground_truth_tf_bridge]) if slam_uses_ideal_pose else None,
-        TimerAction(period=3.0, actions=[ideal_cmd_vel_bridge]) if ideal_mapping_mode else None,
+        TimerAction(period=3.0, actions=[ideal_cmd_vel_bridge]) if sim_only_cmd_vel_bridge_required else None,
         TimerAction(period=3.0, actions=[apex_pipeline]) if apex_pipeline is not None else None,
+        TimerAction(period=3.2, actions=[rf2o_laser_odometry]) if rf2o_laser_odometry is not None else None,
+        TimerAction(period=3.4, actions=[ekf_filter]) if ekf_filter is not None else None,
+        TimerAction(period=3.6, actions=[offline_submap_refiner]) if offline_submap_refiner is not None else None,
         TimerAction(period=3.8, actions=[refined_visual_map]) if refined_visual_map is not None else None,
         TimerAction(period=4.0, actions=[slam_toolbox]),
         TimerAction(period=4.5, actions=[rviz_node]),
@@ -665,7 +985,21 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("use_refined_visual_map", default_value="false"),
             DeclareLaunchArgument("fixed_map_run", default_value=""),
             DeclareLaunchArgument("control_mode", default_value="recognition_tour"),
+            DeclareLaunchArgument("gazebo_gui", default_value="true"),
             DeclareLaunchArgument("mapping_mode", default_value="current"),
+            DeclareLaunchArgument("estimation_mode", default_value=""),
+            DeclareLaunchArgument("distortion_profile", default_value=""),
+            DeclareLaunchArgument("refinement_mode", default_value="none"),
+            DeclareLaunchArgument("offline_replay_mode", default_value="live_buffer"),
+            DeclareLaunchArgument("window_scan_count", default_value="48"),
+            DeclareLaunchArgument("window_overlap_count", default_value="16"),
+            DeclareLaunchArgument("initial_scan_count", default_value="24"),
+            DeclareLaunchArgument("submap_window_scans", default_value="8"),
+            DeclareLaunchArgument("point_stride", default_value="2"),
+            DeclareLaunchArgument("max_correspondence_m", default_value="0.35"),
+            DeclareLaunchArgument("offline_update_period_sec", default_value="0.5"),
+            DeclareLaunchArgument("offline_seed_odom_topic", default_value=""),
+            DeclareLaunchArgument("offline_input_dir", default_value=""),
             DeclareLaunchArgument("use_ideal_pose_for_slam", default_value="false"),
             DeclareLaunchArgument("use_ideal_lidar_for_slam", default_value="false"),
             DeclareLaunchArgument("degrade_odom", default_value="false"),
@@ -674,7 +1008,9 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("odom_velocity_noise_std", default_value="0.0"),
             DeclareLaunchArgument("odom_yaw_bias_per_sec", default_value="0.0"),
             DeclareLaunchArgument("odom_latency_sec", default_value="0.0"),
-            DeclareLaunchArgument("lidar_noise_std", default_value="0.0"),
+            DeclareLaunchArgument("lidar_noise_std", default_value=""),
+            DeclareLaunchArgument("imu_gyro_noise_stddev_rps", default_value=""),
+            DeclareLaunchArgument("imu_accel_noise_stddev_mps2", default_value=""),
             DeclareLaunchArgument("slam_params_file", default_value=default_slam_params_file),
             DeclareLaunchArgument("x", default_value=""),
             DeclareLaunchArgument("y", default_value=""),

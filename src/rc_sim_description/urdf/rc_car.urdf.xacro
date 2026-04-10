@@ -1,7 +1,11 @@
 <?xml version="1.0"?>
 <robot name="rc_car" xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:arg name="lidar_noise_std" default="0.0"/>
+  <xacro:arg name="imu_gyro_noise_stddev_rps" default="0.002"/>
+  <xacro:arg name="imu_accel_noise_stddev_mps2" default="0.02"/>
   <xacro:property name="lidar_noise_std" value="$(arg lidar_noise_std)"/>
+  <xacro:property name="imu_gyro_noise_stddev_rps" value="$(arg imu_gyro_noise_stddev_rps)"/>
+  <xacro:property name="imu_accel_noise_stddev_mps2" value="$(arg imu_accel_noise_stddev_mps2)"/>
   <!-- Basic dimensions -->
   <xacro:property name="chassis_length" value="0.46"/>
   <xacro:property name="chassis_width" value="0.28"/>
@@ -254,19 +258,19 @@
           <x>
             <noise type="gaussian">
               <mean>0.0</mean>
-              <stddev>0.002</stddev>
+              <stddev>${imu_gyro_noise_stddev_rps}</stddev>
             </noise>
           </x>
           <y>
             <noise type="gaussian">
               <mean>0.0</mean>
-              <stddev>0.002</stddev>
+              <stddev>${imu_gyro_noise_stddev_rps}</stddev>
             </noise>
           </y>
           <z>
             <noise type="gaussian">
               <mean>0.0</mean>
-              <stddev>0.002</stddev>
+              <stddev>${imu_gyro_noise_stddev_rps}</stddev>
             </noise>
           </z>
         </angular_velocity>
@@ -274,19 +278,19 @@
           <x>
             <noise type="gaussian">
               <mean>0.0</mean>
-              <stddev>0.02</stddev>
+              <stddev>${imu_accel_noise_stddev_mps2}</stddev>
             </noise>
           </x>
           <y>
             <noise type="gaussian">
               <mean>0.0</mean>
-              <stddev>0.02</stddev>
+              <stddev>${imu_accel_noise_stddev_mps2}</stddev>
             </noise>
           </y>
           <z>
             <noise type="gaussian">
               <mean>0.0</mean>
-              <stddev>0.02</stddev>
+              <stddev>${imu_accel_noise_stddev_mps2}</stddev>
             </noise>
           </z>
         </linear_acceleration>
