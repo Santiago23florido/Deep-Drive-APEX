@@ -67,6 +67,7 @@ class RecognitionTourTrackerNode(Node):
         self.declare_parameter("arm_topic", "/apex/tracking/arm")
         self.declare_parameter("cmd_vel_topic", "/apex/cmd_vel_track")
         self.declare_parameter("status_topic", "/apex/tracking/recognition_tour_status")
+        self.declare_parameter("publish_unarmed_zero_cmd", True)
         self.declare_parameter("control_rate_hz", 30.0)
         self.declare_parameter("wheelbase_m", 0.30)
         self.declare_parameter("steering_limit_deg", 18.0)
@@ -124,6 +125,9 @@ class RecognitionTourTrackerNode(Node):
         self._arm_topic = str(self.get_parameter("arm_topic").value)
         self._cmd_vel_topic = str(self.get_parameter("cmd_vel_topic").value)
         self._status_topic = str(self.get_parameter("status_topic").value)
+        self._publish_unarmed_zero_cmd = bool(
+            self.get_parameter("publish_unarmed_zero_cmd").value
+        )
         self._control_rate_hz = max(1.0, float(self.get_parameter("control_rate_hz").value))
         self._wheelbase_m = max(1e-3, float(self.get_parameter("wheelbase_m").value))
         self._steering_limit_deg = max(1.0, float(self.get_parameter("steering_limit_deg").value))
@@ -390,6 +394,10 @@ class RecognitionTourTrackerNode(Node):
         cmd.angular.z = float(angular_z_rps)
         self._cmd_pub.publish(cmd)
 
+    def _publish_inactive_zero_cmd(self) -> None:
+        if self._armed or self._publish_unarmed_zero_cmd:
+            self._publish_cmd(0.0, 0.0)
+
     def _publish_status(self) -> None:
         msg = String()
         msg.data = json.dumps(self._status_payload, separators=(",", ":"))
@@ -586,7 +594,7 @@ class RecognitionTourTrackerNode(Node):
                 "terminal": False,
                 "cause": None,
             }
-            self._publish_cmd(0.0, 0.0)
+            self._publish_inactive_zero_cmd()
             self._filtered_angular_z_rps = 0.0
             self._publish_status()
             return
@@ -608,7 +616,7 @@ class RecognitionTourTrackerNode(Node):
                 "fusion_state": self._fusion_status.get("state"),
                 "armed": self._armed,
             }
-            self._publish_cmd(0.0, 0.0)
+            self._publish_inactive_zero_cmd()
             self._filtered_angular_z_rps = 0.0
             self._publish_status()
             return
@@ -625,7 +633,7 @@ class RecognitionTourTrackerNode(Node):
                 "planner_ready": bool(self._planning_status.get("ready", False)),
                 "armed": False,
             }
-            self._publish_cmd(0.0, 0.0)
+            self._publish_inactive_zero_cmd()
             self._publish_status()
             return
 

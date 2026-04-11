@@ -31,6 +31,7 @@ class ApexWindowsGamepadBridgeNode(Node):
         self.declare_parameter("start_button_field", "start_pressed")
         self.declare_parameter("enable_session_toggle_input", True)
         self.declare_parameter("require_session_toggle_to_drive", True)
+        self.declare_parameter("publish_cmd_vel", True)
         self.declare_parameter("linear_gain", 3.0)
         self.declare_parameter("angular_gain", 3.0)
 
@@ -53,6 +54,7 @@ class ApexWindowsGamepadBridgeNode(Node):
         self._require_session_toggle_to_drive = bool(
             self.get_parameter("require_session_toggle_to_drive").value
         )
+        self._publish_cmd_vel = bool(self.get_parameter("publish_cmd_vel").value)
         self._linear_gain = float(self.get_parameter("linear_gain").value)
         self._angular_gain = float(self.get_parameter("angular_gain").value)
 
@@ -252,15 +254,16 @@ class ApexWindowsGamepadBridgeNode(Node):
             if bridge_connected and bool(status.get("controller_connected", False)):
                 status["state"] = "waiting_start_button"
 
-        msg = Twist()
-        if (
-            status.get("bridge_connected")
-            and status.get("controller_connected")
-            and status.get("enabled")
-        ):
-            msg.linear.x = float(status.get("linear_x_mps", 0.0)) * self._linear_gain
-            msg.angular.z = float(status.get("angular_z_rps", 0.0)) * self._angular_gain
-        self._cmd_pub.publish(msg)
+        if self._publish_cmd_vel:
+            msg = Twist()
+            if (
+                status.get("bridge_connected")
+                and status.get("controller_connected")
+                and status.get("enabled")
+            ):
+                msg.linear.x = float(status.get("linear_x_mps", 0.0)) * self._linear_gain
+                msg.angular.z = float(status.get("angular_z_rps", 0.0)) * self._angular_gain
+            self._cmd_pub.publish(msg)
 
         status_msg = String()
         status_msg.data = json.dumps(status, separators=(",", ":"))

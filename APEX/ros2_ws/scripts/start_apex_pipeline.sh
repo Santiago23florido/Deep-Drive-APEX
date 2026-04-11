@@ -25,6 +25,7 @@ ENABLE_RECOGNITION_TOUR_TRACKER="${APEX_ENABLE_RECOGNITION_TOUR_TRACKER:-0}"
 ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
 ENABLE_MANUAL_CONTROL_BRIDGE="${APEX_ENABLE_MANUAL_CONTROL_BRIDGE:-0}"
 ENABLE_RECOGNITION_SESSION_MANAGER="${APEX_ENABLE_RECOGNITION_SESSION_MANAGER:-0}"
+ENABLE_OFFLINE_SUBMAP_REFINER="${APEX_ENABLE_OFFLINE_SUBMAP_REFINER:-0}"
 STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-modern}"
 STAGGERED_STARTUP="${APEX_STAGGERED_STARTUP:-1}"
 SERIAL_WARMUP_S="${APEX_SERIAL_WARMUP_S:-1.0}"
@@ -43,6 +44,7 @@ BRIDGE_MAX_REVERSE_SPEED_PCT="${APEX_BRIDGE_MAX_REVERSE_SPEED_PCT:-}"
 BRIDGE_LAUNCH_BOOST_SPEED_PCT="${APEX_BRIDGE_LAUNCH_BOOST_SPEED_PCT:-}"
 BRIDGE_LAUNCH_BOOST_HOLD_S="${APEX_BRIDGE_LAUNCH_BOOST_HOLD_S:-}"
 BRIDGE_ACTIVE_BRAKE_ON_ZERO="${APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO:-}"
+RECOGNITION_TRACKER_PUBLISH_UNARMED_ZERO_CMD="${APEX_RECOGNITION_TRACKER_PUBLISH_UNARMED_ZERO_CMD:-false}"
 
 read_param_value() {
   local key="$1"
@@ -304,6 +306,55 @@ else
   echo "[APEX] Online IMU+LiDAR fusion disabled for this run"
 fi
 
+if [[ "${ENABLE_OFFLINE_SUBMAP_REFINER}" == "1" ]]; then
+  OFFLINE_REFINER_SCRIPT="${APEX_OFFLINE_REFINER_SCRIPT:-/work/repo/src/rc_sim_description/scripts/offline_submap_refiner.py}"
+  if [[ -f "${OFFLINE_REFINER_SCRIPT}" ]]; then
+    echo "[APEX] Offline submap refiner enabled (script=${OFFLINE_REFINER_SCRIPT})"
+    python3 "${OFFLINE_REFINER_SCRIPT}" \
+      --ros-args \
+      -p "use_sim_time:=false" \
+      -p "replay_mode:=live_buffer" \
+      -p "scan_topic:=${APEX_OFFLINE_REFINER_SCAN_TOPIC:-/lidar/scan_slam}" \
+      -p "imu_topic:=${APEX_OFFLINE_REFINER_IMU_TOPIC:-/apex/imu/data_raw}" \
+      -p "seed_odom_topic:=${APEX_OFFLINE_REFINER_SEED_ODOM_TOPIC:-/apex/odometry/imu_lidar_fused}" \
+      -p "seed_status_topic:=${APEX_OFFLINE_REFINER_SEED_STATUS_TOPIC:-/apex/estimation/status}" \
+      -p "frame_id:=${APEX_OFFLINE_REFINER_FRAME_ID:-odom_imu_lidar_fused}" \
+      -p "child_frame_id:=${APEX_OFFLINE_REFINER_CHILD_FRAME_ID:-offline_refined_base_link}" \
+      -p "map_topic:=${APEX_OFFLINE_REFINER_MAP_TOPIC:-/apex/real/offline_refined_map}" \
+      -p "grid_topic:=${APEX_OFFLINE_REFINER_GRID_TOPIC:-/apex/real/offline_refined_grid}" \
+      -p "path_topic:=${APEX_OFFLINE_REFINER_PATH_TOPIC:-/apex/real/offline_refined_path}" \
+      -p "submap_topic:=${APEX_OFFLINE_REFINER_SUBMAP_TOPIC:-/apex/real/offline_current_submap}" \
+      -p "status_topic:=${APEX_OFFLINE_REFINER_STATUS_TOPIC:-/apex/real/offline_refined_status}" \
+      -p "odom_topic:=${APEX_OFFLINE_REFINER_ODOM_TOPIC:-/apex/real/offline_refined_odom}" \
+      -p "publish_global_correction:=$(normalize_bool_override "${APEX_OFFLINE_REFINER_PUBLISH_GLOBAL_CORRECTION:-true}")" \
+      -p "global_correction_topic:=${APEX_OFFLINE_REFINER_GLOBAL_CORRECTION_TOPIC:-/apex/real/offline_global_correction}" \
+      -p "anchor_pose_topic:=${APEX_OFFLINE_REFINER_ANCHOR_POSE_TOPIC:-/apex/real/offline_anchor_pose}" \
+      -p "seed_odom_frame_id:=${APEX_OFFLINE_REFINER_SEED_ODOM_FRAME_ID:-odom_imu_lidar_fused}" \
+      -p "window_scan_count:=${APEX_OFFLINE_REFINER_WINDOW_SCAN_COUNT:-48}" \
+      -p "window_overlap_count:=${APEX_OFFLINE_REFINER_WINDOW_OVERLAP_COUNT:-24}" \
+      -p "initial_scan_count:=${APEX_OFFLINE_REFINER_INITIAL_SCAN_COUNT:-24}" \
+      -p "submap_window_scans:=${APEX_OFFLINE_REFINER_SUBMAP_WINDOW_SCANS:-10}" \
+      -p "point_stride:=${APEX_OFFLINE_REFINER_POINT_STRIDE:-2}" \
+      -p "max_correspondence_m:=${APEX_OFFLINE_REFINER_MAX_CORRESPONDENCE_M:-0.35}" \
+      -p "offline_update_period_sec:=${APEX_OFFLINE_REFINER_UPDATE_PERIOD_S:-0.5}" \
+      -p "seed_status_timeout_sec:=${APEX_OFFLINE_REFINER_SEED_STATUS_TIMEOUT_S:-2.0}" \
+      -p "seed_status_max_median_submap_residual_m:=${APEX_OFFLINE_REFINER_SEED_MAX_MEDIAN_RESIDUAL_M:-0.18}" \
+      -p "enable_inter_window_alignment:=$(normalize_bool_override "${APEX_OFFLINE_REFINER_ENABLE_INTER_WINDOW_ALIGNMENT:-true}")" \
+      -p "inter_window_alignment_gain:=${APEX_OFFLINE_REFINER_INTER_WINDOW_ALIGNMENT_GAIN:-0.85}" \
+      -p "inter_window_min_overlap_scans:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MIN_OVERLAP_SCANS:-4}" \
+      -p "inter_window_min_points:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MIN_POINTS:-80}" \
+      -p "inter_window_max_points:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MAX_POINTS:-2500}" \
+      -p "inter_window_max_translation_m:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MAX_TRANSLATION_M:-0.25}" \
+      -p "inter_window_max_yaw_deg:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MAX_YAW_DEG:-10.0}" &
+    PIDS+=("$!")
+    startup_stage_sleep "offline submap refiner"
+  else
+    echo "[APEX][WARN] Offline submap refiner enabled but script not found: ${OFFLINE_REFINER_SCRIPT}"
+  fi
+else
+  echo "[APEX] Offline submap refiner disabled for this run"
+fi
+
 if [[ "${ENABLE_CURVE_ENTRY_PLANNER}" == "1" ]]; then
   python3 -m apex_telemetry.perception.curve_entry_path_planner_node \
     --ros-args \
@@ -337,7 +388,8 @@ fi
 if [[ "${ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
   python3 -m apex_telemetry.control.recognition_tour_tracker_node \
     --ros-args \
-    --params-file "${PARAMS_FILE}" &
+    --params-file "${PARAMS_FILE}" \
+    -p "publish_unarmed_zero_cmd:=$(normalize_bool_override "${RECOGNITION_TRACKER_PUBLISH_UNARMED_ZERO_CMD}")" &
   PIDS+=("$!")
   startup_stage_sleep "recognition tracker"
 else
@@ -439,6 +491,9 @@ if [[ "${ENABLE_MANUAL_CONTROL_BRIDGE}" == "1" ]]; then
 fi
 if [[ "${ENABLE_RECOGNITION_SESSION_MANAGER}" == "1" ]]; then
   PIPELINE_FEATURES+=("session manager")
+fi
+if [[ "${ENABLE_OFFLINE_SUBMAP_REFINER}" == "1" ]]; then
+  PIPELINE_FEATURES+=("offline submap refiner")
 fi
 PIPELINE_FEATURE_SUMMARY=""
 for FEATURE in "${PIPELINE_FEATURES[@]}"; do

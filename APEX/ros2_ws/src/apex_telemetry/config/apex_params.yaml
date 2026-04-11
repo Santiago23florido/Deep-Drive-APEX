@@ -69,13 +69,13 @@ kinematics_estimator_node:
     use_gyro_yaw: true
     gravity_compensation_enabled: true
     gravity_axis: "z"
-    planar_mount_yaw_deg: -90.0
-    accel_bias_x: 0.302
-    accel_bias_y: 0.490
-    accel_bias_z: -0.063
+    planar_mount_yaw_deg: 0.0
+    accel_bias_x: 0.0
+    accel_bias_y: 0.0
+    accel_bias_z: 0.0
     gyro_bias_x: 0.0
-    gyro_bias_y: -0.093
-    gyro_bias_z: -0.050
+    gyro_bias_y: 0.0
+    gyro_bias_z: 0.0
     status_topic: "/apex/kinematics/status"
     startup_static_calibration_enabled: true
     startup_static_calibration_duration_s: 2.5

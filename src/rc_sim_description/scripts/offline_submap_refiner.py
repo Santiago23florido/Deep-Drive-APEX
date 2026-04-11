@@ -149,6 +149,17 @@ class RelativeMotionEstimate:
     median_residual_m: float
 
 
+@dataclass(frozen=True)
+class InterWindowAlignmentResult:
+    enabled: bool
+    applied: bool
+    reason: str
+    overlap_scan_count: int
+    paired_point_count: int
+    raw_delta_xyyaw: np.ndarray
+    applied_delta_xyyaw: np.ndarray
+
+
 class OfflineSubmapRefiner(Node):
     def __init__(self) -> None:
         super().__init__("offline_submap_refiner")
@@ -182,6 +193,13 @@ class OfflineSubmapRefiner(Node):
         self.declare_parameter("global_correction_topic", "/apex/sim/offline_global_correction")
         self.declare_parameter("anchor_pose_topic", "/apex/sim/offline_anchor_pose")
         self.declare_parameter("seed_odom_frame_id", "odom_imu_lidar_fused")
+        self.declare_parameter("enable_inter_window_alignment", False)
+        self.declare_parameter("inter_window_alignment_gain", 0.85)
+        self.declare_parameter("inter_window_min_overlap_scans", 4)
+        self.declare_parameter("inter_window_min_points", 80)
+        self.declare_parameter("inter_window_max_points", 2500)
+        self.declare_parameter("inter_window_max_translation_m", 0.25)
+        self.declare_parameter("inter_window_max_yaw_deg", 10.0)
         self.declare_parameter("use_track_geometry_prior", False)
         self.declare_parameter("track_geometry_file", "")
         self.declare_parameter("track_geometry_weight", 0.08)
@@ -228,6 +246,32 @@ class OfflineSubmapRefiner(Node):
         )
         self._anchor_pose_topic = str(self.get_parameter("anchor_pose_topic").value)
         self._seed_odom_frame_id = str(self.get_parameter("seed_odom_frame_id").value).strip() or "odom_imu_lidar_fused"
+        self._enable_inter_window_alignment = bool(
+            self.get_parameter("enable_inter_window_alignment").value
+        )
+        self._inter_window_alignment_gain = min(
+            1.0,
+            max(0.0, float(self.get_parameter("inter_window_alignment_gain").value)),
+        )
+        self._inter_window_min_overlap_scans = max(
+            1,
+            int(self.get_parameter("inter_window_min_overlap_scans").value),
+        )
+        self._inter_window_min_points = max(
+            3,
+            int(self.get_parameter("inter_window_min_points").value),
+        )
+        self._inter_window_max_points = max(
+            self._inter_window_min_points,
+            int(self.get_parameter("inter_window_max_points").value),
+        )
+        self._inter_window_max_translation_m = max(
+            0.0,
+            float(self.get_parameter("inter_window_max_translation_m").value),
+        )
+        self._inter_window_max_yaw_rad = math.radians(
+            max(0.0, float(self.get_parameter("inter_window_max_yaw_deg").value))
+        )
         self._use_track_geometry_prior = bool(
             self.get_parameter("use_track_geometry_prior").value
         )
@@ -368,7 +412,7 @@ class OfflineSubmapRefiner(Node):
 
         self.create_timer(self._offline_update_period_s, self._tick)
         self.get_logger().info(
-            "OfflineSubmapRefiner started (scan=%s imu=%s seed_odom=%s seed_status=%s mode=%s window=%d overlap=%d)"
+            "OfflineSubmapRefiner started (scan=%s imu=%s seed_odom=%s seed_status=%s mode=%s window=%d overlap=%d inter_window=%s)"
             % (
                 self._scan_topic,
                 self._imu_topic,
@@ -377,6 +421,7 @@ class OfflineSubmapRefiner(Node):
                 self._replay_mode,
                 self._window_scan_count,
                 self._window_overlap_count,
+                "on" if self._enable_inter_window_alignment else "off",
             )
         )
 
@@ -643,6 +688,21 @@ class OfflineSubmapRefiner(Node):
                 refined_poses,
                 overlap_anchor_points,
             )
+            inter_window_alignment = self._estimate_inter_window_alignment(
+                window_records,
+                refined_poses,
+                qualities,
+            )
+            if inter_window_alignment.applied:
+                refined_poses = self._apply_world_delta_to_poses(
+                    refined_poses,
+                    inter_window_alignment.applied_delta_xyyaw,
+                )
+                correspondences, qualities = self._build_correspondences(
+                    window_records,
+                    refined_poses,
+                    overlap_anchor_points,
+                )
             current_submap_points = self._build_window_submap_points(window_records, refined_poses)
             self._merge_window_results(window_records, refined_poses, qualities)
             accumulated_map_points, accumulated_path_poses = self._build_accumulated_outputs()
@@ -669,6 +729,7 @@ class OfflineSubmapRefiner(Node):
                 seed_available=seed_available,
                 global_correction=global_correction,
                 global_correction_child_frame_id=global_correction_child_frame_id,
+                inter_window_alignment=inter_window_alignment,
             )
             with self._lock:
                 self._latest_submap_points = current_submap_points
@@ -1237,6 +1298,154 @@ class OfflineSubmapRefiner(Node):
         refined[:, 2] = np.asarray([_wrap_angle(value) for value in refined[:, 2]], dtype=np.float64)
         return refined
 
+    def _inter_window_result(
+        self,
+        *,
+        applied: bool,
+        reason: str,
+        overlap_scan_count: int = 0,
+        paired_point_count: int = 0,
+        raw_delta_xyyaw: np.ndarray | None = None,
+        applied_delta_xyyaw: np.ndarray | None = None,
+    ) -> InterWindowAlignmentResult:
+        return InterWindowAlignmentResult(
+            enabled=bool(self._enable_inter_window_alignment),
+            applied=bool(applied),
+            reason=reason,
+            overlap_scan_count=int(overlap_scan_count),
+            paired_point_count=int(paired_point_count),
+            raw_delta_xyyaw=(
+                np.asarray(raw_delta_xyyaw, dtype=np.float64).copy()
+                if raw_delta_xyyaw is not None
+                else np.zeros(3, dtype=np.float64)
+            ),
+            applied_delta_xyyaw=(
+                np.asarray(applied_delta_xyyaw, dtype=np.float64).copy()
+                if applied_delta_xyyaw is not None
+                else np.zeros(3, dtype=np.float64)
+            ),
+        )
+
+    def _estimate_inter_window_alignment(
+        self,
+        window_records: list[ScanRecord],
+        refined_poses: np.ndarray,
+        qualities: list[ScanQuality],
+    ) -> InterWindowAlignmentResult:
+        if not self._enable_inter_window_alignment:
+            return self._inter_window_result(applied=False, reason="disabled")
+        if not self._refined_records:
+            return self._inter_window_result(applied=False, reason="no_prior_window")
+
+        source_chunks: list[np.ndarray] = []
+        target_chunks: list[np.ndarray] = []
+        overlap_scan_count = 0
+        for index, record in enumerate(window_records):
+            prior_record = self._refined_records.get(int(record.scan_index))
+            if prior_record is None:
+                continue
+            if str(prior_record.get("confidence", "low")) == "low":
+                continue
+            if index < len(qualities) and qualities[index].confidence == "low":
+                continue
+            points_xy = np.asarray(record.points_xy, dtype=np.float64)
+            if points_xy.shape[0] < 3:
+                continue
+            per_scan_limit = 120
+            stride = max(1, int(math.ceil(points_xy.shape[0] / per_scan_limit)))
+            sampled_points = points_xy[::stride]
+            previous_pose = np.asarray(prior_record["pose_xyyaw"], dtype=np.float64)
+            source_chunks.append(_transform_points(sampled_points, refined_poses[index]))
+            target_chunks.append(_transform_points(sampled_points, previous_pose))
+            overlap_scan_count += 1
+
+        if overlap_scan_count < self._inter_window_min_overlap_scans:
+            return self._inter_window_result(
+                applied=False,
+                reason="insufficient_overlap_scans",
+                overlap_scan_count=overlap_scan_count,
+            )
+        if not source_chunks or not target_chunks:
+            return self._inter_window_result(
+                applied=False,
+                reason="no_overlap_points",
+                overlap_scan_count=overlap_scan_count,
+            )
+
+        source_xy = np.vstack(source_chunks)
+        target_xy = np.vstack(target_chunks)
+        if source_xy.shape[0] > self._inter_window_max_points:
+            stride = max(1, int(math.ceil(source_xy.shape[0] / self._inter_window_max_points)))
+            source_xy = source_xy[::stride]
+            target_xy = target_xy[::stride]
+        paired_point_count = int(source_xy.shape[0])
+        if paired_point_count < self._inter_window_min_points:
+            return self._inter_window_result(
+                applied=False,
+                reason="insufficient_paired_points",
+                overlap_scan_count=overlap_scan_count,
+                paired_point_count=paired_point_count,
+            )
+
+        raw_delta_xyyaw = _best_fit_rigid_transform_2d(source_xy, target_xy)
+        if not np.all(np.isfinite(raw_delta_xyyaw)):
+            return self._inter_window_result(
+                applied=False,
+                reason="non_finite_delta",
+                overlap_scan_count=overlap_scan_count,
+                paired_point_count=paired_point_count,
+                raw_delta_xyyaw=raw_delta_xyyaw,
+            )
+
+        raw_translation_m = float(np.linalg.norm(raw_delta_xyyaw[:2]))
+        raw_yaw_rad = abs(float(raw_delta_xyyaw[2]))
+        if raw_translation_m > self._inter_window_max_translation_m:
+            return self._inter_window_result(
+                applied=False,
+                reason="translation_limit",
+                overlap_scan_count=overlap_scan_count,
+                paired_point_count=paired_point_count,
+                raw_delta_xyyaw=raw_delta_xyyaw,
+            )
+        if raw_yaw_rad > self._inter_window_max_yaw_rad:
+            return self._inter_window_result(
+                applied=False,
+                reason="yaw_limit",
+                overlap_scan_count=overlap_scan_count,
+                paired_point_count=paired_point_count,
+                raw_delta_xyyaw=raw_delta_xyyaw,
+            )
+
+        applied_delta_xyyaw = raw_delta_xyyaw.copy()
+        applied_delta_xyyaw[:2] *= self._inter_window_alignment_gain
+        applied_delta_xyyaw[2] = _wrap_angle(
+            float(applied_delta_xyyaw[2]) * self._inter_window_alignment_gain
+        )
+        return self._inter_window_result(
+            applied=True,
+            reason="applied",
+            overlap_scan_count=overlap_scan_count,
+            paired_point_count=paired_point_count,
+            raw_delta_xyyaw=raw_delta_xyyaw,
+            applied_delta_xyyaw=applied_delta_xyyaw,
+        )
+
+    def _apply_world_delta_to_poses(
+        self,
+        poses_xyyaw: np.ndarray,
+        delta_xyyaw: np.ndarray,
+    ) -> np.ndarray:
+        poses = np.asarray(poses_xyyaw, dtype=np.float64)
+        delta = np.asarray(delta_xyyaw, dtype=np.float64)
+        corrected = poses.copy()
+        rotation = _rotation_matrix(float(delta[2]))
+        corrected[:, :2] = (poses[:, :2] @ rotation.T) + delta[:2]
+        corrected[:, 2] = np.asarray(
+            [_wrap_angle(float(yaw) + float(delta[2])) for yaw in poses[:, 2]],
+            dtype=np.float64,
+        )
+        return corrected
+
     def _build_window_submap_points(
         self,
         window_records: list[ScanRecord],
@@ -1312,6 +1521,7 @@ class OfflineSubmapRefiner(Node):
         seed_available: bool,
         global_correction: np.ndarray,
         global_correction_child_frame_id: str,
+        inter_window_alignment: InterWindowAlignmentResult,
     ) -> dict[str, object]:
         high_count = sum(1 for quality in qualities if quality.confidence == "high")
         medium_count = sum(1 for quality in qualities if quality.confidence == "medium")
@@ -1364,6 +1574,30 @@ class OfflineSubmapRefiner(Node):
                 "y_m": float(global_correction[1]),
                 "yaw_rad": float(global_correction[2]),
                 "translation_norm_m": float(np.linalg.norm(global_correction[:2])),
+            },
+            "inter_window_alignment": {
+                "enabled": bool(inter_window_alignment.enabled),
+                "applied": bool(inter_window_alignment.applied),
+                "reason": str(inter_window_alignment.reason),
+                "overlap_scan_count": int(inter_window_alignment.overlap_scan_count),
+                "paired_point_count": int(inter_window_alignment.paired_point_count),
+                "gain": float(self._inter_window_alignment_gain),
+                "raw": {
+                    "x_m": float(inter_window_alignment.raw_delta_xyyaw[0]),
+                    "y_m": float(inter_window_alignment.raw_delta_xyyaw[1]),
+                    "yaw_rad": float(inter_window_alignment.raw_delta_xyyaw[2]),
+                    "translation_norm_m": float(
+                        np.linalg.norm(inter_window_alignment.raw_delta_xyyaw[:2])
+                    ),
+                },
+                "applied_delta": {
+                    "x_m": float(inter_window_alignment.applied_delta_xyyaw[0]),
+                    "y_m": float(inter_window_alignment.applied_delta_xyyaw[1]),
+                    "yaw_rad": float(inter_window_alignment.applied_delta_xyyaw[2]),
+                    "translation_norm_m": float(
+                        np.linalg.norm(inter_window_alignment.applied_delta_xyyaw[:2])
+                    ),
+                },
             },
             "track_geometry_prior": {
                 "enabled": bool(self._use_track_geometry_prior and self._track_geometry_tree is not None),

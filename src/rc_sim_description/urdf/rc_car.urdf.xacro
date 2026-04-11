@@ -201,10 +201,9 @@
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
     <child link="imu_link"/>
-    <!-- Match the real APEX planar mount: sensor Y points forward, so the
-         kinematics estimator's planar_mount_yaw_deg=-90 rotates back into
-         vehicle-forward X. -->
-    <origin xyz="0.02 0 ${chassis_height / 2.0 + 0.03}" rpy="0 0 1.57079632679"/>
+    <!-- Match the current real APEX mount: sensor X points forward and sensor
+         Y points left, matching the vehicle base_link convention. -->
+    <origin xyz="0.02 0 ${chassis_height / 2.0 + 0.03}" rpy="0 0 0"/>
   </joint>
 
   <joint name="camera_joint" type="fixed">

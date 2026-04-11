@@ -26,3 +26,4 @@ __pycache__/
 .DS_Store
 # APEX debug artifacts
 APEX/debug_runs/
+src/rc_sim_description/data/runs/

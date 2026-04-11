@@ -60,6 +60,53 @@ Eso arranca solo:
 - `rplidar_publisher_node`
 - `static_transform_publisher`
 
+## Test del acelerómetro DFRobot I2C
+
+Este test solo verifica comunicación I2C y lecturas crudas. No reemplaza todavía
+el nodo `nano_accel_serial_node`.
+
+Desde el PC, sincroniza el código a la Raspberry:
+
+```bash
+cd /home/santiago/AiAtonomousRc
+./APEX/tools/core/sync_apex_code_to_pi.sh ensta@raspberrypi:/home/ensta/AiAtonomousRc/APEX/
+```
+
+En la Raspberry, con el contenedor `apex_pipeline` corriendo:
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/hardware/check_dfrobot_accelerometer_i2c.sh --full-scan
+```
+
+Si sabes la dirección I2C del módulo, limita la prueba:
+
+```bash
+./tools/hardware/check_dfrobot_accelerometer_i2c.sh --address 0x19
+```
+
+Si no aparece `/dev/i2c-1`, habilita I2C en la Raspberry y reinicia el
+contenedor. Si el módulo DFRobot es analógico, no aparecerá por I2C: hace falta
+un ADC externo entre el sensor y la Raspberry.
+
+Si el sensor está conectado a `TX/RX` de la Raspberry, usa el test UART en vez
+del test I2C:
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/hardware/check_dfrobot_accelerometer_uart.sh --port /dev/serial0 --baud 115200 --baud 9600
+```
+
+En UART, el `TX` del sensor debe ir al `RX` de la Raspberry y el `RX` del sensor
+al `TX` de la Raspberry. Debe haber `GND` común y señal TTL de 3.3 V.
+
+Para el DFRobot WT61PC/SEN0386, usa el parser específico de sus tramas binarias:
+
+```bash
+cd ~/AiAtonomousRc/APEX
+./tools/hardware/check_dfrobot_wt61pc_uart.sh --port /dev/serial0 --baud 9600
+```
+
 ## Captura corta raw
 
 ```bash
