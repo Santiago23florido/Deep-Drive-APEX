@@ -14,16 +14,19 @@ log/
 # Python
 __pycache__/
 *.pyc
+.venv*/
 
 # VS Code / IDE
 .vscode/
 .idea/
 
 # Misc
+*.csv
 *.swp
 *.swo
 *~
 .DS_Store
 # APEX debug artifacts
 APEX/debug_runs/
+APEX/.apex_runtime/
 src/rc_sim_description/data/runs/

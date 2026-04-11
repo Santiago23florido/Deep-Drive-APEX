@@ -345,7 +345,14 @@ if [[ "${ENABLE_OFFLINE_SUBMAP_REFINER}" == "1" ]]; then
       -p "inter_window_min_points:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MIN_POINTS:-80}" \
       -p "inter_window_max_points:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MAX_POINTS:-2500}" \
       -p "inter_window_max_translation_m:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MAX_TRANSLATION_M:-0.25}" \
-      -p "inter_window_max_yaw_deg:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MAX_YAW_DEG:-10.0}" &
+      -p "inter_window_max_yaw_deg:=${APEX_OFFLINE_REFINER_INTER_WINDOW_MAX_YAW_DEG:-10.0}" \
+      -p "enable_manual_idle_finalize:=$(normalize_bool_override "${APEX_OFFLINE_REFINER_ENABLE_MANUAL_IDLE_FINALIZE:-true}")" \
+      -p "manual_status_topic:=${APEX_OFFLINE_REFINER_MANUAL_STATUS_TOPIC:-/apex/manual_control/status}" \
+      -p "manual_idle_timeout_s:=${APEX_OFFLINE_REFINER_MANUAL_IDLE_TIMEOUT_S:-4.0}" \
+      -p "manual_motion_linear_deadband_mps:=${APEX_OFFLINE_REFINER_MANUAL_MOTION_LINEAR_DEADBAND_MPS:-0.02}" \
+      -p "final_min_scan_count:=${APEX_OFFLINE_REFINER_FINAL_MIN_SCAN_COUNT:-8}" \
+      -p "save_on_finalize:=$(normalize_bool_override "${APEX_OFFLINE_REFINER_SAVE_ON_FINALIZE:-true}")" \
+      -p "save_output_dir:=${APEX_OFFLINE_REFINER_SAVE_OUTPUT_DIR:-/work/repo/APEX/.apex_runtime/offline_refined_maps}" &
     PIDS+=("$!")
     startup_stage_sleep "offline submap refiner"
   else
