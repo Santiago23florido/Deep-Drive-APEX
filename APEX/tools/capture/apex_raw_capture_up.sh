@@ -13,7 +13,15 @@ POSTCHECK_RETRIES="${APEX_RAW_POSTCHECK_RETRIES:-3}"
 POSTCHECK_TOPIC_GAP_S="${APEX_RAW_POSTCHECK_TOPIC_GAP_S:-0.5}"
 PREFLIGHT_SOFT_FAIL="${APEX_NANO_PREFLIGHT_SOFT_FAIL:-1}"
 AUTO_DOWN_ON_POSTCHECK_FAIL="${APEX_RAW_POSTCHECK_AUTO_DOWN_ON_FAIL:-0}"
+POSTCHECK_SOFT_FAIL="${APEX_RAW_POSTCHECK_SOFT_FAIL:-0}"
 STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-modern}"
+FUSION_STATUS_TOPIC="${APEX_FUSION_STATUS_TOPIC:-/apex/estimation/status}"
+RECOGNITION_TRACKER_STATUS_TOPIC="${APEX_RECOGNITION_TRACKER_STATUS_TOPIC:-/apex/tracking/recognition_tour_status}"
+FIXED_MAP_ROUTE_STATUS_TOPIC="${APEX_FIXED_MAP_ROUTE_STATUS_TOPIC:-/apex/planning/fixed_map_status}"
+
+if [[ "${APEX_ESTIMATION_BACKEND:-}" == "fixed_map" && -z "${APEX_FUSION_STATUS_TOPIC:-}" ]]; then
+  FUSION_STATUS_TOPIC="/apex/localization/fixed_map_status"
+fi
 
 if docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}"; then
   echo "[APEX] ${CONTAINER_NAME} is already running"
@@ -119,6 +127,10 @@ postcheck_fail() {
   else
     echo "[APEX][WARN] Keeping failed container for inspection. Stop it manually with ./tools/core/apex_core_down.sh" >&2
   fi
+  if [[ "${POSTCHECK_SOFT_FAIL}" == "1" ]]; then
+    echo "[APEX][WARN] Postcheck soft-fail enabled; leaving ${CONTAINER_NAME} running." >&2
+    exit 0
+  fi
   exit 1
 }
 
@@ -137,8 +149,8 @@ if [[ "${APEX_ENABLE_KINEMATICS}" == "1" ]]; then
 fi
 
 if [[ "${APEX_ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
-  require_topic /apex/estimation/status || {
-    postcheck_fail "Missing /apex/estimation/status in raw-capture mode"
+  require_topic "${FUSION_STATUS_TOPIC}" || {
+    postcheck_fail "Missing ${FUSION_STATUS_TOPIC} in raw-capture mode"
   }
 fi
 
@@ -161,8 +173,14 @@ if [[ "${APEX_ENABLE_RECOGNITION_TOUR_PLANNER}" == "1" ]]; then
 fi
 
 if [[ "${APEX_ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
-  require_topic /apex/tracking/recognition_tour_status || {
-    postcheck_fail "Missing /apex/tracking/recognition_tour_status in raw-capture mode"
+  require_topic "${RECOGNITION_TRACKER_STATUS_TOPIC}" || {
+    postcheck_fail "Missing ${RECOGNITION_TRACKER_STATUS_TOPIC} in raw-capture mode"
+  }
+fi
+
+if [[ "${APEX_ENABLE_FIXED_MAP_ROUTE_PLANNER:-0}" == "1" ]]; then
+  require_topic "${FIXED_MAP_ROUTE_STATUS_TOPIC}" || {
+    postcheck_fail "Missing ${FIXED_MAP_ROUTE_STATUS_TOPIC} in fixed-map mode"
   }
 fi
 

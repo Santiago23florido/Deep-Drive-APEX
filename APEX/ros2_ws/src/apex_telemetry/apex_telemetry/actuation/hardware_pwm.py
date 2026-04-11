@@ -47,7 +47,7 @@ class HardwarePWM:
             self._chip_path = self._find_chip_path()
             self._pwm_dir = os.path.join(self._chip_path, f"pwm{self._channel}")
             self._ensure_channel()
-            self._write_int(os.path.join(self._pwm_dir, "period"), self._period_ns)
+            self._configure_period()
 
     def _find_chip_path(self) -> str:
         chips = sorted(glob.glob("/sys/class/pwm/pwmchip*"))
@@ -79,6 +79,37 @@ class HardwarePWM:
 
     def _write_int(self, path: str, value: int) -> None:
         self._write_text(path, f"{int(value)}\n")
+
+    def _try_write_int(self, path: str, value: int) -> bool:
+        try:
+            self._write_int(path, value)
+            return True
+        except Exception:
+            return False
+
+    def _configure_period(self) -> None:
+        if self._backend == "sim_pwm_topic":
+            return
+
+        enable_path = os.path.join(self._pwm_dir, "enable")
+        duty_cycle_path = os.path.join(self._pwm_dir, "duty_cycle")
+        period_path = os.path.join(self._pwm_dir, "period")
+
+        self._try_write_int(enable_path, 0)
+        self._try_write_int(duty_cycle_path, 0)
+        try:
+            self._write_int(period_path, self._period_ns)
+        except OSError as exc:
+            if exc.errno not in {errno.EBUSY, errno.EINVAL}:
+                raise
+            self._logger.warning(
+                "PWM channel %s was busy while setting period; disabling and retrying"
+                % self._pwm_dir
+            )
+            self._try_write_int(enable_path, 0)
+            self._try_write_int(duty_cycle_path, 0)
+            time.sleep(0.05)
+            self._write_int(period_path, self._period_ns)
 
     @staticmethod
     def _read_int(path: str) -> int | None:

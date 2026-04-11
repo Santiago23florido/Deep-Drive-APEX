@@ -188,6 +188,7 @@ imu_lidar_planar_fusion_node:
     fixed_map_yaml: ""
     fixed_map_distance_npy: ""
     fixed_map_visual_points_csv: ""
+    fixed_map_route_csv: ""
     fixed_map_max_match_points: 120
     fixed_map_max_localization_iterations: 40
     fixed_map_prior_translation_weight: 1.0
@@ -204,6 +205,34 @@ imu_lidar_planar_fusion_node:
     fixed_map_low_support_near_wall_ratio: 0.25
     fixed_map_reduced_support_prior_gain: 1.35
     fixed_map_low_support_prior_gain: 1.8
+    fixed_map_motion_odom_topic: "/apex/odometry/imu_raw"
+    fixed_map_motion_hint_timeout_s: 0.45
+    fixed_map_motion_hint_velocity_blend: 0.3
+    fixed_map_motion_hint_max_speed_mps: 1.5
+    fixed_map_particle_count: 384
+    fixed_map_particle_seed: 17
+    fixed_map_particle_initial_xy_std_m: 0.28
+    fixed_map_particle_initial_yaw_std_rad: 0.35
+    fixed_map_particle_route_seed_fraction: 0.18
+    fixed_map_particle_random_injection_ratio: 0.025
+    fixed_map_particle_process_xy_std_m: 0.035
+    fixed_map_particle_process_yaw_std_rad: 0.03
+    fixed_map_particle_process_velocity_std_mps: 0.06
+    fixed_map_particle_likelihood_sigma_m: 0.075
+    fixed_map_particle_inlier_distance_m: 0.13
+    fixed_map_particle_inlier_log_weight: 2.0
+    fixed_map_particle_out_of_map_penalty: 2.4
+    fixed_map_particle_resample_neff_ratio: 0.55
+    fixed_map_particle_roughening_xy_std_m: 0.018
+    fixed_map_particle_roughening_yaw_std_rad: 0.025
+    fixed_map_particle_min_lidar_points: 12
+    fixed_map_particle_min_observation_weight: 0.2
+    fixed_map_particle_high_confidence_inlier_ratio: 0.45
+    fixed_map_particle_medium_confidence_inlier_ratio: 0.28
+    fixed_map_particle_max_high_confidence_spread_m: 0.55
+    fixed_map_particle_max_medium_confidence_spread_m: 0.9
+    fixed_map_particle_refine_enabled: true
+    fixed_map_particle_refine_gain: 0.7
 
 curve_entry_path_planner_node:
   ros__parameters:
@@ -344,6 +373,17 @@ recognition_tour_planner_node:
     inner_vertex_clearance_m: 0.12
     curve_apex_width_fraction: 0.40
 
+fixed_map_route_planner_node:
+  ros__parameters:
+    fixed_map_dir: ""
+    route_csv: ""
+    build_status_json: ""
+    frame_id: "odom_imu_lidar_fused"
+    path_topic: "/apex/planning/fixed_map_path"
+    status_topic: "/apex/planning/fixed_map_status"
+    publish_rate_hz: 2.0
+    clearance_min_m: 0.15
+
 recognition_tour_tracker_node:
   ros__parameters:
     path_topic: "/apex/planning/recognition_tour_local_path"
@@ -353,6 +393,8 @@ recognition_tour_tracker_node:
     arm_topic: "/apex/tracking/arm"
     cmd_vel_topic: "/apex/cmd_vel_track"
     status_topic: "/apex/tracking/recognition_tour_status"
+    require_arm: true
+    default_armed: false
     control_rate_hz: 30.0
     wheelbase_m: 0.30
     steering_limit_deg: 18.0

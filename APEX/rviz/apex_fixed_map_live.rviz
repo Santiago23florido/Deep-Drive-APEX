@@ -7,8 +7,8 @@ Panels:
         - /Fixed Map Grid1
         - /Fixed Map Points1
         - /Fused Odometry1
-        - /Recognition Route1
-        - /Recognition Local Path1
+        - /Fixed Map Route Preview1
+        - /Fixed Map Planned Path1
       Splitter Ratio: 0.5
     Tree Height: 620
   - Class: rviz_common/Selection
@@ -51,7 +51,7 @@ Visualization Manager:
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /apex/sim/fixed_map/grid
+        Value: /apex/fixed_map/grid
       Value: true
     - Alpha: 0.85
       Autocompute Intensity Bounds: true
@@ -80,7 +80,7 @@ Visualization Manager:
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /apex/sim/fixed_map/visual_points
+        Value: /apex/fixed_map/visual_points
       Use Fixed Frame: true
       Value: true
     - Angle Tolerance: 0.05
@@ -101,7 +101,7 @@ Visualization Manager:
         Shaft Length: 0.2
         Shaft Radius: 0.02
         Value: Arrow
-      Topic: /apex/odometry/imu_lidar_fused
+      Topic: /apex/odometry/fixed_map_localized
       Unreliable: false
       Value: true
     - Alpha: 1
@@ -114,7 +114,7 @@ Visualization Manager:
       Length: 0.05
       Line Style: Lines
       Line Width: 0.05
-      Name: Recognition Route
+      Name: Fixed Map Route Preview
       Offset:
         X: 0
         Y: 0
@@ -129,7 +129,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /apex/planning/recognition_tour_route
+        Value: /apex/fixed_map/route_preview_path
       Value: true
     - Alpha: 1
       Buffer Length: 1
@@ -141,7 +141,7 @@ Visualization Manager:
       Length: 0.05
       Line Style: Lines
       Line Width: 0.05
-      Name: Recognition Local Path
+      Name: Fixed Map Planned Path
       Offset:
         X: 0
         Y: 0
@@ -156,7 +156,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /apex/planning/recognition_tour_local_path
+        Value: /apex/planning/fixed_map_path
       Value: true
     - Alpha: 1
       Buffer Length: 1
@@ -183,7 +183,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /apex/estimation/path
+        Value: /apex/localization/fixed_map_path
       Value: true
   Enabled: true
   Global Options:

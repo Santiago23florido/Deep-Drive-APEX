@@ -16,6 +16,7 @@ fi
 
 PARAMS_FILE="${APEX_PARAMS_FILE:-/work/ros2_ws/src/apex_telemetry/config/apex_params.yaml}"
 PIDS=()
+PID_NAMES=()
 ENABLE_KINEMATICS="${APEX_ENABLE_KINEMATICS:-1}"
 ENABLE_IMU_LIDAR_FUSION="${APEX_ENABLE_IMU_LIDAR_FUSION:-0}"
 ENABLE_CURVE_ENTRY_PLANNER="${APEX_ENABLE_CURVE_ENTRY_PLANNER:-0}"
@@ -26,6 +27,8 @@ ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
 ENABLE_MANUAL_CONTROL_BRIDGE="${APEX_ENABLE_MANUAL_CONTROL_BRIDGE:-0}"
 ENABLE_RECOGNITION_SESSION_MANAGER="${APEX_ENABLE_RECOGNITION_SESSION_MANAGER:-0}"
 ENABLE_OFFLINE_SUBMAP_REFINER="${APEX_ENABLE_OFFLINE_SUBMAP_REFINER:-0}"
+ENABLE_FIXED_MAP_ROUTE_PLANNER="${APEX_ENABLE_FIXED_MAP_ROUTE_PLANNER:-0}"
+ENABLE_FIXED_MAP_PUBLISHER="${APEX_ENABLE_FIXED_MAP_PUBLISHER:-0}"
 STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-modern}"
 STAGGERED_STARTUP="${APEX_STAGGERED_STARTUP:-1}"
 SERIAL_WARMUP_S="${APEX_SERIAL_WARMUP_S:-1.0}"
@@ -44,7 +47,62 @@ BRIDGE_MAX_REVERSE_SPEED_PCT="${APEX_BRIDGE_MAX_REVERSE_SPEED_PCT:-}"
 BRIDGE_LAUNCH_BOOST_SPEED_PCT="${APEX_BRIDGE_LAUNCH_BOOST_SPEED_PCT:-}"
 BRIDGE_LAUNCH_BOOST_HOLD_S="${APEX_BRIDGE_LAUNCH_BOOST_HOLD_S:-}"
 BRIDGE_ACTIVE_BRAKE_ON_ZERO="${APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO:-}"
+BRIDGE_ACTUATION_BACKEND="${APEX_BRIDGE_ACTUATION_BACKEND:-${APEX_ACTUATION_BACKEND:-}}"
 RECOGNITION_TRACKER_PUBLISH_UNARMED_ZERO_CMD="${APEX_RECOGNITION_TRACKER_PUBLISH_UNARMED_ZERO_CMD:-false}"
+ESTIMATION_BACKEND="${APEX_ESTIMATION_BACKEND:-}"
+FIXED_MAP_RUN_DIR="${APEX_FIXED_MAP_RUN_DIR:-}"
+FIXED_MAP_DIR="${APEX_FIXED_MAP_DIR:-}"
+if [[ -z "${FIXED_MAP_DIR}" && -n "${FIXED_MAP_RUN_DIR}" ]]; then
+  FIXED_MAP_DIR="${FIXED_MAP_RUN_DIR%/}/fixed_map"
+fi
+if [[ -z "${FIXED_MAP_RUN_DIR}" && -n "${FIXED_MAP_DIR}" ]]; then
+  FIXED_MAP_RUN_DIR="$(dirname "${FIXED_MAP_DIR}")"
+fi
+FIXED_MAP_YAML="${APEX_FIXED_MAP_YAML:-}"
+FIXED_MAP_DISTANCE_NPY="${APEX_FIXED_MAP_DISTANCE_NPY:-}"
+FIXED_MAP_VISUAL_POINTS_CSV="${APEX_FIXED_MAP_VISUAL_POINTS_CSV:-}"
+FIXED_MAP_ROUTE_CSV="${APEX_FIXED_MAP_ROUTE_CSV:-}"
+FIXED_MAP_BUILD_STATUS_JSON="${APEX_FIXED_MAP_BUILD_STATUS_JSON:-}"
+if [[ -n "${FIXED_MAP_DIR}" ]]; then
+  FIXED_MAP_YAML="${FIXED_MAP_YAML:-${FIXED_MAP_DIR%/}/fixed_map.yaml}"
+  FIXED_MAP_DISTANCE_NPY="${FIXED_MAP_DISTANCE_NPY:-${FIXED_MAP_DIR%/}/fixed_map_distance.npy}"
+  FIXED_MAP_VISUAL_POINTS_CSV="${FIXED_MAP_VISUAL_POINTS_CSV:-${FIXED_MAP_DIR%/}/fixed_map_visual_points.csv}"
+  FIXED_MAP_ROUTE_CSV="${FIXED_MAP_ROUTE_CSV:-${FIXED_MAP_DIR%/}/fixed_route_path.csv}"
+  FIXED_MAP_BUILD_STATUS_JSON="${FIXED_MAP_BUILD_STATUS_JSON:-${FIXED_MAP_DIR%/}/fixed_map_build_status.json}"
+fi
+FIXED_MAP_AUTOBUILD="${APEX_FIXED_MAP_AUTOBUILD:-0}"
+FIXED_MAP_BUILDER_SCRIPT="${APEX_FIXED_MAP_BUILDER_SCRIPT:-/work/repo/APEX/tools/core/build_fixed_map_from_offline_refined.py}"
+FUSION_ODOM_TOPIC="${APEX_FUSION_ODOM_TOPIC:-}"
+FUSION_PATH_TOPIC="${APEX_FUSION_PATH_TOPIC:-}"
+FUSION_POSE_TOPIC="${APEX_FUSION_POSE_TOPIC:-}"
+FUSION_LIVE_MAP_TOPIC="${APEX_FUSION_LIVE_MAP_TOPIC:-}"
+FUSION_FULL_MAP_TOPIC="${APEX_FUSION_FULL_MAP_TOPIC:-}"
+FUSION_STATUS_TOPIC="${APEX_FUSION_STATUS_TOPIC:-}"
+FUSION_ODOM_FRAME_ID="${APEX_FUSION_ODOM_FRAME_ID:-}"
+RECOGNITION_TRACKER_PATH_TOPIC="${APEX_RECOGNITION_TRACKER_PATH_TOPIC:-}"
+RECOGNITION_TRACKER_PLANNING_STATUS_TOPIC="${APEX_RECOGNITION_TRACKER_PLANNING_STATUS_TOPIC:-}"
+RECOGNITION_TRACKER_ODOM_TOPIC="${APEX_RECOGNITION_TRACKER_ODOM_TOPIC:-}"
+RECOGNITION_TRACKER_FUSION_STATUS_TOPIC="${APEX_RECOGNITION_TRACKER_FUSION_STATUS_TOPIC:-}"
+RECOGNITION_TRACKER_STATUS_TOPIC="${APEX_RECOGNITION_TRACKER_STATUS_TOPIC:-}"
+RECOGNITION_TRACKER_REQUIRE_ARM="${APEX_RECOGNITION_TRACKER_REQUIRE_ARM:-}"
+RECOGNITION_TRACKER_DEFAULT_ARMED="${APEX_RECOGNITION_TRACKER_DEFAULT_ARMED:-}"
+RECOGNITION_TRACKER_PATH_STALE_MAX_AGE_S="${APEX_RECOGNITION_TRACKER_PATH_STALE_MAX_AGE_S:-}"
+RECOGNITION_TRACKER_PATH_STALE_ABORT_HOLD_S="${APEX_RECOGNITION_TRACKER_PATH_STALE_ABORT_HOLD_S:-}"
+RECOGNITION_TRACKER_REAR_AXLE_OFFSET_X_M="${APEX_RECOGNITION_TRACKER_REAR_AXLE_OFFSET_X_M:-}"
+RECOGNITION_TRACKER_REAR_AXLE_OFFSET_Y_M="${APEX_RECOGNITION_TRACKER_REAR_AXLE_OFFSET_Y_M:-}"
+RECOGNITION_TRACKER_ODOM_TIMEOUT_S="${APEX_RECOGNITION_TRACKER_ODOM_TIMEOUT_S:-}"
+if [[ -z "${ESTIMATION_BACKEND}" && "${ENABLE_FIXED_MAP_ROUTE_PLANNER}" == "1" ]]; then
+  ESTIMATION_BACKEND="fixed_map"
+fi
+if [[ "${ESTIMATION_BACKEND}" == "fixed_map" ]]; then
+  FUSION_ODOM_TOPIC="${FUSION_ODOM_TOPIC:-/apex/odometry/fixed_map_localized}"
+  FUSION_PATH_TOPIC="${FUSION_PATH_TOPIC:-/apex/localization/fixed_map_path}"
+  FUSION_POSE_TOPIC="${FUSION_POSE_TOPIC:-/apex/localization/fixed_map_pose}"
+  FUSION_LIVE_MAP_TOPIC="${FUSION_LIVE_MAP_TOPIC:-/apex/localization/fixed_map_live_points}"
+  FUSION_FULL_MAP_TOPIC="${FUSION_FULL_MAP_TOPIC:-/apex/localization/fixed_map_points}"
+  FUSION_STATUS_TOPIC="${FUSION_STATUS_TOPIC:-/apex/localization/fixed_map_status}"
+  FUSION_ODOM_FRAME_ID="${FUSION_ODOM_FRAME_ID:-odom_imu_lidar_fused}"
+fi
 
 read_param_value() {
   local key="$1"
@@ -81,6 +139,17 @@ normalize_bool_override() {
       printf '%s\n' "${raw_value}"
       ;;
   esac
+}
+
+normalize_float_override() {
+  python3 - "$1" <<'PY'
+import sys
+
+try:
+    print(repr(float(sys.argv[1])))
+except Exception:
+    print(sys.argv[1])
+PY
 }
 
 first_pwm_chip_path() {
@@ -231,6 +300,60 @@ PY
   fi
 }
 
+track_pid() {
+  local name="$1"
+  local pid="$2"
+  PIDS+=("${pid}")
+  PID_NAMES+=("${name}")
+  echo "[APEX] Started ${name} (pid=${pid})"
+}
+
+wait_for_first_exit() {
+  local idx name status exited_pid
+  exited_pid=""
+  set +e
+  wait -n -p exited_pid "${PIDS[@]}"
+  status="$?"
+  set -e
+  name="unknown"
+  for idx in "${!PIDS[@]}"; do
+    if [[ "${PIDS[${idx}]}" == "${exited_pid}" ]]; then
+      name="${PID_NAMES[${idx}]:-unknown}"
+      break
+    fi
+  done
+  echo "[APEX][ERROR] Child process exited: ${name} (pid=${exited_pid:-unknown}, status=${status})" >&2
+  return "${status}"
+}
+
+ensure_fixed_map_assets() {
+  if [[ "${FIXED_MAP_AUTOBUILD}" != "1" ]]; then
+    return
+  fi
+  if [[ -z "${FIXED_MAP_RUN_DIR}" || -z "${FIXED_MAP_DIR}" ]]; then
+    echo "[APEX][WARN] Fixed-map autobuild requested but APEX_FIXED_MAP_RUN_DIR/APEX_FIXED_MAP_DIR is missing"
+    return 1
+  fi
+  if [[ -f "${FIXED_MAP_YAML}" && -f "${FIXED_MAP_DISTANCE_NPY}" && -f "${FIXED_MAP_VISUAL_POINTS_CSV}" && -f "${FIXED_MAP_ROUTE_CSV}" ]]; then
+    echo "[APEX] Fixed-map assets already present (${FIXED_MAP_DIR})"
+    return
+  fi
+  if [[ ! -f "${FIXED_MAP_BUILDER_SCRIPT}" ]]; then
+    echo "[APEX][WARN] Fixed-map builder not found: ${FIXED_MAP_BUILDER_SCRIPT}"
+    return 1
+  fi
+  echo "[APEX] Building fixed-map assets from ${FIXED_MAP_RUN_DIR}"
+  python3 "${FIXED_MAP_BUILDER_SCRIPT}" "${FIXED_MAP_RUN_DIR}" \
+    --output-dir "${FIXED_MAP_DIR}" \
+    --resolution-m "${APEX_FIXED_MAP_RESOLUTION_M:-0.05}" \
+    --margin-m "${APEX_FIXED_MAP_MARGIN_M:-0.75}" \
+    --clearance-m "${APEX_FIXED_MAP_CLEARANCE_M:-0.15}" \
+    --clearance-soft-m "${APEX_FIXED_MAP_CLEARANCE_SOFT_M:-0.45}" \
+    --corridor-half-width-m "${APEX_FIXED_MAP_CORRIDOR_HALF_WIDTH_M:-0.75}" \
+    --corridor-retry-half-widths-m "${APEX_FIXED_MAP_CORRIDOR_RETRY_HALF_WIDTHS_M:-0.90,1.10}" \
+    --route-step-m "${APEX_FIXED_MAP_ROUTE_STEP_M:-0.05}"
+}
+
 if is_safe_like && [[ -z "${SERIAL_CONNECT_PROFILE_NAME}" ]]; then
   SERIAL_CONNECT_PROFILE_NAME="safe_passive_default"
   SERIAL_CONNECT_TOGGLE_DTR="${SERIAL_CONNECT_TOGGLE_DTR:-false}"
@@ -265,7 +388,7 @@ if ! is_legacy_like || is_safe_like; then
   fi
 fi
 "${NANO_CMD[@]}" &
-PIDS+=("$!")
+track_pid "nano serial node" "$!"
 if [[ "${STAGGERED_STARTUP}" == "1" ]]; then
   echo "[APEX] Startup staging: waiting ${SERIAL_WARMUP_S}s after Nano serial node"
   sleep "${SERIAL_WARMUP_S}"
@@ -275,12 +398,12 @@ if [[ "${ENABLE_KINEMATICS}" == "1" ]]; then
   python3 -m apex_telemetry.odometry.kinematics_estimator_node \
     --ros-args \
     --params-file "${PARAMS_FILE}" &
-  PIDS+=("$!")
+  track_pid "kinematics estimator" "$!"
 
   python3 -m apex_telemetry.odometry.kinematics_odometry_node \
     --ros-args \
     --params-file "${PARAMS_FILE}" &
-  PIDS+=("$!")
+  track_pid "kinematics odometry" "$!"
 else
   echo "[APEX] Kinematics/raw odometry disabled for this run"
 fi
@@ -290,18 +413,54 @@ python3 -m apex_telemetry.perception.rplidar_publisher_node \
   --params-file "${PARAMS_FILE}" \
   -p "port:=${APEX_LIDAR_PORT:-/dev/ttyUSB0}" \
   -p "baudrate:=${APEX_LIDAR_BAUDRATE:-115200}" &
-PIDS+=("$!")
+track_pid "RPLidar publisher" "$!"
 if [[ "${STAGGERED_STARTUP}" == "1" ]]; then
   echo "[APEX] Startup staging: waiting ${LIDAR_STARTUP_SETTLE_S}s for LiDAR motor spin-up"
   sleep "${LIDAR_STARTUP_SETTLE_S}"
 fi
 
 if [[ "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
-  python3 -m apex_telemetry.estimation.imu_lidar_planar_fusion_node \
-    --ros-args \
-    --params-file "${PARAMS_FILE}" &
-  PIDS+=("$!")
-  startup_stage_sleep "online fusion"
+  if [[ "${ESTIMATION_BACKEND}" == "fixed_map" || "${ENABLE_FIXED_MAP_ROUTE_PLANNER}" == "1" || "${ENABLE_FIXED_MAP_PUBLISHER}" == "1" ]]; then
+    ensure_fixed_map_assets
+  fi
+  FUSION_CMD=(python3 -m apex_telemetry.estimation.imu_lidar_planar_fusion_node
+    --ros-args
+    --params-file "${PARAMS_FILE}")
+  if [[ -n "${ESTIMATION_BACKEND}" ]]; then
+    FUSION_CMD+=(-p "estimation_backend:=${ESTIMATION_BACKEND}")
+  fi
+  if [[ -n "${FUSION_ODOM_TOPIC}" ]]; then
+    FUSION_CMD+=(-p "odom_topic:=${FUSION_ODOM_TOPIC}")
+  fi
+  if [[ -n "${FUSION_PATH_TOPIC}" ]]; then
+    FUSION_CMD+=(-p "path_topic:=${FUSION_PATH_TOPIC}")
+  fi
+  if [[ -n "${FUSION_POSE_TOPIC}" ]]; then
+    FUSION_CMD+=(-p "pose_topic:=${FUSION_POSE_TOPIC}")
+  fi
+  if [[ -n "${FUSION_LIVE_MAP_TOPIC}" ]]; then
+    FUSION_CMD+=(-p "live_map_topic:=${FUSION_LIVE_MAP_TOPIC}")
+  fi
+  if [[ -n "${FUSION_FULL_MAP_TOPIC}" ]]; then
+    FUSION_CMD+=(-p "full_map_topic:=${FUSION_FULL_MAP_TOPIC}")
+  fi
+  if [[ -n "${FUSION_STATUS_TOPIC}" ]]; then
+    FUSION_CMD+=(-p "status_topic:=${FUSION_STATUS_TOPIC}")
+  fi
+  if [[ -n "${FUSION_ODOM_FRAME_ID}" ]]; then
+    FUSION_CMD+=(-p "odom_frame_id:=${FUSION_ODOM_FRAME_ID}")
+  fi
+  if [[ "${ESTIMATION_BACKEND}" == "fixed_map" ]]; then
+    FUSION_CMD+=(
+      -p "fixed_map_yaml:=${FIXED_MAP_YAML}"
+      -p "fixed_map_distance_npy:=${FIXED_MAP_DISTANCE_NPY}"
+      -p "fixed_map_visual_points_csv:=${FIXED_MAP_VISUAL_POINTS_CSV}"
+      -p "fixed_map_route_csv:=${FIXED_MAP_ROUTE_CSV}"
+    )
+  fi
+  "${FUSION_CMD[@]}" &
+  track_pid "IMU+LiDAR fusion" "$!"
+  startup_stage_sleep "IMU+LiDAR fusion"
 else
   echo "[APEX] Online IMU+LiDAR fusion disabled for this run"
 fi
@@ -353,7 +512,7 @@ if [[ "${ENABLE_OFFLINE_SUBMAP_REFINER}" == "1" ]]; then
       -p "final_min_scan_count:=${APEX_OFFLINE_REFINER_FINAL_MIN_SCAN_COUNT:-8}" \
       -p "save_on_finalize:=$(normalize_bool_override "${APEX_OFFLINE_REFINER_SAVE_ON_FINALIZE:-true}")" \
       -p "save_output_dir:=${APEX_OFFLINE_REFINER_SAVE_OUTPUT_DIR:-/work/repo/APEX/.apex_runtime/offline_refined_maps}" &
-    PIDS+=("$!")
+    track_pid "offline submap refiner" "$!"
     startup_stage_sleep "offline submap refiner"
   else
     echo "[APEX][WARN] Offline submap refiner enabled but script not found: ${OFFLINE_REFINER_SCRIPT}"
@@ -366,7 +525,7 @@ if [[ "${ENABLE_CURVE_ENTRY_PLANNER}" == "1" ]]; then
   python3 -m apex_telemetry.perception.curve_entry_path_planner_node \
     --ros-args \
     --params-file "${PARAMS_FILE}" &
-  PIDS+=("$!")
+  track_pid "curve entry planner" "$!"
   startup_stage_sleep "curve planner"
 else
   echo "[APEX] Curve-entry planner disabled for this run"
@@ -376,7 +535,7 @@ if [[ "${ENABLE_PATH_TRACKER}" == "1" ]]; then
   python3 -m apex_telemetry.control.curve_path_tracker_node \
     --ros-args \
     --params-file "${PARAMS_FILE}" &
-  PIDS+=("$!")
+  track_pid "curve path tracker" "$!"
   startup_stage_sleep "path tracker"
 else
   echo "[APEX] Curve path tracker disabled for this run"
@@ -386,18 +545,101 @@ if [[ "${ENABLE_RECOGNITION_TOUR_PLANNER}" == "1" ]]; then
   python3 -m apex_telemetry.perception.recognition_tour_planner_node \
     --ros-args \
     --params-file "${PARAMS_FILE}" &
-  PIDS+=("$!")
+  track_pid "recognition tour planner" "$!"
   startup_stage_sleep "recognition planner"
 else
   echo "[APEX] Recognition tour planner disabled for this run"
 fi
 
-if [[ "${ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
-  python3 -m apex_telemetry.control.recognition_tour_tracker_node \
+if [[ "${ENABLE_FIXED_MAP_PUBLISHER}" == "1" ]]; then
+  if [[ "${ENABLE_IMU_LIDAR_FUSION}" != "1" ]]; then
+    ensure_fixed_map_assets
+  fi
+  FIXED_MAP_PUBLISHER_SCRIPT="${APEX_FIXED_MAP_PUBLISHER_SCRIPT:-/work/repo/APEX/tools/core/apex_fixed_map_publisher.py}"
+  if [[ -f "${FIXED_MAP_PUBLISHER_SCRIPT}" ]]; then
+    python3 "${FIXED_MAP_PUBLISHER_SCRIPT}" \
+      --ros-args \
+      -p "map_yaml:=${FIXED_MAP_YAML}" \
+      -p "summary_json:=${FIXED_MAP_BUILD_STATUS_JSON}" \
+      -p "frame_id:=${APEX_FIXED_MAP_FRAME_ID:-odom_imu_lidar_fused}" \
+      -p "grid_topic:=${APEX_FIXED_MAP_GRID_TOPIC:-/apex/fixed_map/grid}" \
+      -p "visual_points_topic:=${APEX_FIXED_MAP_VISUAL_POINTS_TOPIC:-/apex/fixed_map/visual_points}" \
+      -p "path_topic:=${APEX_FIXED_MAP_RECORDED_PATH_TOPIC:-/apex/fixed_map/route_preview_path}" \
+      -p "status_topic:=${APEX_FIXED_MAP_STATUS_TOPIC:-/apex/fixed_map/status}" \
+      -p "reload_on_change:=false" \
+      -p "allow_missing_inputs:=false" &
+    track_pid "fixed map publisher" "$!"
+    startup_stage_sleep "fixed map publisher"
+  else
+    echo "[APEX][WARN] Fixed map publisher script not found: ${FIXED_MAP_PUBLISHER_SCRIPT}"
+  fi
+else
+  echo "[APEX] Fixed map publisher disabled for this run"
+fi
+
+if [[ "${ENABLE_FIXED_MAP_ROUTE_PLANNER}" == "1" ]]; then
+  if [[ "${ENABLE_IMU_LIDAR_FUSION}" != "1" && "${ENABLE_FIXED_MAP_PUBLISHER}" != "1" ]]; then
+    ensure_fixed_map_assets
+  fi
+  python3 -m apex_telemetry.perception.fixed_map_route_planner_node \
     --ros-args \
     --params-file "${PARAMS_FILE}" \
-    -p "publish_unarmed_zero_cmd:=$(normalize_bool_override "${RECOGNITION_TRACKER_PUBLISH_UNARMED_ZERO_CMD}")" &
-  PIDS+=("$!")
+    -p "fixed_map_dir:=${FIXED_MAP_DIR}" \
+    -p "route_csv:=${FIXED_MAP_ROUTE_CSV}" \
+    -p "build_status_json:=${FIXED_MAP_BUILD_STATUS_JSON}" \
+    -p "frame_id:=${APEX_FIXED_MAP_FRAME_ID:-odom_imu_lidar_fused}" \
+    -p "path_topic:=${APEX_FIXED_MAP_ROUTE_PATH_TOPIC:-/apex/planning/fixed_map_path}" \
+    -p "status_topic:=${APEX_FIXED_MAP_ROUTE_STATUS_TOPIC:-/apex/planning/fixed_map_status}" \
+    -p "clearance_min_m:=${APEX_FIXED_MAP_CLEARANCE_M:-0.15}" &
+  track_pid "fixed map route planner" "$!"
+  startup_stage_sleep "fixed map route planner"
+else
+  echo "[APEX] Fixed map route planner disabled for this run"
+fi
+
+if [[ "${ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
+  TRACKER_CMD=(python3 -m apex_telemetry.control.recognition_tour_tracker_node
+    --ros-args
+    --params-file "${PARAMS_FILE}"
+    -p "publish_unarmed_zero_cmd:=$(normalize_bool_override "${RECOGNITION_TRACKER_PUBLISH_UNARMED_ZERO_CMD}")")
+  if [[ -n "${RECOGNITION_TRACKER_PATH_TOPIC}" ]]; then
+    TRACKER_CMD+=(-p "path_topic:=${RECOGNITION_TRACKER_PATH_TOPIC}")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_PLANNING_STATUS_TOPIC}" ]]; then
+    TRACKER_CMD+=(-p "planning_status_topic:=${RECOGNITION_TRACKER_PLANNING_STATUS_TOPIC}")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_ODOM_TOPIC}" ]]; then
+    TRACKER_CMD+=(-p "odom_topic:=${RECOGNITION_TRACKER_ODOM_TOPIC}")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_FUSION_STATUS_TOPIC}" ]]; then
+    TRACKER_CMD+=(-p "fusion_status_topic:=${RECOGNITION_TRACKER_FUSION_STATUS_TOPIC}")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_STATUS_TOPIC}" ]]; then
+    TRACKER_CMD+=(-p "status_topic:=${RECOGNITION_TRACKER_STATUS_TOPIC}")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_REQUIRE_ARM}" ]]; then
+    TRACKER_CMD+=(-p "require_arm:=$(normalize_bool_override "${RECOGNITION_TRACKER_REQUIRE_ARM}")")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_DEFAULT_ARMED}" ]]; then
+    TRACKER_CMD+=(-p "default_armed:=$(normalize_bool_override "${RECOGNITION_TRACKER_DEFAULT_ARMED}")")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_PATH_STALE_MAX_AGE_S}" ]]; then
+    TRACKER_CMD+=(-p "path_stale_max_age_s:=${RECOGNITION_TRACKER_PATH_STALE_MAX_AGE_S}")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_PATH_STALE_ABORT_HOLD_S}" ]]; then
+    TRACKER_CMD+=(-p "path_stale_abort_hold_s:=${RECOGNITION_TRACKER_PATH_STALE_ABORT_HOLD_S}")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_REAR_AXLE_OFFSET_X_M}" ]]; then
+    TRACKER_CMD+=(-p "rear_axle_offset_x_m:=${RECOGNITION_TRACKER_REAR_AXLE_OFFSET_X_M}")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_REAR_AXLE_OFFSET_Y_M}" ]]; then
+    TRACKER_CMD+=(-p "rear_axle_offset_y_m:=${RECOGNITION_TRACKER_REAR_AXLE_OFFSET_Y_M}")
+  fi
+  if [[ -n "${RECOGNITION_TRACKER_ODOM_TIMEOUT_S}" ]]; then
+    TRACKER_CMD+=(-p "odom_timeout_s:=${RECOGNITION_TRACKER_ODOM_TIMEOUT_S}")
+  fi
+  "${TRACKER_CMD[@]}" &
+  track_pid "recognition tracker" "$!"
   startup_stage_sleep "recognition tracker"
 else
   echo "[APEX] Recognition tour tracker disabled for this run"
@@ -409,22 +651,22 @@ if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
     --ros-args
     --params-file "${PARAMS_FILE}")
   if [[ -n "${BRIDGE_MIN_EFFECTIVE_SPEED_PCT}" ]]; then
-    CMD+=(-p "min_effective_speed_pct:=${BRIDGE_MIN_EFFECTIVE_SPEED_PCT}")
+    CMD+=(-p "min_effective_speed_pct:=$(normalize_float_override "${BRIDGE_MIN_EFFECTIVE_SPEED_PCT}")")
   fi
   if [[ -n "${BRIDGE_MAX_SPEED_PCT}" ]]; then
-    CMD+=(-p "max_speed_pct:=${BRIDGE_MAX_SPEED_PCT}")
+    CMD+=(-p "max_speed_pct:=$(normalize_float_override "${BRIDGE_MAX_SPEED_PCT}")")
   fi
   if [[ -n "${BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT}" ]]; then
-    CMD+=(-p "min_effective_reverse_speed_pct:=${BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT}")
+    CMD+=(-p "min_effective_reverse_speed_pct:=$(normalize_float_override "${BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT}")")
   fi
   if [[ -n "${BRIDGE_MAX_REVERSE_SPEED_PCT}" ]]; then
-    CMD+=(-p "max_reverse_speed_pct:=${BRIDGE_MAX_REVERSE_SPEED_PCT}")
+    CMD+=(-p "max_reverse_speed_pct:=$(normalize_float_override "${BRIDGE_MAX_REVERSE_SPEED_PCT}")")
   fi
   if [[ -n "${BRIDGE_LAUNCH_BOOST_SPEED_PCT}" ]]; then
-    CMD+=(-p "launch_boost_speed_pct:=${BRIDGE_LAUNCH_BOOST_SPEED_PCT}")
+    CMD+=(-p "launch_boost_speed_pct:=$(normalize_float_override "${BRIDGE_LAUNCH_BOOST_SPEED_PCT}")")
   fi
   if [[ -n "${BRIDGE_LAUNCH_BOOST_HOLD_S}" ]]; then
-    CMD+=(-p "launch_boost_hold_s:=${BRIDGE_LAUNCH_BOOST_HOLD_S}")
+    CMD+=(-p "launch_boost_hold_s:=$(normalize_float_override "${BRIDGE_LAUNCH_BOOST_HOLD_S}")")
   fi
   if [[ -n "${BRIDGE_ACTIVE_BRAKE_ON_ZERO}" ]]; then
     if is_legacy_like; then
@@ -433,8 +675,11 @@ if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
       CMD+=(-p "active_brake_on_zero:=$(normalize_bool_override "${BRIDGE_ACTIVE_BRAKE_ON_ZERO}")")
     fi
   fi
+  if [[ -n "${BRIDGE_ACTUATION_BACKEND}" ]]; then
+    CMD+=(-p "actuation_backend:=${BRIDGE_ACTUATION_BACKEND}")
+  fi
   "${CMD[@]}" &
-  PIDS+=("$!")
+  track_pid "cmd_vel actuation bridge" "$!"
   startup_stage_sleep "cmd_vel bridge"
 else
   echo "[APEX] CmdVel actuation bridge disabled for this run"
@@ -444,7 +689,7 @@ if [[ "${ENABLE_MANUAL_CONTROL_BRIDGE}" == "1" ]]; then
   python3 -m apex_telemetry.control.windows_gamepad_bridge_node \
     --ros-args \
     --params-file "${PARAMS_FILE}" &
-  PIDS+=("$!")
+  track_pid "manual control bridge" "$!"
   startup_stage_sleep "manual control bridge"
 else
   echo "[APEX] Manual control bridge disabled for this run"
@@ -454,7 +699,7 @@ if [[ "${ENABLE_RECOGNITION_SESSION_MANAGER}" == "1" ]]; then
   python3 -m apex_telemetry.control.recognition_session_manager_node \
     --ros-args \
     --params-file "${PARAMS_FILE}" &
-  PIDS+=("$!")
+  track_pid "recognition session manager" "$!"
   startup_stage_sleep "recognition session manager"
 else
   echo "[APEX] Recognition session manager disabled for this run"
@@ -469,14 +714,18 @@ ros2 run tf2_ros static_transform_publisher \
   --yaw "${APEX_LIDAR_YAW_RAD:-0.0}" \
   --frame-id "${APEX_BASE_FRAME:-base_link}" \
   --child-frame-id "${APEX_LIDAR_FRAME:-laser}" &
-PIDS+=("$!")
+track_pid "laser static transform publisher" "$!"
 
 PIPELINE_FEATURES=("Nano raw" "LiDAR")
 if [[ "${ENABLE_KINEMATICS}" == "1" ]]; then
   PIPELINE_FEATURES+=("raw odometry")
 fi
 if [[ "${ENABLE_IMU_LIDAR_FUSION}" == "1" ]]; then
-  PIPELINE_FEATURES+=("online fusion")
+  if [[ "${ESTIMATION_BACKEND}" == "fixed_map" ]]; then
+    PIPELINE_FEATURES+=("fixed map localization")
+  else
+    PIPELINE_FEATURES+=("online fusion")
+  fi
 fi
 if [[ "${ENABLE_CURVE_ENTRY_PLANNER}" == "1" ]]; then
   PIPELINE_FEATURES+=("curve planner")
@@ -486,6 +735,12 @@ if [[ "${ENABLE_PATH_TRACKER}" == "1" ]]; then
 fi
 if [[ "${ENABLE_RECOGNITION_TOUR_PLANNER}" == "1" ]]; then
   PIPELINE_FEATURES+=("recognition planner")
+fi
+if [[ "${ENABLE_FIXED_MAP_PUBLISHER}" == "1" ]]; then
+  PIPELINE_FEATURES+=("fixed map publisher")
+fi
+if [[ "${ENABLE_FIXED_MAP_ROUTE_PLANNER}" == "1" ]]; then
+  PIPELINE_FEATURES+=("fixed map route planner")
 fi
 if [[ "${ENABLE_RECOGNITION_TOUR_TRACKER}" == "1" ]]; then
   PIPELINE_FEATURES+=("recognition tracker")
@@ -512,4 +767,8 @@ for FEATURE in "${PIPELINE_FEATURES[@]}"; do
 done
 echo "[APEX] Minimal raw pipeline started (${PIPELINE_FEATURE_SUMMARY})"
 
-wait -n "${PIDS[@]}"
+set +e
+wait_for_first_exit
+EXIT_STATUS="$?"
+set -e
+exit "${EXIT_STATUS}"

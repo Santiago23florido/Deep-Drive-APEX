@@ -68,6 +68,8 @@ class RecognitionTourTrackerNode(Node):
         self.declare_parameter("cmd_vel_topic", "/apex/cmd_vel_track")
         self.declare_parameter("status_topic", "/apex/tracking/recognition_tour_status")
         self.declare_parameter("publish_unarmed_zero_cmd", True)
+        self.declare_parameter("require_arm", True)
+        self.declare_parameter("default_armed", False)
         self.declare_parameter("control_rate_hz", 30.0)
         self.declare_parameter("wheelbase_m", 0.30)
         self.declare_parameter("steering_limit_deg", 18.0)
@@ -128,6 +130,8 @@ class RecognitionTourTrackerNode(Node):
         self._publish_unarmed_zero_cmd = bool(
             self.get_parameter("publish_unarmed_zero_cmd").value
         )
+        self._require_arm = bool(self.get_parameter("require_arm").value)
+        self._default_armed = bool(self.get_parameter("default_armed").value)
         self._control_rate_hz = max(1.0, float(self.get_parameter("control_rate_hz").value))
         self._wheelbase_m = max(1e-3, float(self.get_parameter("wheelbase_m").value))
         self._steering_limit_deg = max(1.0, float(self.get_parameter("steering_limit_deg").value))
@@ -298,7 +302,7 @@ class RecognitionTourTrackerNode(Node):
         self._planning_status: dict[str, object] = {}
         self._fusion_status: dict[str, object] = {}
         self._latest_odom: dict[str, float] | None = None
-        self._armed = False
+        self._armed = bool(self._default_armed or not self._require_arm)
         self._state = "waiting_path"
         self._terminal_cause: str | None = None
         self._tracking_started_monotonic: float | None = None
@@ -621,7 +625,7 @@ class RecognitionTourTrackerNode(Node):
             self._publish_status()
             return
 
-        if not self._armed:
+        if self._require_arm and not self._armed:
             self._no_forward_target_since_monotonic = None
             self._waiting_path_refresh_since_monotonic = None
             self._state = "waiting_arm"
@@ -632,8 +636,28 @@ class RecognitionTourTrackerNode(Node):
                 "planner_state": planner_state,
                 "planner_ready": bool(self._planning_status.get("ready", False)),
                 "armed": False,
+                "require_arm": self._require_arm,
             }
             self._publish_inactive_zero_cmd()
+            self._publish_status()
+            return
+
+        odom_age_s: float | None = None
+        if self._latest_odom is None:
+            self._no_forward_target_since_monotonic = None
+            self._waiting_path_refresh_since_monotonic = None
+            self._state = "waiting_odom"
+            self._status_payload = {
+                "state": self._state,
+                "terminal": False,
+                "cause": None,
+                "planner_state": planner_state,
+                "planner_ready": bool(self._planning_status.get("ready", False)),
+                "fusion_state": self._fusion_status.get("state"),
+                "armed": self._armed,
+            }
+            self._publish_inactive_zero_cmd()
+            self._filtered_angular_z_rps = 0.0
             self._publish_status()
             return
 
@@ -652,13 +676,9 @@ class RecognitionTourTrackerNode(Node):
         elif (now_monotonic - self._tracking_started_monotonic) >= self._global_timeout_s:
             self._set_terminal("timeout")
 
-        odom_age_s: float | None = None
-        if self._latest_odom is None:
+        odom_age_s = max(0.0, self._ros_time_s() - float(self._latest_odom["stamp_s"]))
+        if odom_age_s > self._odom_timeout_s:
             self._set_terminal("aborted_odom_timeout")
-        else:
-            odom_age_s = max(0.0, self._ros_time_s() - float(self._latest_odom["stamp_s"]))
-            if odom_age_s > self._odom_timeout_s:
-                self._set_terminal("aborted_odom_timeout")
 
         path_age_s = self._path_age_s()
         path_is_stale = path_age_s is not None and path_age_s > self._path_stale_max_age_s

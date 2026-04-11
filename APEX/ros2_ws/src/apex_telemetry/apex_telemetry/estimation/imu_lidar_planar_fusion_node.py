@@ -69,6 +69,7 @@ class ImuLidarPlanarFusionNode(Node):
         self.declare_parameter("fixed_map_yaml", "")
         self.declare_parameter("fixed_map_distance_npy", "")
         self.declare_parameter("fixed_map_visual_points_csv", "")
+        self.declare_parameter("fixed_map_route_csv", "")
         self.declare_parameter("fixed_map_max_match_points", 120)
         self.declare_parameter("fixed_map_max_localization_iterations", 40)
         self.declare_parameter("fixed_map_prior_translation_weight", 1.0)
@@ -85,6 +86,34 @@ class ImuLidarPlanarFusionNode(Node):
         self.declare_parameter("fixed_map_low_support_near_wall_ratio", 0.25)
         self.declare_parameter("fixed_map_reduced_support_prior_gain", 1.35)
         self.declare_parameter("fixed_map_low_support_prior_gain", 1.80)
+        self.declare_parameter("fixed_map_motion_odom_topic", "/apex/odometry/imu_raw")
+        self.declare_parameter("fixed_map_motion_hint_timeout_s", 0.45)
+        self.declare_parameter("fixed_map_motion_hint_velocity_blend", 0.30)
+        self.declare_parameter("fixed_map_motion_hint_max_speed_mps", 1.5)
+        self.declare_parameter("fixed_map_particle_count", 384)
+        self.declare_parameter("fixed_map_particle_seed", 17)
+        self.declare_parameter("fixed_map_particle_initial_xy_std_m", 0.28)
+        self.declare_parameter("fixed_map_particle_initial_yaw_std_rad", 0.35)
+        self.declare_parameter("fixed_map_particle_route_seed_fraction", 0.18)
+        self.declare_parameter("fixed_map_particle_random_injection_ratio", 0.025)
+        self.declare_parameter("fixed_map_particle_process_xy_std_m", 0.035)
+        self.declare_parameter("fixed_map_particle_process_yaw_std_rad", 0.030)
+        self.declare_parameter("fixed_map_particle_process_velocity_std_mps", 0.06)
+        self.declare_parameter("fixed_map_particle_likelihood_sigma_m", 0.075)
+        self.declare_parameter("fixed_map_particle_inlier_distance_m", 0.13)
+        self.declare_parameter("fixed_map_particle_inlier_log_weight", 2.0)
+        self.declare_parameter("fixed_map_particle_out_of_map_penalty", 2.4)
+        self.declare_parameter("fixed_map_particle_resample_neff_ratio", 0.55)
+        self.declare_parameter("fixed_map_particle_roughening_xy_std_m", 0.018)
+        self.declare_parameter("fixed_map_particle_roughening_yaw_std_rad", 0.025)
+        self.declare_parameter("fixed_map_particle_min_lidar_points", 12)
+        self.declare_parameter("fixed_map_particle_min_observation_weight", 0.20)
+        self.declare_parameter("fixed_map_particle_high_confidence_inlier_ratio", 0.45)
+        self.declare_parameter("fixed_map_particle_medium_confidence_inlier_ratio", 0.28)
+        self.declare_parameter("fixed_map_particle_max_high_confidence_spread_m", 0.55)
+        self.declare_parameter("fixed_map_particle_max_medium_confidence_spread_m", 0.90)
+        self.declare_parameter("fixed_map_particle_refine_enabled", True)
+        self.declare_parameter("fixed_map_particle_refine_gain", 0.70)
 
         self._imu_topic = str(self.get_parameter("imu_topic").value)
         self._scan_topic = str(self.get_parameter("scan_topic").value)
@@ -137,6 +166,7 @@ class ImuLidarPlanarFusionNode(Node):
                 fixed_map_visual_points_csv=str(
                     self.get_parameter("fixed_map_visual_points_csv").value
                 ),
+                fixed_map_route_csv=str(self.get_parameter("fixed_map_route_csv").value),
                 velocity_decay_tau_s=float(self.get_parameter("velocity_decay_tau_s").value),
                 max_match_points=int(self.get_parameter("fixed_map_max_match_points").value),
                 max_localization_iterations=int(
@@ -180,6 +210,83 @@ class ImuLidarPlanarFusionNode(Node):
                 ),
                 low_support_prior_gain=float(
                     self.get_parameter("fixed_map_low_support_prior_gain").value
+                ),
+                motion_hint_timeout_s=float(
+                    self.get_parameter("fixed_map_motion_hint_timeout_s").value
+                ),
+                motion_hint_velocity_blend=float(
+                    self.get_parameter("fixed_map_motion_hint_velocity_blend").value
+                ),
+                motion_hint_max_speed_mps=float(
+                    self.get_parameter("fixed_map_motion_hint_max_speed_mps").value
+                ),
+                particle_count=int(self.get_parameter("fixed_map_particle_count").value),
+                particle_seed=int(self.get_parameter("fixed_map_particle_seed").value),
+                particle_initial_xy_std_m=float(
+                    self.get_parameter("fixed_map_particle_initial_xy_std_m").value
+                ),
+                particle_initial_yaw_std_rad=float(
+                    self.get_parameter("fixed_map_particle_initial_yaw_std_rad").value
+                ),
+                particle_route_seed_fraction=float(
+                    self.get_parameter("fixed_map_particle_route_seed_fraction").value
+                ),
+                particle_random_injection_ratio=float(
+                    self.get_parameter("fixed_map_particle_random_injection_ratio").value
+                ),
+                particle_process_xy_std_m=float(
+                    self.get_parameter("fixed_map_particle_process_xy_std_m").value
+                ),
+                particle_process_yaw_std_rad=float(
+                    self.get_parameter("fixed_map_particle_process_yaw_std_rad").value
+                ),
+                particle_process_velocity_std_mps=float(
+                    self.get_parameter("fixed_map_particle_process_velocity_std_mps").value
+                ),
+                particle_likelihood_sigma_m=float(
+                    self.get_parameter("fixed_map_particle_likelihood_sigma_m").value
+                ),
+                particle_inlier_distance_m=float(
+                    self.get_parameter("fixed_map_particle_inlier_distance_m").value
+                ),
+                particle_inlier_log_weight=float(
+                    self.get_parameter("fixed_map_particle_inlier_log_weight").value
+                ),
+                particle_out_of_map_penalty=float(
+                    self.get_parameter("fixed_map_particle_out_of_map_penalty").value
+                ),
+                particle_resample_neff_ratio=float(
+                    self.get_parameter("fixed_map_particle_resample_neff_ratio").value
+                ),
+                particle_roughening_xy_std_m=float(
+                    self.get_parameter("fixed_map_particle_roughening_xy_std_m").value
+                ),
+                particle_roughening_yaw_std_rad=float(
+                    self.get_parameter("fixed_map_particle_roughening_yaw_std_rad").value
+                ),
+                particle_min_lidar_points=int(
+                    self.get_parameter("fixed_map_particle_min_lidar_points").value
+                ),
+                particle_min_observation_weight=float(
+                    self.get_parameter("fixed_map_particle_min_observation_weight").value
+                ),
+                particle_high_confidence_inlier_ratio=float(
+                    self.get_parameter("fixed_map_particle_high_confidence_inlier_ratio").value
+                ),
+                particle_medium_confidence_inlier_ratio=float(
+                    self.get_parameter("fixed_map_particle_medium_confidence_inlier_ratio").value
+                ),
+                particle_max_high_confidence_spread_m=float(
+                    self.get_parameter("fixed_map_particle_max_high_confidence_spread_m").value
+                ),
+                particle_max_medium_confidence_spread_m=float(
+                    self.get_parameter("fixed_map_particle_max_medium_confidence_spread_m").value
+                ),
+                particle_refine_enabled=bool(
+                    self.get_parameter("fixed_map_particle_refine_enabled").value
+                ),
+                particle_refine_gain=float(
+                    self.get_parameter("fixed_map_particle_refine_gain").value
                 ),
             )
             self._fusion = FixedMapPlanarLocalizer(fixed_map_params)
@@ -233,6 +340,18 @@ class ImuLidarPlanarFusionNode(Node):
             self._scan_cb,
             qos_profile_sensor_data,
         )
+        self._fixed_map_motion_odom_topic = ""
+        if self._estimation_backend == "fixed_map":
+            self._fixed_map_motion_odom_topic = str(
+                self.get_parameter("fixed_map_motion_odom_topic").value
+            ).strip()
+            if self._fixed_map_motion_odom_topic:
+                self.create_subscription(
+                    Odometry,
+                    self._fixed_map_motion_odom_topic,
+                    self._motion_odom_cb,
+                    qos_profile_sensor_data,
+                )
 
         self._odom_pub = self.create_publisher(Odometry, self._odom_topic, 20)
         self._path_pub = self.create_publisher(Path, self._path_topic, 20)
@@ -271,6 +390,19 @@ class ImuLidarPlanarFusionNode(Node):
             ay_mps2=float(msg.linear_acceleration.y),
             az_mps2=float(msg.linear_acceleration.z),
             gz_rps=float(msg.angular_velocity.z),
+        )
+
+    def _motion_odom_cb(self, msg: Odometry) -> None:
+        if not hasattr(self._fusion, "set_motion_hint"):
+            return
+        t_s = float(msg.header.stamp.sec) + (1.0e-9 * float(msg.header.stamp.nanosec))
+        if t_s <= 0.0:
+            now_msg = self.get_clock().now().to_msg()
+            t_s = float(now_msg.sec) + (1.0e-9 * float(now_msg.nanosec))
+        self._fusion.set_motion_hint(
+            t_s=t_s,
+            vx_mps=float(msg.twist.twist.linear.x),
+            vy_mps=float(msg.twist.twist.linear.y),
         )
 
     def _scan_cb(self, msg: LaserScan) -> None:
