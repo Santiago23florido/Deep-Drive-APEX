@@ -1,0 +1,19 @@
+[Unit]
+Description=APEX real recognition-tour ready stack
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=ensta
+Group=ensta
+WorkingDirectory=/home/ensta/AiAtonomousRc/APEX
+Environment=HOME=/home/ensta
+ExecStart=/bin/bash -lc './tools/core/apex_real_ready_service_runner.sh'
+ExecStop=/bin/bash -lc './tools/core/apex_core_down.sh'
+Restart=always
+RestartSec=5
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

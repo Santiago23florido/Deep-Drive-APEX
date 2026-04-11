@@ -20,7 +20,7 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 from .curve_entry_path_planner_node import (
     _cubic_bezier_xy,
@@ -502,10 +502,15 @@ class RecognitionTourPlannerNode(Node):
         self.declare_parameter("local_path_topic", "/apex/planning/recognition_tour_local_path")
         self.declare_parameter("route_topic", "/apex/planning/recognition_tour_route")
         self.declare_parameter("status_topic", "/apex/planning/recognition_tour_status")
+        self.declare_parameter("arm_topic", "/apex/tracking/arm")
         self.declare_parameter("odom_frame_id", "odom_imu_lidar_fused")
         self.declare_parameter("plan_rate_hz", 12.0)
         self.declare_parameter("status_publish_rate_hz", 5.0)
         self.declare_parameter("rolling_window_s", 0.5)
+        self.declare_parameter("dynamic_scan_window_s", 0.14)
+        self.declare_parameter("dynamic_scan_speed_threshold_mps", 0.08)
+        self.declare_parameter("dynamic_scan_yaw_rate_threshold_rps", 0.30)
+        self.declare_parameter("turn_scan_latest_only_yaw_rate_threshold_rps", 0.55)
         self.declare_parameter("planning_horizon_m", 1.8)
         self.declare_parameter("lidar_offset_x_m", 0.18)
         self.declare_parameter("lidar_offset_y_m", 0.0)
@@ -563,12 +568,26 @@ class RecognitionTourPlannerNode(Node):
         self._local_path_topic = str(self.get_parameter("local_path_topic").value)
         self._route_topic = str(self.get_parameter("route_topic").value)
         self._status_topic = str(self.get_parameter("status_topic").value)
+        self._arm_topic = str(self.get_parameter("arm_topic").value)
         self._odom_frame = str(self.get_parameter("odom_frame_id").value)
         self._plan_rate_hz = max(1.0, float(self.get_parameter("plan_rate_hz").value))
         self._status_publish_rate_hz = max(
             0.5, float(self.get_parameter("status_publish_rate_hz").value)
         )
         self._rolling_window_s = max(0.1, float(self.get_parameter("rolling_window_s").value))
+        self._dynamic_scan_window_s = max(
+            0.0, float(self.get_parameter("dynamic_scan_window_s").value)
+        )
+        self._dynamic_scan_speed_threshold_mps = max(
+            0.0, float(self.get_parameter("dynamic_scan_speed_threshold_mps").value)
+        )
+        self._dynamic_scan_yaw_rate_threshold_rps = max(
+            0.0, float(self.get_parameter("dynamic_scan_yaw_rate_threshold_rps").value)
+        )
+        self._turn_scan_latest_only_yaw_rate_threshold_rps = max(
+            self._dynamic_scan_yaw_rate_threshold_rps,
+            float(self.get_parameter("turn_scan_latest_only_yaw_rate_threshold_rps").value),
+        )
         self._planning_horizon_m = max(0.6, float(self.get_parameter("planning_horizon_m").value))
         self._lidar_offset = np.asarray(
             [
@@ -735,10 +754,16 @@ class RecognitionTourPlannerNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
+        arm_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
 
         self.create_subscription(LaserScan, self._scan_topic, self._scan_cb, qos_profile_sensor_data)
         self.create_subscription(Odometry, self._odom_topic, self._odom_cb, 20)
         self.create_subscription(String, self._fusion_status_topic, self._fusion_status_cb, 20)
+        self.create_subscription(Bool, self._arm_topic, self._arm_cb, arm_qos)
 
         self._local_path_pub = self.create_publisher(Path, self._local_path_topic, latched_qos)
         self._route_pub = self.create_publisher(Path, self._route_topic, latched_qos)
@@ -749,6 +774,7 @@ class RecognitionTourPlannerNode(Node):
         self._latest_odom: dict[str, float] | None = None
         self._latest_fusion_status: dict[str, object] = {}
         self._scan_buffer: deque[_ScanSnapshot] = deque()
+        self._armed = False
         self._mission_started = False
         self._mission_start_monotonic: float | None = None
         self._mission_terminal = False
@@ -835,6 +861,9 @@ class RecognitionTourPlannerNode(Node):
         lidar_xy = base_xy + (_rotation(yaw_rad) @ self._lidar_offset)
         return lidar_xy, yaw_rad
 
+    def _ros_time_s(self) -> float:
+        return 1.0e-9 * float(self.get_clock().now().nanoseconds)
+
     def _odom_cb(self, msg: Odometry) -> None:
         self._latest_odom = {
             "stamp_s": float(msg.header.stamp.sec) + (1.0e-9 * float(msg.header.stamp.nanosec)),
@@ -871,6 +900,9 @@ class RecognitionTourPlannerNode(Node):
             return
         if isinstance(payload, dict):
             self._latest_fusion_status = payload
+
+    def _arm_cb(self, msg: Bool) -> None:
+        self._armed = bool(msg.data)
 
     def _scan_cb(self, msg: LaserScan) -> None:
         if self._mission_terminal:
@@ -915,7 +947,12 @@ class RecognitionTourPlannerNode(Node):
             self._append_route_point(point_xy)
 
     def _ensure_mission_started(self) -> None:
-        if self._mission_started or not self._fusion_ready() or self._latest_odom is None:
+        if (
+            self._mission_started
+            or not self._armed
+            or not self._fusion_ready()
+            or self._latest_odom is None
+        ):
             return
         rear_pose = self._rear_axle_pose()
         if rear_pose is None:
@@ -946,11 +983,32 @@ class RecognitionTourPlannerNode(Node):
 
     def _rolling_points_in_current_frame(self) -> np.ndarray:
         rear_pose = self._rear_axle_pose()
-        if rear_pose is None or not self._scan_buffer:
+        if rear_pose is None or not self._scan_buffer or self._latest_odom is None:
             return np.empty((0, 2), dtype=np.float64)
         rear_xy, yaw_rad = rear_pose
+        latest_snapshot = self._scan_buffer[-1]
+        speed_mps = math.hypot(
+            float(self._latest_odom.get("vx_mps", 0.0)),
+            float(self._latest_odom.get("vy_mps", 0.0)),
+        )
+        yaw_rate_rps = abs(float(self._latest_odom.get("yaw_rate_rps", 0.0)))
+        confidence = self._fusion_confidence()
+        latest_scan_only = yaw_rate_rps >= self._turn_scan_latest_only_yaw_rate_threshold_rps
+        effective_window_s = self._rolling_window_s
+        if (
+            speed_mps >= self._dynamic_scan_speed_threshold_mps
+            or yaw_rate_rps >= self._dynamic_scan_yaw_rate_threshold_rps
+            or confidence != "high"
+        ):
+            effective_window_s = min(self._rolling_window_s, self._dynamic_scan_window_s)
+        if latest_scan_only or effective_window_s <= 1.0e-6:
+            return latest_snapshot.lidar_points_local_xy.copy()
+
+        now_stamp_s = float(self._latest_odom["stamp_s"])
         local_parts: list[np.ndarray] = []
         for snapshot in self._scan_buffer:
+            if (now_stamp_s - snapshot.stamp_s) > effective_window_s:
+                continue
             current_local_xy = _transform_world_to_local(snapshot.lidar_world_xy, rear_xy, yaw_rad)
             mask = (
                 np.isfinite(current_local_xy[:, 0])
@@ -963,7 +1021,7 @@ class RecognitionTourPlannerNode(Node):
                 continue
             local_parts.append(current_local_xy[mask])
         if not local_parts:
-            return np.empty((0, 2), dtype=np.float64)
+            return latest_snapshot.lidar_points_local_xy.copy()
         return np.vstack(local_parts)
 
     def _previous_local_path_xy(self, rear_xy: np.ndarray, yaw_rad: float) -> np.ndarray | None:
@@ -1749,6 +1807,8 @@ class RecognitionTourPlannerNode(Node):
         if len(self._route_points_world) < 2:
             return None
         route_xy = np.vstack(self._route_points_world).astype(np.float64)
+        raw_start_xy = route_xy[0].copy()
+        raw_end_xy = route_xy[-1].copy()
         if self._loop_closed and self._start_pose is not None:
             start_xy = np.asarray(
                 [self._start_pose["x_m"], self._start_pose["y_m"]],
@@ -1756,6 +1816,7 @@ class RecognitionTourPlannerNode(Node):
             )
             if float(np.linalg.norm(route_xy[-1] - start_xy)) >= self._route_point_spacing_m:
                 route_xy = np.vstack([route_xy, start_xy.reshape(1, 2)])
+            raw_end_xy = start_xy.copy()
         route_xy = _resample_polyline_xy(route_xy, self._route_resample_step_m)
         route_xy, _ = _smooth_path_to_curvature_limit(
             path_xy=route_xy,
@@ -1767,6 +1828,8 @@ class RecognitionTourPlannerNode(Node):
         route_xy = _resample_polyline_xy(route_xy, self._route_resample_step_m)
         if route_xy.shape[0] < 2:
             return None
+        route_xy[0] = raw_start_xy
+        route_xy[-1] = raw_end_xy
         stamp_sec = int(self._latest_odom["stamp_s"]) if self._latest_odom is not None else 0
         stamp_nanosec = int(
             (float(self._latest_odom["stamp_s"]) - stamp_sec) * 1.0e9
@@ -1801,8 +1864,16 @@ class RecognitionTourPlannerNode(Node):
         self._ensure_mission_started()
         now_monotonic = time.monotonic()
         if not self._mission_started:
+            if not self._fusion_ready():
+                waiting_state = "waiting_fusion"
+            elif self._latest_odom is None:
+                waiting_state = "waiting_odom"
+            elif not self._armed:
+                waiting_state = "waiting_arm"
+            else:
+                waiting_state = "waiting_odom"
             self._status_payload = {
-                "state": "waiting_fusion" if not self._fusion_ready() else "waiting_odom",
+                "state": waiting_state,
                 "ready": False,
                 "loop_closure_armed": False,
                 "loop_closed": False,
@@ -1812,6 +1883,7 @@ class RecognitionTourPlannerNode(Node):
                 "fusion_confidence": self._fusion_confidence(),
                 "corridor_width_m": None,
                 "route_point_count": len(self._route_points_world),
+                "armed": self._armed,
             }
             return
 
@@ -1834,7 +1906,7 @@ class RecognitionTourPlannerNode(Node):
         rear_xy, rear_yaw_rad = rear_pose
         elapsed_s = max(0.0, now_monotonic - float(self._mission_start_monotonic or now_monotonic))
         odom_age_s = (
-            max(0.0, time.time() - float(self._latest_odom["stamp_s"]))
+            max(0.0, self._ros_time_s() - float(self._latest_odom["stamp_s"]))
             if self._latest_odom is not None
             else None
         )
@@ -2009,6 +2081,7 @@ class RecognitionTourPlannerNode(Node):
             "loop_closed": False,
             "travel_distance_m": self._travel_distance_m,
             "elapsed_s": elapsed_s,
+            "armed": self._armed,
             "start_pose": self._start_pose,
             "start_axis": {
                 "normal_xy": self._start_axis_normal_xy.tolist() if self._start_axis_normal_xy is not None else None,

@@ -18,8 +18,12 @@ class SteeringServo:
         dc_max: float,
         center_trim_dc: float,
         direction_sign: float,
-        min_authority_ratio: float,
         logger,
+        min_authority_ratio: float = 0.90,
+        *,
+        backend: str = "sysfs_pwm",
+        node=None,
+        publish_topic: str = "",
     ) -> None:
         self._logger = logger
         self._limit_deg = max(1.0, float(limit_deg))
@@ -55,7 +59,14 @@ class SteeringServo:
         self._applied_angle_deg = 0.0
         self._last_duty_cycle_pct = self._dc_center
 
-        self._pwm = HardwarePWM(channel=channel, frequency_hz=frequency_hz, logger=logger)
+        self._pwm = HardwarePWM(
+            channel=channel,
+            frequency_hz=frequency_hz,
+            logger=logger,
+            backend=backend,
+            node=node,
+            publish_topic=publish_topic,
+        )
         self._pwm.start(self._dc_center)
         self._current_angle_deg = 0.0
 
@@ -116,6 +127,10 @@ class MaverickESCMotor:
         reverse_neutral_hold_s: float,
         reverse_exit_hold_s: float,
         logger,
+        *,
+        backend: str = "sysfs_pwm",
+        node=None,
+        publish_topic: str = "",
     ) -> None:
         self._logger = logger
         self._dc_min = float(dc_min)
@@ -127,7 +142,14 @@ class MaverickESCMotor:
         self._reverse_exit_hold_s = max(0.0, float(reverse_exit_hold_s))
         self._neutral_hold_on_stop_s = max(0.40, self._reverse_exit_hold_s + 0.35)
 
-        self._pwm = HardwarePWM(channel=channel, frequency_hz=frequency_hz, logger=logger)
+        self._pwm = HardwarePWM(
+            channel=channel,
+            frequency_hz=frequency_hz,
+            logger=logger,
+            backend=backend,
+            node=node,
+            publish_topic=publish_topic,
+        )
         self._pwm.start(self._neutral_dc)
         self._in_reverse_mode = False
         self._speed_pct = 0.0

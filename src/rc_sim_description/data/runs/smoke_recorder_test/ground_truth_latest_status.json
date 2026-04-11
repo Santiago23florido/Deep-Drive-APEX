@@ -1,0 +1,50 @@
+{
+  "pose_gt": {
+    "x_m": -1.1282735549881033e-12,
+    "y_m": -2.5,
+    "yaw_rad": -7.994509129139002e-19
+  },
+  "rear_axle_gt": {
+    "x_m": -0.15000000000112826,
+    "y_m": -2.5,
+    "yaw_rad": -7.994509129139002e-19
+  },
+  "pose_gt_estimation_frame": {
+    "x_m": 7.950046217436071e-29,
+    "y_m": 0.0,
+    "yaw_rad": 0.0
+  },
+  "twist_gt": {
+    "vx_mps": 0.0,
+    "vy_mps": 0.0,
+    "yaw_rate_rps": 0.0
+  },
+  "steering_real_deg": 0.0,
+  "front_left_steering_rad": -9.46138981806835e-12,
+  "front_right_steering_rad": -7.64780477387828e-12,
+  "clearance_left_m": 0.55,
+  "clearance_right_m": 0.5500000000000003,
+  "clearance_inner_m": 0.55,
+  "clearance_outer_m": 0.5500000000000003,
+  "nearest_wall_m": 0.55,
+  "fusion_error": {
+    "x_m": -0.0006304967414714511,
+    "y_m": 0.002727946656936879,
+    "pos_m": 0.0027998605508309177,
+    "yaw_rad": 0.0010253338974979265
+  },
+  "local_path_error_m": NaN,
+  "drive_bridge_status": {},
+  "vehicle_state": {
+    "requested_motor_dc": 7.5,
+    "requested_steering_dc": 6.9799999999999995,
+    "target_speed_mps": 0.0,
+    "applied_speed_mps": 0.0,
+    "target_steering_deg": -0.0,
+    "applied_steering_deg": 0.0,
+    "front_left_steering_rad": 0.0,
+    "front_right_steering_rad": 0.0,
+    "rear_left_wheel_radps": 0.0,
+    "rear_right_wheel_radps": 0.0
+  }
+}

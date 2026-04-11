@@ -96,6 +96,36 @@ def _csv_float(row: dict[str, str], key: str) -> float:
     return parsed if math.isfinite(parsed) else float("nan")
 
 
+def _csv_float_first_valid(row: dict[str, str], *keys: str) -> float:
+    for key in keys:
+        value = _csv_float(row, key)
+        if math.isfinite(value):
+            return value
+    return float("nan")
+
+
+def _rear_axle_xy_from_tracking_row(row: dict[str, str]) -> tuple[float, float]:
+    rear_x_m = _csv_float(row, "rear_axle_x_m")
+    rear_y_m = _csv_float(row, "rear_axle_y_m")
+    if math.isfinite(rear_x_m) and math.isfinite(rear_y_m):
+        return rear_x_m, rear_y_m
+
+    base_x_m = _csv_float(row, "x_m")
+    base_y_m = _csv_float(row, "y_m")
+    yaw_rad = _csv_float(row, "yaw_rad")
+    if not (math.isfinite(base_x_m) and math.isfinite(base_y_m) and math.isfinite(yaw_rad)):
+        return float("nan"), float("nan")
+
+    rear_axle_offset_x_m = -0.15
+    rear_axle_offset_y_m = 0.0
+    cos_yaw = math.cos(yaw_rad)
+    sin_yaw = math.sin(yaw_rad)
+    return (
+        base_x_m + (cos_yaw * rear_axle_offset_x_m) - (sin_yaw * rear_axle_offset_y_m),
+        base_y_m + (sin_yaw * rear_axle_offset_x_m) + (cos_yaw * rear_axle_offset_y_m),
+    )
+
+
 def _json_float(value: Any) -> float:
     if value is None or value == "":
         return float("nan")
@@ -279,11 +309,16 @@ def _load_tracking_series(path: Path) -> TrajectorySeries:
         t0 = float(stamp_s[0]) if stamp_s.size else 0.0
         t_monotonic_s = stamp_s - t0
 
+    rear_axle_xy = np.asarray(
+        [_rear_axle_xy_from_tracking_row(row) for row in rows],
+        dtype=np.float64,
+    )
+
     return TrajectorySeries(
         t_monotonic_s=t_monotonic_s,
         stamp_s=stamp_s,
-        x_m=np.asarray([_csv_float(row, "x_m") for row in rows], dtype=np.float64),
-        y_m=np.asarray([_csv_float(row, "y_m") for row in rows], dtype=np.float64),
+        x_m=rear_axle_xy[:, 0],
+        y_m=rear_axle_xy[:, 1],
         yaw_rad=np.asarray([_csv_float(row, "yaw_rad") for row in rows], dtype=np.float64),
         vx_mps=np.asarray([_csv_float(row, "vx_mps") for row in rows], dtype=np.float64),
         vy_mps=np.asarray([_csv_float(row, "vy_mps") for row in rows], dtype=np.float64),

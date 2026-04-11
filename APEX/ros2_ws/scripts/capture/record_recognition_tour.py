@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,7 @@ import rclpy
 from nav_msgs.msg import Odometry, Path as NavPath
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import LaserScan, PointCloud
 from std_msgs.msg import String
 
 
@@ -47,10 +48,17 @@ class RecognitionTourRecorder(Node):
         bridge_status_topic: str,
         odom_topic: str,
         scan_topic: str,
+        ground_truth_odom_topic: str,
+        ground_truth_status_topic: str,
+        ground_truth_map_topic: str,
         output_dir: Path,
         timeout_s: float,
         lidar_offset_x_m: float,
         lidar_offset_y_m: float,
+        rear_axle_offset_x_m: float,
+        rear_axle_offset_y_m: float,
+        max_total_bytes: int | None,
+        min_free_disk_bytes: int | None,
     ) -> None:
         super().__init__("record_recognition_tour")
 
@@ -64,6 +72,9 @@ class RecognitionTourRecorder(Node):
         self._tracker_status: dict[str, Any] = {}
         self._bridge_status: dict[str, Any] = {}
         self._latest_odom_message: Odometry | None = None
+        self._latest_ground_truth_odom: Odometry | None = None
+        self._latest_ground_truth_status: dict[str, Any] = {}
+        self._ground_truth_map_written = False
         self._initial_pose: dict[str, float] | None = None
         self._final_pose: dict[str, float] | None = None
         self._path_count = 0
@@ -75,6 +86,19 @@ class RecognitionTourRecorder(Node):
         self._lidar_point_count = 0
         self._lidar_offset_x_m = float(lidar_offset_x_m)
         self._lidar_offset_y_m = float(lidar_offset_y_m)
+        self._rear_axle_offset_x_m = float(rear_axle_offset_x_m)
+        self._rear_axle_offset_y_m = float(rear_axle_offset_y_m)
+        self._forced_end_cause: str | None = None
+        self._max_total_bytes = (
+            max(1, int(max_total_bytes)) if max_total_bytes is not None and int(max_total_bytes) > 0 else None
+        )
+        self._min_free_disk_bytes = (
+            max(1, int(min_free_disk_bytes))
+            if min_free_disk_bytes is not None and int(min_free_disk_bytes) > 0
+            else None
+        )
+        self._last_output_total_bytes = 0
+        self._last_free_disk_bytes: int | None = None
 
         self._output_dir = output_dir
         self._analysis_dir = self._output_dir / "analysis_recognition_tour"
@@ -86,7 +110,9 @@ class RecognitionTourRecorder(Node):
         self._summary_json = self._analysis_dir / "recognition_tour_summary.json"
         self._status_log = self._analysis_dir / "recognition_tour_status.log"
         self._bridge_status_log = self._analysis_dir / "drive_bridge_status.log"
+        self._ground_truth_status_log = self._analysis_dir / "ground_truth_status.log"
         self._local_path_history_jsonl = self._analysis_dir / "recognition_tour_local_path_history.jsonl"
+        self._ground_truth_map_csv = self._analysis_dir / "ground_truth_map_points.csv"
 
         self._trajectory_handle = self._trajectory_csv.open("w", newline="", encoding="utf-8")
         self._trajectory_writer = csv.writer(self._trajectory_handle)
@@ -98,6 +124,10 @@ class RecognitionTourRecorder(Node):
                 "x_m",
                 "y_m",
                 "yaw_rad",
+                "base_x_m",
+                "base_y_m",
+                "rear_axle_x_m",
+                "rear_axle_y_m",
                 "vx_mps",
                 "vy_mps",
                 "yaw_rate_rps",
@@ -139,10 +169,26 @@ class RecognitionTourRecorder(Node):
                 "applied_steering_deg",
                 "bridge_steering_saturated",
                 "bridge_state",
+                "gt_x_m",
+                "gt_y_m",
+                "gt_yaw_rad",
+                "gt_vx_mps",
+                "gt_vy_mps",
+                "gt_yaw_rate_rps",
+                "gt_pose_error_m",
+                "gt_yaw_error_rad",
+                "gt_local_path_error_m",
+                "gt_clearance_left_m",
+                "gt_clearance_right_m",
+                "gt_clearance_inner_m",
+                "gt_clearance_outer_m",
+                "gt_steering_real_deg",
+                "gt_steering_target_deg",
             ]
         )
         self._status_handle = self._status_log.open("w", encoding="utf-8")
         self._bridge_handle = self._bridge_status_log.open("w", encoding="utf-8")
+        self._ground_truth_handle = self._ground_truth_status_log.open("w", encoding="utf-8")
         self._path_history_handle = self._local_path_history_jsonl.open("w", encoding="utf-8")
         self._lidar_handle = self._lidar_points_csv.open("w", newline="", encoding="utf-8")
         self._lidar_writer = csv.writer(self._lidar_handle)
@@ -174,12 +220,83 @@ class RecognitionTourRecorder(Node):
         self.create_subscription(String, bridge_status_topic, self._bridge_status_cb, 20)
         self.create_subscription(Odometry, odom_topic, self._odom_cb, 20)
         self.create_subscription(LaserScan, scan_topic, self._scan_cb, qos_profile_sensor_data)
+        self.create_subscription(Odometry, ground_truth_odom_topic, self._ground_truth_odom_cb, 20)
+        self.create_subscription(String, ground_truth_status_topic, self._ground_truth_status_cb, 20)
+        self.create_subscription(PointCloud, ground_truth_map_topic, self._ground_truth_map_cb, 2)
         self.create_timer(0.1, self._tick)
 
         self.get_logger().info(
             "Recognition tour recorder started (timeout=%.2fs output=%s)"
             % (self._timeout_s, str(self._analysis_dir))
         )
+
+    def _current_output_total_bytes(self) -> int:
+        total_bytes = 0
+        open_handles = (
+            self._trajectory_handle,
+            self._status_handle,
+            self._bridge_handle,
+            self._ground_truth_handle,
+            self._path_history_handle,
+            self._lidar_handle,
+        )
+        for handle in open_handles:
+            if handle.closed:
+                continue
+            try:
+                handle.flush()
+            except Exception:
+                pass
+            try:
+                total_bytes += int(os.fstat(handle.fileno()).st_size)
+            except Exception:
+                pass
+        for path in (self._route_csv, self._route_json, self._ground_truth_map_csv):
+            try:
+                if path.exists():
+                    total_bytes += int(path.stat().st_size)
+            except Exception:
+                pass
+        self._last_output_total_bytes = total_bytes
+        return total_bytes
+
+    def _free_disk_bytes(self) -> int | None:
+        try:
+            stats = os.statvfs(str(self._output_dir))
+        except Exception:
+            return None
+        free_bytes = int(stats.f_bavail) * int(stats.f_frsize)
+        self._last_free_disk_bytes = free_bytes
+        return free_bytes
+
+    def _request_budget_stop(self, cause: str, *, detail: str) -> None:
+        if self._forced_end_cause is not None:
+            return
+        self._forced_end_cause = cause
+        self.get_logger().error(detail)
+
+    def _check_limits(self) -> None:
+        if self._finalized:
+            return
+        total_bytes = self._current_output_total_bytes()
+        free_bytes = self._free_disk_bytes()
+        if self._max_total_bytes is not None and total_bytes >= self._max_total_bytes:
+            self._request_budget_stop(
+                "storage_limit",
+                detail=(
+                    "Stopping recognition recorder because output_total_bytes=%d reached max_total_bytes=%d"
+                    % (total_bytes, self._max_total_bytes)
+                ),
+            )
+            return
+        if self._min_free_disk_bytes is not None and free_bytes is not None and free_bytes <= self._min_free_disk_bytes:
+            self._request_budget_stop(
+                "low_disk_space",
+                detail=(
+                    "Stopping recognition recorder because free_disk_bytes=%d fell below min_free_disk_bytes=%d"
+                    % (free_bytes, self._min_free_disk_bytes)
+                ),
+            )
 
     def _fusion_status_cb(self, msg: String) -> None:
         try:
@@ -201,6 +318,7 @@ class RecognitionTourRecorder(Node):
             + "\n"
         )
         self._status_handle.flush()
+        self._check_limits()
 
     def _path_cb(self, msg: NavPath) -> None:
         if not msg.poses:
@@ -236,6 +354,7 @@ class RecognitionTourRecorder(Node):
         self._path_history_handle.write(json.dumps(payload, separators=(",", ":")) + "\n")
         self._path_history_handle.flush()
         self._path_count += 1
+        self._check_limits()
 
     def _route_cb(self, msg: NavPath) -> None:
         if not msg.poses:
@@ -261,6 +380,7 @@ class RecognitionTourRecorder(Node):
             for row in self._route_points:
                 writer.writerow([int(row["index"]), row["x_m"], row["y_m"], row["yaw_rad"]])
         self._route_received = True
+        self._check_limits()
 
     def _planner_status_cb(self, msg: String) -> None:
         try:
@@ -282,6 +402,7 @@ class RecognitionTourRecorder(Node):
             + "\n"
         )
         self._status_handle.flush()
+        self._check_limits()
 
     def _tracker_status_cb(self, msg: String) -> None:
         try:
@@ -303,6 +424,7 @@ class RecognitionTourRecorder(Node):
             + "\n"
         )
         self._status_handle.flush()
+        self._check_limits()
 
         state = str(payload.get("state", ""))
         if state == "tracking":
@@ -331,6 +453,42 @@ class RecognitionTourRecorder(Node):
         self._bridge_handle.flush()
         if float(payload.get("applied_speed_pct", 0.0) or 0.0) > 1.0e-6:
             self._track_started = True
+        self._check_limits()
+
+    def _ground_truth_odom_cb(self, msg: Odometry) -> None:
+        self._latest_ground_truth_odom = msg
+
+    def _ground_truth_status_cb(self, msg: String) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+        self._latest_ground_truth_status = payload
+        self._ground_truth_handle.write(
+            json.dumps(
+                {
+                    "t_monotonic_s": time.monotonic() - self._start_monotonic,
+                    "payload": payload,
+                },
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
+        self._ground_truth_handle.flush()
+        self._check_limits()
+
+    def _ground_truth_map_cb(self, msg: PointCloud) -> None:
+        if self._ground_truth_map_written:
+            return
+        with self._ground_truth_map_csv.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["x_m", "y_m", "z_m"])
+            for point in msg.points:
+                writer.writerow([float(point.x), float(point.y), float(point.z)])
+        self._ground_truth_map_written = True
+        self._check_limits()
 
     def _odom_cb(self, msg: Odometry) -> None:
         self._latest_odom_message = msg
@@ -355,6 +513,49 @@ class RecognitionTourRecorder(Node):
         if not self._track_started:
             return
 
+        cos_yaw = math.cos(float(pose["yaw_rad"]))
+        sin_yaw = math.sin(float(pose["yaw_rad"]))
+        rear_axle_x_m = float(pose["x_m"]) + (
+            (cos_yaw * self._rear_axle_offset_x_m) - (sin_yaw * self._rear_axle_offset_y_m)
+        )
+        rear_axle_y_m = float(pose["y_m"]) + (
+            (sin_yaw * self._rear_axle_offset_x_m) + (cos_yaw * self._rear_axle_offset_y_m)
+        )
+
+        ground_truth_odom = self._latest_ground_truth_odom
+        ground_truth_status = self._latest_ground_truth_status
+        gt_pose = ground_truth_status.get("pose_gt", {}) if isinstance(ground_truth_status, dict) else {}
+        gt_twist = ground_truth_status.get("twist_gt", {}) if isinstance(ground_truth_status, dict) else {}
+        gt_fusion_error = (
+            ground_truth_status.get("fusion_error", {})
+            if isinstance(ground_truth_status, dict)
+            else {}
+        )
+        gt_vehicle_state = (
+            ground_truth_status.get("vehicle_state", {})
+            if isinstance(ground_truth_status, dict)
+            else {}
+        )
+        if ground_truth_odom is not None:
+            gt_x_m = float(ground_truth_odom.pose.pose.position.x)
+            gt_y_m = float(ground_truth_odom.pose.pose.position.y)
+            gt_yaw_rad = _quat_to_yaw(
+                float(ground_truth_odom.pose.pose.orientation.x),
+                float(ground_truth_odom.pose.pose.orientation.y),
+                float(ground_truth_odom.pose.pose.orientation.z),
+                float(ground_truth_odom.pose.pose.orientation.w),
+            )
+            gt_vx_mps = float(ground_truth_odom.twist.twist.linear.x)
+            gt_vy_mps = float(ground_truth_odom.twist.twist.linear.y)
+            gt_yaw_rate_rps = float(ground_truth_odom.twist.twist.angular.z)
+        else:
+            gt_x_m = gt_pose.get("x_m", "")
+            gt_y_m = gt_pose.get("y_m", "")
+            gt_yaw_rad = gt_pose.get("yaw_rad", "")
+            gt_vx_mps = gt_twist.get("vx_mps", "")
+            gt_vy_mps = gt_twist.get("vy_mps", "")
+            gt_yaw_rate_rps = gt_twist.get("yaw_rate_rps", "")
+
         now_monotonic_s = time.monotonic() - self._start_monotonic
         self._trajectory_writer.writerow(
             [
@@ -364,6 +565,10 @@ class RecognitionTourRecorder(Node):
                 pose["x_m"],
                 pose["y_m"],
                 pose["yaw_rad"],
+                pose["x_m"],
+                pose["y_m"],
+                rear_axle_x_m,
+                rear_axle_y_m,
                 pose["vx_mps"],
                 pose["vy_mps"],
                 pose["yaw_rate_rps"],
@@ -405,10 +610,26 @@ class RecognitionTourRecorder(Node):
                 self._bridge_status.get("applied_steering_deg", ""),
                 self._bridge_status.get("steering_saturated", ""),
                 self._bridge_status.get("state", ""),
+                gt_x_m,
+                gt_y_m,
+                gt_yaw_rad,
+                gt_vx_mps,
+                gt_vy_mps,
+                gt_yaw_rate_rps,
+                gt_fusion_error.get("pos_m", ""),
+                gt_fusion_error.get("yaw_rad", ""),
+                ground_truth_status.get("local_path_error_m", ""),
+                ground_truth_status.get("clearance_left_m", ""),
+                ground_truth_status.get("clearance_right_m", ""),
+                ground_truth_status.get("clearance_inner_m", ""),
+                ground_truth_status.get("clearance_outer_m", ""),
+                ground_truth_status.get("steering_real_deg", ""),
+                gt_vehicle_state.get("target_steering_deg", ""),
             ]
         )
         self._trajectory_handle.flush()
         self._trajectory_row_count += 1
+        self._check_limits()
 
     def _scan_cb(self, msg: LaserScan) -> None:
         odom_msg = self._latest_odom_message
@@ -469,6 +690,7 @@ class RecognitionTourRecorder(Node):
         self._scan_count += 1
         if wrote_points:
             self._lidar_handle.flush()
+            self._check_limits()
 
     def _write_route_json(self) -> None:
         payload = {
@@ -492,10 +714,15 @@ class RecognitionTourRecorder(Node):
             "route_point_count": len(self._route_points),
             "lidar_scan_count": self._scan_count,
             "lidar_point_count": self._lidar_point_count,
+            "output_total_bytes": self._last_output_total_bytes,
+            "max_total_bytes": self._max_total_bytes,
+            "free_disk_bytes": self._last_free_disk_bytes,
+            "min_free_disk_bytes": self._min_free_disk_bytes,
             "fusion_status": self._fusion_status,
             "planner_status": self._planner_status,
             "tracker_status": self._tracker_status,
             "bridge_status": self._bridge_status,
+            "ground_truth_status": self._latest_ground_truth_status,
         }
         self._summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
@@ -503,10 +730,13 @@ class RecognitionTourRecorder(Node):
         if self._finalized:
             return
         self._finalized = True
+        self._current_output_total_bytes()
+        self._free_disk_bytes()
         for handle in (
             self._trajectory_handle,
             self._status_handle,
             self._bridge_handle,
+            self._ground_truth_handle,
             self._path_history_handle,
             self._lidar_handle,
         ):
@@ -518,10 +748,19 @@ class RecognitionTourRecorder(Node):
                 pass
         self._write_route_json()
         self._write_summary(end_cause=end_cause)
-        self.get_logger().info("Recognition tour recorder finished (cause=%s)" % end_cause)
+        self.get_logger().info(
+            "Recognition tour recorder finished (cause=%s output_total_bytes=%d)"
+            % (end_cause, self._last_output_total_bytes)
+        )
 
     def _tick(self) -> None:
         elapsed_s = time.monotonic() - self._start_monotonic
+        self._check_limits()
+        if self._forced_end_cause is not None:
+            self.finalize(end_cause=self._forced_end_cause)
+            if rclpy.ok():
+                rclpy.shutdown()
+            return
         if self._terminal_state_seen_at is not None:
             if (time.monotonic() - self._terminal_state_seen_at) >= 0.75:
                 self.finalize(end_cause=str(self._tracker_status.get("state", "unknown_terminal")))
@@ -545,10 +784,20 @@ def main() -> None:
     parser.add_argument("--bridge-status-topic", default="/apex/vehicle/drive_bridge_status")
     parser.add_argument("--odom-topic", default="/apex/odometry/imu_lidar_fused")
     parser.add_argument("--scan-topic", default="/lidar/scan_localization")
+    parser.add_argument("--ground-truth-odom-topic", default="/apex/sim/ground_truth/odom")
+    parser.add_argument("--ground-truth-status-topic", default="/apex/sim/ground_truth/status")
+    parser.add_argument(
+        "--ground-truth-map-topic",
+        default="/apex/sim/ground_truth/perfect_map_points",
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--timeout-s", type=float, required=True)
     parser.add_argument("--lidar-offset-x-m", type=float, default=0.18)
     parser.add_argument("--lidar-offset-y-m", type=float, default=0.0)
+    parser.add_argument("--rear-axle-offset-x-m", type=float, default=-0.15)
+    parser.add_argument("--rear-axle-offset-y-m", type=float, default=0.0)
+    parser.add_argument("--max-total-bytes", type=int, default=0)
+    parser.add_argument("--min-free-disk-bytes", type=int, default=0)
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir).expanduser().resolve()
@@ -564,10 +813,19 @@ def main() -> None:
         bridge_status_topic=args.bridge_status_topic,
         odom_topic=args.odom_topic,
         scan_topic=args.scan_topic,
+        ground_truth_odom_topic=args.ground_truth_odom_topic,
+        ground_truth_status_topic=args.ground_truth_status_topic,
+        ground_truth_map_topic=args.ground_truth_map_topic,
         output_dir=output_dir,
         timeout_s=args.timeout_s,
         lidar_offset_x_m=args.lidar_offset_x_m,
         lidar_offset_y_m=args.lidar_offset_y_m,
+        rear_axle_offset_x_m=args.rear_axle_offset_x_m,
+        rear_axle_offset_y_m=args.rear_axle_offset_y_m,
+        max_total_bytes=(int(args.max_total_bytes) if int(args.max_total_bytes) > 0 else None),
+        min_free_disk_bytes=(
+            int(args.min_free_disk_bytes) if int(args.min_free_disk_bytes) > 0 else None
+        ),
     )
     try:
         rclpy.spin(node)

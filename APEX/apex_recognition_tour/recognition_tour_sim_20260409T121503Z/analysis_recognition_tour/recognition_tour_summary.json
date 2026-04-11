@@ -1,0 +1,194 @@
+{
+  "run_dir": "/home/santiago/AiAtonomousRc/APEX/apex_recognition_tour/recognition_tour_sim_20260409T121503Z",
+  "initial_pose": null,
+  "final_pose": null,
+  "time_total_s": 44.41990702995099,
+  "end_cause": "waiting_path",
+  "trajectory_row_count": 0,
+  "local_path_message_count": 0,
+  "route_point_count": 0,
+  "lidar_scan_count": 0,
+  "lidar_point_count": 0,
+  "fusion_status": {
+    "state": "waiting_static_initialization",
+    "imu_initialized": false,
+    "alignment_ready": false,
+    "best_effort_init": false,
+    "raw_imu_sample_count": 0,
+    "processed_imu_sample_count": 0,
+    "pending_scan_count": 940,
+    "processed_scan_count": 0,
+    "initial_scan_count": 0,
+    "alignment_yaw_rad": 0.0,
+    "origin_projection_m": [
+      0.0,
+      0.0
+    ],
+    "static_initialization": {
+      "best_effort_init": false,
+      "static_start_s": 0.0,
+      "static_end_s": 0.0,
+      "static_sample_count": 0,
+      "bias_ax_mps2": 0.0,
+      "bias_ay_mps2": 0.0,
+      "bias_az_mps2": -9.80665,
+      "bias_gz_rps": 0.0
+    },
+    "corridor_model": null,
+    "quality": {
+      "high_confidence_pct": 0.0,
+      "low_confidence_scan_count": 0,
+      "median_submap_residual_m": NaN,
+      "median_wall_residual_m": NaN
+    },
+    "latest_pose": null,
+    "published_pose": null,
+    "published_source": "none",
+    "odom_prediction_age_s": 0.0,
+    "parameters": {
+      "median_window": 5,
+      "ema_alpha": 0.25,
+      "static_window_s": 0.4,
+      "static_search_s": 2.0,
+      "velocity_decay_tau_s": 1.1,
+      "submap_window_scans": 6,
+      "point_stride": 2,
+      "max_correspondence_m": 0.35,
+      "initial_scan_count_min": 4,
+      "max_initial_alignment_scans": 6,
+      "corridor_bin_m": 0.1,
+      "low_confidence_residual_m": 0.16,
+      "min_valid_correspondence_count": 14,
+      "max_scan_optimization_evals": 80
+    }
+  },
+  "planner_status": {
+    "state": "waiting_fusion",
+    "ready": false,
+    "loop_closure_armed": false,
+    "loop_closed": false,
+    "travel_distance_m": 0.0,
+    "elapsed_s": 0.0,
+    "local_path_age_s": null,
+    "fusion_confidence": "unknown",
+    "corridor_width_m": null,
+    "route_point_count": 0
+  },
+  "tracker_status": {
+    "state": "waiting_path",
+    "terminal": false,
+    "cause": null
+  },
+  "bridge_status": {
+    "state": "tracking",
+    "actuation_backend": "sim_pwm_topic",
+    "timed_out": false,
+    "desired_linear_x_mps": 0.0,
+    "desired_angular_z_rps": 0.0,
+    "desired_speed_pct": 0.0,
+    "desired_steering_deg": 0.0,
+    "requested_steering_deg": 0.0,
+    "speed_ramp_start_pct": 0.0,
+    "speed_ramp_target_pct": 0.0,
+    "speed_ramp_active": false,
+    "launch_boost_active": false,
+    "launch_boost_speed_pct": 20.0,
+    "applied_speed_pct": 0.0,
+    "applied_steering_deg": -0.0,
+    "steering_saturated": false,
+    "motor_pwm_state": {
+      "pwm_dir": "",
+      "publish_topic": "/apex/sim/pwm/motor_dc",
+      "backend": "sim_pwm_topic",
+      "period_ns": 20000000,
+      "duty_cycle_ns": null,
+      "enabled": 1,
+      "duty_cycle_pct": 7.5
+    },
+    "steering_pwm_state": {
+      "pwm_dir": "",
+      "publish_topic": "/apex/sim/pwm/steering_dc",
+      "backend": "sim_pwm_topic",
+      "period_ns": 20000000,
+      "duty_cycle_ns": null,
+      "enabled": 1,
+      "duty_cycle_pct": 6.9799999999999995
+    }
+  },
+  "ground_truth_status": {
+    "pose_gt": {
+      "x_m": -5.438441598671884,
+      "y_m": -2.6187849178371634,
+      "yaw_rad": 0.15468042897922293
+    },
+    "rear_axle_gt": {
+      "x_m": -5.586650721031184,
+      "y_m": -2.6418945705711643,
+      "yaw_rad": 0.15468042897922293
+    },
+    "pose_gt_estimation_frame": {},
+    "twist_gt": {
+      "vx_mps": 7.695717689308353e-06,
+      "vy_mps": -5.686292854083081e-06,
+      "yaw_rate_rps": 5.55791113192714e-05
+    },
+    "steering_real_deg": 0.0,
+    "front_left_steering_rad": -0.00021722242824008273,
+    "front_right_steering_rad": -0.31415927262100546,
+    "clearance_left_m": 0.03512444102170956,
+    "clearance_right_m": 0.09009798714474614,
+    "clearance_inner_m": 0.03512444102170956,
+    "clearance_outer_m": 0.09009798714474614,
+    "nearest_wall_m": 0.028049640576382616,
+    "fusion_error": {},
+    "local_path_error_m": NaN,
+    "drive_bridge_status": {
+      "state": "tracking",
+      "actuation_backend": "sim_pwm_topic",
+      "timed_out": false,
+      "desired_linear_x_mps": 0.0,
+      "desired_angular_z_rps": 0.0,
+      "desired_speed_pct": 0.0,
+      "desired_steering_deg": 0.0,
+      "requested_steering_deg": 0.0,
+      "speed_ramp_start_pct": 0.0,
+      "speed_ramp_target_pct": 0.0,
+      "speed_ramp_active": false,
+      "launch_boost_active": false,
+      "launch_boost_speed_pct": 20.0,
+      "applied_speed_pct": 0.0,
+      "applied_steering_deg": -0.0,
+      "steering_saturated": false,
+      "motor_pwm_state": {
+        "pwm_dir": "",
+        "publish_topic": "/apex/sim/pwm/motor_dc",
+        "backend": "sim_pwm_topic",
+        "period_ns": 20000000,
+        "duty_cycle_ns": null,
+        "enabled": 1,
+        "duty_cycle_pct": 7.5
+      },
+      "steering_pwm_state": {
+        "pwm_dir": "",
+        "publish_topic": "/apex/sim/pwm/steering_dc",
+        "backend": "sim_pwm_topic",
+        "period_ns": 20000000,
+        "duty_cycle_ns": null,
+        "enabled": 1,
+        "duty_cycle_pct": 6.9799999999999995
+      }
+    },
+    "vehicle_state": {
+      "requested_motor_dc": 7.5,
+      "requested_steering_dc": 6.9799999999999995,
+      "target_speed_mps": 0.0,
+      "applied_speed_mps": 0.0,
+      "target_steering_deg": -0.0,
+      "applied_steering_deg": 0.0,
+      "front_left_steering_rad": 0.0,
+      "front_right_steering_rad": 0.0,
+      "rear_left_wheel_radps": 0.0,
+      "rear_right_wheel_radps": 0.0
+    }
+  }
+}
