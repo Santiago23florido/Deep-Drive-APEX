@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry
 from nav_msgs.msg import Path as NavPath
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -46,6 +47,16 @@ def _path_length_m(poses_xyyaw: np.ndarray) -> float:
     return float(np.sum(np.hypot(diffs[:, 0], diffs[:, 1])))
 
 
+def _quat_to_yaw(x: float, y: float, z: float, w: float) -> float:
+    siny_cosp = 2.0 * ((w * z) + (x * y))
+    cosy_cosp = 1.0 - (2.0 * ((y * y) + (z * z)))
+    return math.atan2(siny_cosp, cosy_cosp)
+
+
+def _normalize_angle(angle_rad: float) -> float:
+    return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
+
+
 class FixedMapRoutePlannerNode(Node):
     def __init__(self) -> None:
         super().__init__("fixed_map_route_planner_node")
@@ -56,8 +67,11 @@ class FixedMapRoutePlannerNode(Node):
         self.declare_parameter("frame_id", "odom_imu_lidar_fused")
         self.declare_parameter("path_topic", "/apex/planning/fixed_map_path")
         self.declare_parameter("status_topic", "/apex/planning/fixed_map_status")
+        self.declare_parameter("odom_topic", "/apex/odometry/fixed_map_localized")
+        self.declare_parameter("replan_request_topic", "/apex/planning/fixed_map_replan_request")
         self.declare_parameter("publish_rate_hz", 2.0)
         self.declare_parameter("clearance_min_m", 0.15)
+        self.declare_parameter("replan_backtrack_points", 2)
 
         fixed_map_dir_text = str(self.get_parameter("fixed_map_dir").value or "").strip()
         route_csv_text = str(self.get_parameter("route_csv").value or "").strip()
@@ -74,6 +88,7 @@ class FixedMapRoutePlannerNode(Node):
         self._frame_id = str(self.get_parameter("frame_id").value)
         self._publish_rate_hz = max(0.2, float(self.get_parameter("publish_rate_hz").value))
         self._clearance_min_m = max(0.0, float(self.get_parameter("clearance_min_m").value))
+        self._replan_backtrack_points = max(0, int(self.get_parameter("replan_backtrack_points").value))
 
         latched_qos = QoSProfile(
             depth=1,
@@ -90,10 +105,26 @@ class FixedMapRoutePlannerNode(Node):
             str(self.get_parameter("status_topic").value),
             latched_qos,
         )
+        self.create_subscription(
+            Odometry,
+            str(self.get_parameter("odom_topic").value),
+            self._odom_cb,
+            20,
+        )
+        self.create_subscription(
+            String,
+            str(self.get_parameter("replan_request_topic").value),
+            self._replan_request_cb,
+            10,
+        )
 
         self._poses_xyyaw = np.empty((0, 3), dtype=np.float64)
         self._clearances_m = np.empty((0,), dtype=np.float64)
         self._path_msg: NavPath | None = None
+        self._latest_odom_pose_xyyaw: np.ndarray | None = None
+        self._replan_count = 0
+        self._active_route_start_index = 0
+        self._last_replan_reason: str | None = None
         self._status_payload: dict[str, object] = {"state": "initializing", "ready": False}
         self._load_route()
         self.create_timer(1.0 / self._publish_rate_hz, self._publish)
@@ -106,6 +137,32 @@ class FixedMapRoutePlannerNode(Node):
                 str(self.get_parameter("status_topic").value),
             )
         )
+
+    def _odom_cb(self, msg: Odometry) -> None:
+        self._latest_odom_pose_xyyaw = np.asarray(
+            [
+                float(msg.pose.pose.position.x),
+                float(msg.pose.pose.position.y),
+                _quat_to_yaw(
+                    float(msg.pose.pose.orientation.x),
+                    float(msg.pose.pose.orientation.y),
+                    float(msg.pose.pose.orientation.z),
+                    float(msg.pose.pose.orientation.w),
+                ),
+            ],
+            dtype=np.float64,
+        )
+
+    def _replan_request_cb(self, msg: String) -> None:
+        reason = "replan_request"
+        try:
+            payload = json.loads(msg.data)
+            if isinstance(payload, dict):
+                reason = str(payload.get("reason") or reason)
+        except Exception:
+            reason = str(msg.data or reason)
+        if self._rebuild_path_from_current_pose(reason=reason):
+            self._publish()
 
     def _load_route(self) -> None:
         if not self._route_csv.exists():
@@ -157,7 +214,8 @@ class FixedMapRoutePlannerNode(Node):
                 build_status = {}
 
         route_length_m = _path_length_m(self._poses_xyyaw)
-        self._path_msg = self._build_path_msg()
+        self._active_route_start_index = 0
+        self._path_msg = self._build_path_msg(self._poses_xyyaw)
         self._status_payload = {
             "state": "tracking",
             "ready": True,
@@ -174,12 +232,14 @@ class FixedMapRoutePlannerNode(Node):
             "start_error_m": float(build_status.get("start_error_m", 0.0) or 0.0),
             "goal_error_m": float(build_status.get("goal_error_m", 0.0) or 0.0),
             "fixed_map_build": build_status,
+            "replan_count": int(self._replan_count),
+            "active_route_start_index": int(self._active_route_start_index),
         }
 
-    def _build_path_msg(self) -> NavPath:
+    def _build_path_msg(self, poses_xyyaw: np.ndarray) -> NavPath:
         msg = NavPath()
         msg.header.frame_id = self._frame_id
-        for pose in self._poses_xyyaw:
+        for pose in poses_xyyaw:
             pose_msg = PoseStamped()
             pose_msg.header.frame_id = self._frame_id
             pose_msg.pose.position.x = float(pose[0])
@@ -192,6 +252,63 @@ class FixedMapRoutePlannerNode(Node):
             pose_msg.pose.orientation.w = qw
             msg.poses.append(pose_msg)
         return msg
+
+    def _nearest_route_index(self, pose_xyyaw: np.ndarray) -> int:
+        if self._poses_xyyaw.shape[0] == 0:
+            return 0
+        distances_m = np.linalg.norm(
+            self._poses_xyyaw[:, :2] - pose_xyyaw[:2].reshape(1, 2),
+            axis=1,
+        )
+        yaw_errors = np.asarray(
+            [_normalize_angle(float(yaw - pose_xyyaw[2])) for yaw in self._poses_xyyaw[:, 2]],
+            dtype=np.float64,
+        )
+        cost = distances_m + (0.08 * np.abs(yaw_errors))
+        return int(np.argmin(cost))
+
+    def _rebuild_path_from_current_pose(self, *, reason: str) -> bool:
+        if self._latest_odom_pose_xyyaw is None or self._poses_xyyaw.shape[0] < 2:
+            self._last_replan_reason = "missing_odom_or_route"
+            return False
+        nearest_index = self._nearest_route_index(self._latest_odom_pose_xyyaw)
+        start_index = max(0, nearest_index - self._replan_backtrack_points)
+        suffix = self._poses_xyyaw[start_index:]
+        if suffix.shape[0] < 2:
+            start_index = max(0, self._poses_xyyaw.shape[0] - 2)
+            suffix = self._poses_xyyaw[start_index:]
+        current_pose = self._latest_odom_pose_xyyaw.reshape(1, 3)
+        poses_xyyaw = np.vstack([current_pose, suffix])
+        route_length_m = _path_length_m(poses_xyyaw)
+        self._path_msg = self._build_path_msg(poses_xyyaw)
+        self._replan_count += 1
+        self._active_route_start_index = int(start_index)
+        self._last_replan_reason = str(reason)
+        payload = dict(self._status_payload)
+        payload.update(
+            {
+                "state": "tracking",
+                "ready": True,
+                "local_path_source": "fixed_map_replan",
+                "continuation_source": "replanned_from_current_pose",
+                "path_point_count": int(poses_xyyaw.shape[0]),
+                "path_length_m": route_length_m,
+                "path_forward_span_m": route_length_m,
+                "local_path_age_s": 0.0,
+                "replan_count": int(self._replan_count),
+                "active_route_start_index": int(self._active_route_start_index),
+                "nearest_route_index": int(nearest_index),
+                "last_replan_reason": self._last_replan_reason,
+                "replan_distance_to_route_m": float(
+                    np.linalg.norm(
+                        self._poses_xyyaw[nearest_index, :2]
+                        - self._latest_odom_pose_xyyaw[:2]
+                    )
+                ),
+            }
+        )
+        self._status_payload = payload
+        return True
 
     def _publish(self) -> None:
         now_msg = self.get_clock().now().to_msg()

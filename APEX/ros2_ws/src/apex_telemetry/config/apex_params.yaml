@@ -381,8 +381,11 @@ fixed_map_route_planner_node:
     frame_id: "odom_imu_lidar_fused"
     path_topic: "/apex/planning/fixed_map_path"
     status_topic: "/apex/planning/fixed_map_status"
+    odom_topic: "/apex/odometry/fixed_map_localized"
+    replan_request_topic: "/apex/planning/fixed_map_replan_request"
     publish_rate_hz: 2.0
     clearance_min_m: 0.15
+    replan_backtrack_points: 2
 
 recognition_tour_tracker_node:
   ros__parameters:
@@ -444,6 +447,18 @@ recognition_tour_tracker_node:
     route_alignment_speed_scale_min: 0.55
     global_timeout_s: 60.0
     odom_timeout_s: 0.75
+    replan_request_topic: "/apex/planning/fixed_map_replan_request"
+    stuck_recovery_enabled: false
+    stuck_forward_cmd_threshold_mps: 0.06
+    stuck_motion_speed_threshold_mps: 0.02
+    stuck_motion_distance_threshold_m: 0.025
+    stuck_detect_hold_s: 1.0
+    stuck_reverse_linear_mps: -0.18
+    stuck_reverse_angular_z_rps: 0.0
+    stuck_reverse_duration_s: 0.45
+    stuck_replan_wait_s: 0.45
+    stuck_recovery_cooldown_s: 2.0
+    stuck_recovery_max_count: 3
 
 windows_gamepad_bridge_node:
   ros__parameters:

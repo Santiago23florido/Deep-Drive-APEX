@@ -119,6 +119,18 @@ class RecognitionTourTrackerNode(Node):
         self.declare_parameter("route_alignment_speed_scale_min", 0.60)
         self.declare_parameter("global_timeout_s", 60.0)
         self.declare_parameter("odom_timeout_s", 0.5)
+        self.declare_parameter("replan_request_topic", "/apex/planning/fixed_map_replan_request")
+        self.declare_parameter("stuck_recovery_enabled", False)
+        self.declare_parameter("stuck_forward_cmd_threshold_mps", 0.06)
+        self.declare_parameter("stuck_motion_speed_threshold_mps", 0.02)
+        self.declare_parameter("stuck_motion_distance_threshold_m", 0.025)
+        self.declare_parameter("stuck_detect_hold_s", 1.0)
+        self.declare_parameter("stuck_reverse_linear_mps", -0.18)
+        self.declare_parameter("stuck_reverse_angular_z_rps", 0.0)
+        self.declare_parameter("stuck_reverse_duration_s", 0.45)
+        self.declare_parameter("stuck_replan_wait_s", 0.45)
+        self.declare_parameter("stuck_recovery_cooldown_s", 2.0)
+        self.declare_parameter("stuck_recovery_max_count", 3)
 
         self._path_topic = str(self.get_parameter("path_topic").value)
         self._planning_status_topic = str(self.get_parameter("planning_status_topic").value)
@@ -127,6 +139,7 @@ class RecognitionTourTrackerNode(Node):
         self._arm_topic = str(self.get_parameter("arm_topic").value)
         self._cmd_vel_topic = str(self.get_parameter("cmd_vel_topic").value)
         self._status_topic = str(self.get_parameter("status_topic").value)
+        self._replan_request_topic = str(self.get_parameter("replan_request_topic").value)
         self._publish_unarmed_zero_cmd = bool(
             self.get_parameter("publish_unarmed_zero_cmd").value
         )
@@ -270,6 +283,37 @@ class RecognitionTourTrackerNode(Node):
         )
         self._global_timeout_s = max(1.0, float(self.get_parameter("global_timeout_s").value))
         self._odom_timeout_s = max(0.05, float(self.get_parameter("odom_timeout_s").value))
+        self._stuck_recovery_enabled = bool(self.get_parameter("stuck_recovery_enabled").value)
+        self._stuck_forward_cmd_threshold_mps = max(
+            0.0, float(self.get_parameter("stuck_forward_cmd_threshold_mps").value)
+        )
+        self._stuck_motion_speed_threshold_mps = max(
+            0.0, float(self.get_parameter("stuck_motion_speed_threshold_mps").value)
+        )
+        self._stuck_motion_distance_threshold_m = max(
+            0.0, float(self.get_parameter("stuck_motion_distance_threshold_m").value)
+        )
+        self._stuck_detect_hold_s = max(
+            0.05, float(self.get_parameter("stuck_detect_hold_s").value)
+        )
+        self._stuck_reverse_linear_mps = -abs(
+            float(self.get_parameter("stuck_reverse_linear_mps").value)
+        )
+        self._stuck_reverse_angular_z_rps = float(
+            self.get_parameter("stuck_reverse_angular_z_rps").value
+        )
+        self._stuck_reverse_duration_s = max(
+            0.05, float(self.get_parameter("stuck_reverse_duration_s").value)
+        )
+        self._stuck_replan_wait_s = max(
+            0.05, float(self.get_parameter("stuck_replan_wait_s").value)
+        )
+        self._stuck_recovery_cooldown_s = max(
+            0.0, float(self.get_parameter("stuck_recovery_cooldown_s").value)
+        )
+        self._stuck_recovery_max_count = max(
+            0, int(self.get_parameter("stuck_recovery_max_count").value)
+        )
 
         latched_qos = QoSProfile(
             depth=1,
@@ -292,6 +336,9 @@ class RecognitionTourTrackerNode(Node):
 
         self._cmd_pub = self.create_publisher(Twist, self._cmd_vel_topic, 20)
         self._status_pub = self.create_publisher(String, self._status_topic, latched_qos)
+        self._replan_request_pub = self.create_publisher(
+            String, self._replan_request_topic, 10
+        )
         self.create_timer(1.0 / self._control_rate_hz, self._control_step)
 
         self._path_points_xy: np.ndarray | None = None
@@ -312,6 +359,15 @@ class RecognitionTourTrackerNode(Node):
         self._waiting_path_refresh_since_monotonic: float | None = None
         self._last_path_loss_reason: str | None = None
         self._filtered_angular_z_rps = 0.0
+        self._stuck_forward_since_monotonic: float | None = None
+        self._stuck_forward_start_xy: np.ndarray | None = None
+        self._stuck_reverse_until_monotonic = 0.0
+        self._stuck_replan_until_monotonic = 0.0
+        self._stuck_recovery_cooldown_until_monotonic = 0.0
+        self._stuck_replan_requested = False
+        self._stuck_recovery_count = 0
+        self._stuck_last_reason: str | None = None
+        self._stuck_last_progress_m = 0.0
         self._status_payload: dict[str, object] = {
             "state": self._state,
             "terminal": False,
@@ -406,6 +462,148 @@ class RecognitionTourTrackerNode(Node):
         msg = String()
         msg.data = json.dumps(self._status_payload, separators=(",", ":"))
         self._status_pub.publish(msg)
+
+    def _reset_stuck_detector(self) -> None:
+        self._stuck_forward_since_monotonic = None
+        self._stuck_forward_start_xy = None
+        self._stuck_last_progress_m = 0.0
+
+    def _publish_replan_request(self, *, reason: str) -> None:
+        payload: dict[str, object] = {
+            "reason": str(reason),
+            "recovery_count": int(self._stuck_recovery_count),
+            "stamp_s": self._ros_time_s(),
+        }
+        if self._latest_odom is not None:
+            payload["pose"] = {
+                "x_m": float(self._latest_odom["x_m"]),
+                "y_m": float(self._latest_odom["y_m"]),
+                "yaw_rad": float(self._latest_odom["yaw_rad"]),
+            }
+        msg = String()
+        msg.data = json.dumps(payload, separators=(",", ":"))
+        self._replan_request_pub.publish(msg)
+
+    def _start_stuck_recovery(
+        self,
+        *,
+        now_monotonic: float,
+        reason: str,
+    ) -> bool:
+        if not self._stuck_recovery_enabled:
+            return False
+        if (
+            self._stuck_recovery_max_count > 0
+            and self._stuck_recovery_count >= self._stuck_recovery_max_count
+        ):
+            self._set_terminal("aborted_stuck")
+            return False
+        self._stuck_recovery_count += 1
+        self._stuck_last_reason = str(reason)
+        self._stuck_reverse_until_monotonic = now_monotonic + self._stuck_reverse_duration_s
+        self._stuck_replan_until_monotonic = (
+            self._stuck_reverse_until_monotonic + self._stuck_replan_wait_s
+        )
+        self._stuck_recovery_cooldown_until_monotonic = (
+            self._stuck_replan_until_monotonic + self._stuck_recovery_cooldown_s
+        )
+        self._stuck_replan_requested = False
+        self._filtered_angular_z_rps = 0.0
+        self._reset_stuck_detector()
+        return True
+
+    def _handle_stuck_recovery_phase(
+        self,
+        *,
+        now_monotonic: float,
+        planner_state: str,
+        path_age_s: float | None,
+        odom_age_s: float | None,
+    ) -> bool:
+        if not self._stuck_recovery_enabled:
+            return False
+        if now_monotonic < self._stuck_reverse_until_monotonic:
+            self._state = "stuck_reverse"
+            self._status_payload = {
+                "state": self._state,
+                "terminal": False,
+                "cause": None,
+                "planner_state": planner_state,
+                "path_age_s": path_age_s,
+                "odom_age_s": odom_age_s,
+                "stuck_recovery_active": True,
+                "stuck_recovery_phase": "reverse",
+                "stuck_recovery_count": int(self._stuck_recovery_count),
+                "stuck_reason": self._stuck_last_reason,
+                "reverse_linear_x_mps": self._stuck_reverse_linear_mps,
+                "reverse_remaining_s": max(0.0, self._stuck_reverse_until_monotonic - now_monotonic),
+            }
+            self._publish_cmd(self._stuck_reverse_linear_mps, self._stuck_reverse_angular_z_rps)
+            self._publish_status()
+            return True
+        if now_monotonic < self._stuck_replan_until_monotonic:
+            if not self._stuck_replan_requested:
+                self._publish_replan_request(reason=self._stuck_last_reason or "stuck_recovery")
+                self._stuck_replan_requested = True
+            self._state = "stuck_replan_wait"
+            self._status_payload = {
+                "state": self._state,
+                "terminal": False,
+                "cause": None,
+                "planner_state": planner_state,
+                "path_age_s": path_age_s,
+                "odom_age_s": odom_age_s,
+                "stuck_recovery_active": True,
+                "stuck_recovery_phase": "replan_wait",
+                "stuck_recovery_count": int(self._stuck_recovery_count),
+                "stuck_reason": self._stuck_last_reason,
+                "replan_request_topic": self._replan_request_topic,
+                "replan_wait_remaining_s": max(0.0, self._stuck_replan_until_monotonic - now_monotonic),
+            }
+            self._publish_cmd(0.0, 0.0)
+            self._publish_status()
+            return True
+        return False
+
+    def _maybe_start_stuck_recovery(
+        self,
+        *,
+        now_monotonic: float,
+        commanded_linear_x_mps: float,
+        speed_now_mps: float,
+        rear_xy: np.ndarray,
+    ) -> bool:
+        if not self._stuck_recovery_enabled:
+            return False
+        if now_monotonic < self._stuck_recovery_cooldown_until_monotonic:
+            self._reset_stuck_detector()
+            return False
+        if commanded_linear_x_mps <= self._stuck_forward_cmd_threshold_mps:
+            self._reset_stuck_detector()
+            return False
+        if speed_now_mps > self._stuck_motion_speed_threshold_mps:
+            self._reset_stuck_detector()
+            return False
+
+        if self._stuck_forward_since_monotonic is None or self._stuck_forward_start_xy is None:
+            self._stuck_forward_since_monotonic = now_monotonic
+            self._stuck_forward_start_xy = rear_xy.copy()
+            self._stuck_last_progress_m = 0.0
+            return False
+
+        progress_m = float(np.linalg.norm(rear_xy - self._stuck_forward_start_xy))
+        self._stuck_last_progress_m = progress_m
+        if progress_m > self._stuck_motion_distance_threshold_m:
+            self._reset_stuck_detector()
+            return False
+
+        stuck_elapsed_s = now_monotonic - self._stuck_forward_since_monotonic
+        if stuck_elapsed_s < self._stuck_detect_hold_s:
+            return False
+        return self._start_stuck_recovery(
+            now_monotonic=now_monotonic,
+            reason="forward_command_without_motion",
+        )
 
     def _set_terminal(self, cause: str) -> None:
         if self._terminal_cause is not None:
@@ -592,6 +790,7 @@ class RecognitionTourTrackerNode(Node):
         if self._path_points_xy is None or self._path_s is None or self._path_yaw is None:
             self._no_forward_target_since_monotonic = None
             self._waiting_path_refresh_since_monotonic = None
+            self._reset_stuck_detector()
             self._state = "waiting_path"
             self._status_payload = {
                 "state": self._state,
@@ -612,6 +811,7 @@ class RecognitionTourTrackerNode(Node):
         if not self._tracking_allowed():
             self._no_forward_target_since_monotonic = None
             self._waiting_path_refresh_since_monotonic = None
+            self._reset_stuck_detector()
             self._state = "waiting_fusion"
             self._status_payload = {
                 "state": self._state,
@@ -628,6 +828,7 @@ class RecognitionTourTrackerNode(Node):
         if self._require_arm and not self._armed:
             self._no_forward_target_since_monotonic = None
             self._waiting_path_refresh_since_monotonic = None
+            self._reset_stuck_detector()
             self._state = "waiting_arm"
             self._status_payload = {
                 "state": self._state,
@@ -646,6 +847,7 @@ class RecognitionTourTrackerNode(Node):
         if self._latest_odom is None:
             self._no_forward_target_since_monotonic = None
             self._waiting_path_refresh_since_monotonic = None
+            self._reset_stuck_detector()
             self._state = "waiting_odom"
             self._status_payload = {
                 "state": self._state,
@@ -693,6 +895,7 @@ class RecognitionTourTrackerNode(Node):
         if self._terminal_cause is not None:
             self._no_forward_target_since_monotonic = None
             self._waiting_path_refresh_since_monotonic = None
+            self._reset_stuck_detector()
             self._status_payload = {
                 "state": self._state,
                 "terminal": True,
@@ -704,6 +907,14 @@ class RecognitionTourTrackerNode(Node):
             }
             self._publish_cmd(0.0, 0.0)
             self._publish_status()
+            return
+
+        if self._handle_stuck_recovery_phase(
+            now_monotonic=now_monotonic,
+            planner_state=planner_state,
+            path_age_s=path_age_s,
+            odom_age_s=odom_age_s,
+        ):
             return
 
         rear_xy, rear_yaw = self._rear_axle_pose()
@@ -768,6 +979,7 @@ class RecognitionTourTrackerNode(Node):
         if local_path_goal_ready and self._terminal_cause is None:
             self._no_forward_target_since_monotonic = None
             self._waiting_path_refresh_since_monotonic = None
+            self._reset_stuck_detector()
             self._state = "waiting_path_refresh"
             self._status_payload = {
                 "state": self._state,
@@ -1160,6 +1372,36 @@ class RecognitionTourTrackerNode(Node):
             )
             self._filtered_angular_z_rps = angular_z_rps
 
+        if self._maybe_start_stuck_recovery(
+            now_monotonic=now_monotonic,
+            commanded_linear_x_mps=linear_x_mps,
+            speed_now_mps=speed_now_mps,
+            rear_xy=rear_xy,
+        ):
+            if self._handle_stuck_recovery_phase(
+                now_monotonic=now_monotonic,
+                planner_state=planner_state,
+                path_age_s=path_age_s,
+                odom_age_s=odom_age_s,
+            ):
+                return
+        if self._terminal_cause is not None:
+            self._state = self._terminal_cause
+            self._status_payload = {
+                "state": self._state,
+                "terminal": True,
+                "cause": self._terminal_cause,
+                "planner_state": planner_state,
+                "path_age_s": path_age_s,
+                "odom_age_s": odom_age_s,
+                "path_loss_reason": self._last_path_loss_reason,
+                "stuck_recovery_count": int(self._stuck_recovery_count),
+                "stuck_last_reason": self._stuck_last_reason,
+            }
+            self._publish_cmd(0.0, 0.0)
+            self._publish_status()
+            return
+
         filtered_curvature_m_inv = (
             angular_z_rps / linear_x_mps if abs(linear_x_mps) > 1.0e-6 else 0.0
         )
@@ -1215,6 +1457,16 @@ class RecognitionTourTrackerNode(Node):
             "cmd_linear_x_mps": linear_x_mps,
             "raw_cmd_angular_z_rps": raw_angular_z_rps,
             "cmd_angular_z_rps": angular_z_rps,
+            "stuck_recovery_enabled": self._stuck_recovery_enabled,
+            "stuck_recovery_count": int(self._stuck_recovery_count),
+            "stuck_cooldown_active": now_monotonic < self._stuck_recovery_cooldown_until_monotonic,
+            "stuck_forward_elapsed_s": (
+                None
+                if self._stuck_forward_since_monotonic is None
+                else max(0.0, now_monotonic - self._stuck_forward_since_monotonic)
+            ),
+            "stuck_progress_m": float(self._stuck_last_progress_m),
+            "stuck_last_reason": self._stuck_last_reason,
             "rear_axle_pose": {
                 "x_m": float(rear_xy[0]),
                 "y_m": float(rear_xy[1]),
