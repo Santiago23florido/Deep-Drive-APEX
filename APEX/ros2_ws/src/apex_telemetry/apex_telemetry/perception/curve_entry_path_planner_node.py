@@ -101,6 +101,23 @@ def _resample_polyline_xy(path_xy: np.ndarray, step_m: float) -> np.ndarray:
     return np.column_stack([xs, ys])
 
 
+def _resample_polyline_xy_to_count(path_xy: np.ndarray, point_count: int) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] <= 1:
+        return path_xy.copy()
+    point_count = max(2, int(point_count))
+    diffs = np.diff(path_xy, axis=0)
+    seg_lengths = np.hypot(diffs[:, 0], diffs[:, 1])
+    cumulative_s = np.concatenate([[0.0], np.cumsum(seg_lengths)])
+    total_length_m = float(cumulative_s[-1])
+    if total_length_m <= 1.0e-9:
+        return np.repeat(path_xy[:1], point_count, axis=0)
+    sample_s = np.linspace(0.0, total_length_m, point_count, dtype=np.float64)
+    xs = np.interp(sample_s, cumulative_s, path_xy[:, 0])
+    ys = np.interp(sample_s, cumulative_s, path_xy[:, 1])
+    return np.column_stack([xs, ys])
+
+
 def _estimate_path_curvature(path_xy: np.ndarray) -> np.ndarray:
     path_xy = np.asarray(path_xy, dtype=np.float64)
     point_count = path_xy.shape[0]
@@ -120,6 +137,25 @@ def _estimate_path_curvature(path_xy: np.ndarray) -> np.ndarray:
     curvature[0] = curvature[1]
     curvature[-1] = curvature[-2]
     return curvature
+
+
+def _polyline_length_m(path_xy: np.ndarray) -> float:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] <= 1:
+        return 0.0
+    diffs = np.diff(path_xy, axis=0)
+    return float(np.sum(np.hypot(diffs[:, 0], diffs[:, 1])))
+
+
+def _path_pointwise_deviation_m(
+    reference_path_xy: np.ndarray,
+    candidate_path_xy: np.ndarray,
+    *,
+    point_count: int,
+) -> float:
+    reference_eval_xy = _resample_polyline_xy_to_count(reference_path_xy, point_count)
+    candidate_eval_xy = _resample_polyline_xy_to_count(candidate_path_xy, point_count)
+    return float(np.max(np.linalg.norm(candidate_eval_xy - reference_eval_xy, axis=1)))
 
 
 def _smooth_path_to_curvature_limit(
@@ -179,28 +215,169 @@ def _enforce_terminal_heading(
     start_index = int(np.searchsorted(cumulative_s, tail_start_s, side="left"))
     start_index = min(max(1, start_index), path_xy.shape[0] - 2)
 
+    tail_point_count = path_xy.shape[0] - start_index
+    if tail_point_count <= 1:
+        return path_xy
+
     terminal_dir_xy = np.asarray(
         [math.cos(terminal_heading_rad), math.sin(terminal_heading_rad)],
         dtype=np.float64,
     )
+    start_point_xy = path_xy[start_index].copy()
     end_point_xy = path_xy[-1].copy()
-    distances_to_end = total_length_m - cumulative_s[start_index:]
-    original_tail_xy = path_xy[start_index:].copy()
-    straight_tail_xy = end_point_xy.reshape(1, 2) - (
-        distances_to_end.reshape(-1, 1) * terminal_dir_xy.reshape(1, 2)
-    )
-    if original_tail_xy.shape[0] <= 1:
-        path_xy[-1] = end_point_xy
+    if start_index <= 0:
+        start_tangent_xy = path_xy[1] - path_xy[0]
+    elif start_index >= (path_xy.shape[0] - 1):
+        start_tangent_xy = path_xy[-1] - path_xy[-2]
+    else:
+        start_tangent_xy = path_xy[start_index + 1] - path_xy[start_index - 1]
+    start_tangent_norm = float(np.linalg.norm(start_tangent_xy))
+    if start_tangent_norm <= 1.0e-9:
+        start_tangent_xy = end_point_xy - start_point_xy
+        start_tangent_norm = float(np.linalg.norm(start_tangent_xy))
+    if start_tangent_norm <= 1.0e-9:
         return path_xy
 
-    blend_t = np.linspace(0.0, 1.0, original_tail_xy.shape[0], dtype=np.float64)
-    blend_w = (blend_t * blend_t) * (3.0 - (2.0 * blend_t))
-    path_xy[start_index:] = (
-        ((1.0 - blend_w).reshape(-1, 1) * original_tail_xy)
-        + (blend_w.reshape(-1, 1) * straight_tail_xy)
+    start_dir_xy = start_tangent_xy / start_tangent_norm
+    tail_chord_m = float(np.linalg.norm(end_point_xy - start_point_xy))
+    control_length_m = max(
+        0.10,
+        min(
+            0.45 * tail_length_m,
+            max(0.12, 0.55 * max(tail_chord_m, 0.10)),
+        ),
     )
+    p0_xy = start_point_xy
+    p1_xy = start_point_xy + (control_length_m * start_dir_xy)
+    p2_xy = end_point_xy - (control_length_m * terminal_dir_xy)
+    p3_xy = end_point_xy
+    ts = np.linspace(0.0, 1.0, tail_point_count, dtype=np.float64)
+    one_minus_t = 1.0 - ts
+    bezier_tail_xy = (
+        ((one_minus_t ** 3).reshape(-1, 1) * p0_xy.reshape(1, 2))
+        + (3.0 * (one_minus_t ** 2) * ts).reshape(-1, 1) * p1_xy.reshape(1, 2)
+        + (3.0 * one_minus_t * (ts ** 2)).reshape(-1, 1) * p2_xy.reshape(1, 2)
+        + ((ts ** 3).reshape(-1, 1) * p3_xy.reshape(1, 2))
+    )
+    if tail_point_count >= 2:
+        final_seg_length_m = max(
+            1.0e-3,
+            float(np.linalg.norm(bezier_tail_xy[-1] - bezier_tail_xy[-2])),
+        )
+        bezier_tail_xy[-2] = end_point_xy - (final_seg_length_m * terminal_dir_xy)
+    path_xy[start_index:] = bezier_tail_xy
     path_xy[-1] = end_point_xy
     return path_xy
+
+
+def _enforce_terminal_heading_with_constraints(
+    *,
+    path_xy: np.ndarray,
+    terminal_heading_rad: float,
+    min_tail_length_m: float,
+    max_curvature_m_inv: float,
+    resample_step_m: float,
+    smoothing_alpha: float,
+    smoothing_max_iterations: int,
+    max_tail_fraction: float,
+    max_path_deviation_m: float,
+    max_attempts: int = 10,
+) -> tuple[np.ndarray, float, float, bool]:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] < 3:
+        curvature = np.abs(_estimate_path_curvature(path_xy))
+        max_curvature = float(np.max(curvature)) if curvature.size else 0.0
+        return path_xy.copy(), max_curvature, 0.0, True
+
+    total_length_m = _polyline_length_m(path_xy)
+    if total_length_m <= 1.0e-9:
+        curvature = np.abs(_estimate_path_curvature(path_xy))
+        max_curvature = float(np.max(curvature)) if curvature.size else 0.0
+        return path_xy.copy(), max_curvature, 0.0, True
+
+    max_tail_length_m = min(
+        total_length_m,
+        max(4.0 * float(resample_step_m), float(max_tail_fraction) * total_length_m),
+    )
+    tail_length_m = min(
+        max_tail_length_m,
+        max(float(min_tail_length_m), 4.0 * float(resample_step_m)),
+    )
+    eval_point_count = max(
+        path_xy.shape[0],
+        int(math.ceil(total_length_m / max(1.0e-3, float(resample_step_m)))) + 1,
+    )
+    reference_path_xy = path_xy.copy()
+    rescue_smoothing_alpha = max(0.30, float(smoothing_alpha))
+    rescue_iterations = max(180, 2 * int(smoothing_max_iterations))
+
+    best_path_xy = reference_path_xy.copy()
+    best_tail_length_m = 0.0
+    best_path_deviation_m = 0.0
+    base_curvature = np.abs(_estimate_path_curvature(reference_path_xy))
+    best_max_curvature = float(np.max(base_curvature)) if base_curvature.size else 0.0
+    best_score = (
+        max(0.0, best_max_curvature - float(max_curvature_m_inv)),
+        0.0,
+        best_max_curvature,
+    )
+    current_path_xy = reference_path_xy.copy()
+
+    for _ in range(max(1, int(max_attempts))):
+        candidate_path_xy = _enforce_terminal_heading(
+            path_xy=current_path_xy,
+            terminal_heading_rad=terminal_heading_rad,
+            tail_length_m=tail_length_m,
+        )
+        candidate_curvature = np.abs(_estimate_path_curvature(candidate_path_xy))
+        candidate_max_curvature = (
+            float(np.max(candidate_curvature)) if candidate_curvature.size else 0.0
+        )
+        candidate_path_deviation_m = _path_pointwise_deviation_m(
+            reference_path_xy,
+            candidate_path_xy,
+            point_count=eval_point_count,
+        )
+        candidate_score = (
+            max(0.0, candidate_path_deviation_m - float(max_path_deviation_m)),
+            max(0.0, candidate_max_curvature - float(max_curvature_m_inv)),
+            candidate_path_deviation_m,
+        )
+        if candidate_score < best_score:
+            best_path_xy = candidate_path_xy.copy()
+            best_tail_length_m = tail_length_m
+            best_path_deviation_m = candidate_path_deviation_m
+            best_max_curvature = candidate_max_curvature
+            best_score = candidate_score
+        if (
+            candidate_path_deviation_m <= float(max_path_deviation_m)
+            and candidate_max_curvature <= float(max_curvature_m_inv)
+        ):
+            return candidate_path_xy, candidate_max_curvature, tail_length_m, True
+
+        current_path_xy, _ = _smooth_path_to_curvature_limit(
+            path_xy=candidate_path_xy,
+            max_curvature_m_inv=max_curvature_m_inv,
+            resample_step_m=resample_step_m,
+            smoothing_alpha=rescue_smoothing_alpha,
+            max_iterations=rescue_iterations,
+        )
+        if tail_length_m >= (max_tail_length_m - 1.0e-9):
+            continue
+        tail_length_m = min(
+            max_tail_length_m,
+            tail_length_m + max(0.04, 0.35 * (max_tail_length_m - tail_length_m)),
+        )
+
+    return (
+        best_path_xy,
+        best_max_curvature,
+        best_tail_length_m,
+        (
+            best_path_deviation_m <= float(max_path_deviation_m)
+            and best_max_curvature <= float(max_curvature_m_inv)
+        ),
+    )
 
 
 class CurveEntryPathPlannerNode(Node):
@@ -230,6 +407,8 @@ class CurveEntryPathPlannerNode(Node):
         self.declare_parameter("path_smoothing_alpha", 0.22)
         self.declare_parameter("path_smoothing_max_iterations", 120)
         self.declare_parameter("terminal_heading_tail_length_m", 0.22)
+        self.declare_parameter("terminal_heading_max_tail_fraction", 0.45)
+        self.declare_parameter("terminal_heading_max_path_deviation_m", 0.28)
         self.declare_parameter("second_corridor_target_depth_m", 0.12)
         self.declare_parameter("second_corridor_target_depth_min_m", 0.10)
         self.declare_parameter("second_corridor_target_depth_max_m", 0.15)
@@ -289,6 +468,13 @@ class CurveEntryPathPlannerNode(Node):
         )
         self._terminal_heading_tail_length_m = max(
             0.05, float(self.get_parameter("terminal_heading_tail_length_m").value)
+        )
+        self._terminal_heading_max_tail_fraction = max(
+            0.15,
+            min(0.95, float(self.get_parameter("terminal_heading_max_tail_fraction").value)),
+        )
+        self._terminal_heading_max_path_deviation_m = max(
+            0.05, float(self.get_parameter("terminal_heading_max_path_deviation_m").value)
         )
         self._detection_config = CurveWindowDetectionConfig(
             second_corridor_target_depth_m=float(
@@ -478,16 +664,30 @@ class CurveEntryPathPlannerNode(Node):
             smoothing_alpha=self._path_smoothing_alpha,
             max_iterations=self._path_smoothing_max_iterations,
         )
+        terminal_heading_tail_length_m_applied = 0.0
+        path_curvature_limit_respected = True
         if terminal_heading_rad is not None:
-            world_path_xy = _enforce_terminal_heading(
+            (
+                world_path_xy,
+                path_max_curvature_m_inv,
+                terminal_heading_tail_length_m_applied,
+                path_curvature_limit_respected,
+            ) = _enforce_terminal_heading_with_constraints(
                 path_xy=world_path_xy,
                 terminal_heading_rad=float(terminal_heading_rad),
-                tail_length_m=float(terminal_heading_tail_length_m),
+                min_tail_length_m=float(terminal_heading_tail_length_m),
+                max_curvature_m_inv=self._max_path_curvature_m_inv,
+                resample_step_m=self._path_resample_step_m,
+                smoothing_alpha=self._path_smoothing_alpha,
+                smoothing_max_iterations=self._path_smoothing_max_iterations,
+                max_tail_fraction=self._terminal_heading_max_tail_fraction,
+                max_path_deviation_m=self._terminal_heading_max_path_deviation_m,
             )
-        actual_curvature = np.abs(_estimate_path_curvature(world_path_xy))
-        path_max_curvature_m_inv = (
-            float(np.max(actual_curvature)) if actual_curvature.size else 0.0
-        )
+        else:
+            actual_curvature = np.abs(_estimate_path_curvature(world_path_xy))
+            path_max_curvature_m_inv = (
+                float(np.max(actual_curvature)) if actual_curvature.size else 0.0
+            )
 
         path_msg = Path()
         path_msg.header.frame_id = self._odom_frame
@@ -531,6 +731,10 @@ class CurveEntryPathPlannerNode(Node):
                 else float("inf")
             ),
             "path_curvature_limit_m_inv": float(self._max_path_curvature_m_inv),
+            "path_curvature_limit_respected": bool(path_curvature_limit_respected),
+            "terminal_heading_tail_length_m_applied": float(
+                terminal_heading_tail_length_m_applied
+            ),
         }
         return path_msg, target_msg, tracking_origin_xy, path_metrics
 

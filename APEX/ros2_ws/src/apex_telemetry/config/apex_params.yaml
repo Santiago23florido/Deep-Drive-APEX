@@ -1,13 +1,17 @@
 nano_accel_serial_node:
   ros__parameters:
+    transport_backend: "serial"
     serial_port: "/dev/ttyACM0"
     baudrate: 115200
-    serial_timeout_s: 0.5
+    serial_timeout_s: 1.0
     reconnect_delay_s: 1.0
     connect_toggle_dtr: false
     connect_dtr_low_s: 0.0
-    connect_settle_s: 0.1
-    flush_input_on_connect: false
+    connect_settle_s: 0.75
+    flush_input_on_connect: true
+    no_data_reconnect_s: 3.5
+    fallback_profiles_enabled: true
+    connection_profile_name: "yaml_configured"
     log_no_data_every_s: 5.0
     frame_id: "imu_link"
     topic: "/apex/imu/acceleration/raw"
@@ -17,6 +21,32 @@ nano_accel_serial_node:
     allow_legacy_3axis_lines: false
     log_every_n_invalid: 25
     log_every_n_no_gyro: 100
+    max_abs_accel_mps2: 30.0
+    max_abs_gyro_rps: 15.0
+    max_accel_norm_mps2: 30.0
+    sim_imu_topic: "/apex/sim/imu"
+    sim_publish_latency_s: 0.004
+    sim_random_seed: 1337
+    sim_accel_noise_stddev_mps2: 0.08
+    sim_gyro_noise_stddev_rps: 0.012
+    sim_accel_drift_stddev_mps2_per_s: 0.003
+    sim_gyro_drift_stddev_rps_per_s: 0.0008
+    sim_accel_bias_x_mps2: 0.0
+    sim_accel_bias_y_mps2: 0.0
+    sim_accel_bias_z_mps2: 0.0
+    sim_gyro_bias_x_rps: 0.0
+    sim_gyro_bias_y_rps: 0.0
+    sim_gyro_bias_z_rps: 0.0
+    sim_startup_accel_bias_x_mps2: 0.0
+    sim_startup_accel_bias_y_mps2: 0.0
+    sim_startup_accel_bias_z_mps2: 0.0
+    sim_startup_gyro_bias_x_rps: 0.0
+    sim_startup_gyro_bias_y_rps: 0.0
+    sim_startup_gyro_bias_z_rps: 0.0
+    sim_startup_bias_hold_s: 0.0
+    sim_initial_roll_deg: 0.0
+    sim_initial_pitch_deg: 0.0
+    sim_initial_yaw_deg: 0.0
 
 kinematics_estimator_node:
   ros__parameters:
@@ -39,13 +69,13 @@ kinematics_estimator_node:
     use_gyro_yaw: true
     gravity_compensation_enabled: true
     gravity_axis: "z"
-    planar_mount_yaw_deg: -90.0
-    accel_bias_x: 0.302
-    accel_bias_y: 0.490
-    accel_bias_z: -0.063
+    planar_mount_yaw_deg: 0.0
+    accel_bias_x: 0.0
+    accel_bias_y: 0.0
+    accel_bias_z: 0.0
     gyro_bias_x: 0.0
-    gyro_bias_y: -0.093
-    gyro_bias_z: -0.050
+    gyro_bias_y: 0.0
+    gyro_bias_z: 0.0
     status_topic: "/apex/kinematics/status"
     startup_static_calibration_enabled: true
     startup_static_calibration_duration_s: 2.5
@@ -88,6 +118,7 @@ kinematics_odometry_node:
 
 apex_rplidar_publisher:
   ros__parameters:
+    source_backend: "rplidar"
     port: "/dev/ttyUSB0"
     baudrate: 115200
     topic: "/lidar/scan"
@@ -102,19 +133,44 @@ apex_rplidar_publisher:
     fill_missing_bins: false
     range_min: 0.05
     range_max: 12.0
+    sim_scan_topic: "/apex/sim/scan"
+    sim_publish_latency_s: 0.03
+    sim_random_seed: 4242
+    sim_range_noise_stddev_m: 0.02
+    sim_dropout_ratio: 0.01
+    sim_inf_ratio: 0.02
+    sim_heading_jitter_deg: 0.0
+    sim_sector_dropout_center_deg: 0.0
+    sim_sector_dropout_width_deg: 0.0
+    sim_sector_dropout_ratio: 0.0
+    sim_sector_range_bias_m: 0.0
+    sim_startup_heading_offset_deg: 0.0
+    sim_startup_heading_offset_hold_s: 0.0
 
 imu_lidar_planar_fusion_node:
   ros__parameters:
+    estimation_backend: "online_submap"
     imu_topic: "/apex/imu/data_raw"
     scan_topic: "/lidar/scan_localization"
     odom_topic: "/apex/odometry/imu_lidar_fused"
     path_topic: "/apex/estimation/path"
+    pose_topic: "/apex/estimation/current_pose"
+    live_map_topic: "/apex/estimation/live_map_points"
+    full_map_topic: "/apex/estimation/full_map_points"
     status_topic: "/apex/estimation/status"
     odom_frame_id: "odom_imu_lidar_fused"
     child_frame_id: "base_link"
     publish_tf: false
     status_publish_rate_hz: 2.0
+    publish_predicted_odom_between_scans: true
+    predicted_odom_rate_hz: 30.0
+    max_prediction_horizon_s: 0.22
     path_max_poses: 4000
+    live_map_publish_rate_hz: 1.0
+    live_map_window_scans: 120
+    live_map_max_points: 6000
+    full_map_publish_rate_hz: 0.5
+    full_map_max_points: 30000
     median_window: 5
     ema_alpha: 0.25
     static_window_s: 0.4
@@ -129,6 +185,25 @@ imu_lidar_planar_fusion_node:
     low_confidence_residual_m: 0.16
     min_valid_correspondence_count: 14
     max_scan_optimization_evals: 80
+    fixed_map_yaml: ""
+    fixed_map_distance_npy: ""
+    fixed_map_visual_points_csv: ""
+    fixed_map_max_match_points: 120
+    fixed_map_max_localization_iterations: 40
+    fixed_map_prior_translation_weight: 1.0
+    fixed_map_prior_yaw_weight: 1.4
+    fixed_map_startup_static_duration_s: 1.5
+    fixed_map_startup_gyro_stddev_threshold_rps: 0.04
+    fixed_map_startup_accel_stddev_threshold_mps2: 0.35
+    fixed_map_imu_filter_window: 7
+    fixed_map_imu_spike_mad_scale: 4.0
+    fixed_map_max_accel_axis_mps2: 3.2
+    fixed_map_max_yaw_rate_abs_rps: 2.6
+    fixed_map_low_support_distance_m: 0.9
+    fixed_map_low_support_in_bounds_ratio: 0.45
+    fixed_map_low_support_near_wall_ratio: 0.25
+    fixed_map_reduced_support_prior_gain: 1.35
+    fixed_map_low_support_prior_gain: 1.8
 
 curve_entry_path_planner_node:
   ros__parameters:
@@ -151,12 +226,14 @@ curve_entry_path_planner_node:
     planning_wheelbase_m: 0.30
     planning_max_steering_deg: 18.0
     path_curvature_limit_scale: 0.75
-    path_resample_step_m: 0.04
-    path_smoothing_alpha: 0.22
-    path_smoothing_max_iterations: 120
-    terminal_heading_tail_length_m: 0.22
-    second_corridor_target_depth_m: 0.12
-    second_corridor_target_depth_min_m: 0.10
+    path_resample_step_m: 0.03
+    path_smoothing_alpha: 0.18
+    path_smoothing_max_iterations: 180
+    terminal_heading_tail_length_m: 0.42
+    terminal_heading_max_tail_fraction: 0.42
+    terminal_heading_max_path_deviation_m: 0.26
+    second_corridor_target_depth_m: 0.15
+    second_corridor_target_depth_min_m: 0.15
     second_corridor_target_depth_max_m: 0.15
     inner_vertex_clearance_m: 0.12
     curve_apex_width_fraction: 0.40
@@ -171,30 +248,207 @@ curve_path_tracker_node:
     arm_topic: "/apex/tracking/arm"
     cmd_vel_topic: "/apex/cmd_vel_track"
     status_topic: "/apex/tracking/status"
-    control_rate_hz: 20.0
+    control_rate_hz: 30.0
     wheelbase_m: 0.30
+    steering_limit_deg: 18.0
     rear_axle_offset_x_m: -0.15
     rear_axle_offset_y_m: 0.0
-    min_lookahead_m: 0.25
-    max_lookahead_m: 0.55
-    lookahead_speed_gain: 0.9
-    min_linear_speed_mps: 0.10
+    min_lookahead_m: 0.36
+    max_lookahead_m: 0.76
+    lookahead_speed_gain: 0.55
+    min_linear_speed_mps: 0.08
     max_linear_speed_mps: 0.24
     curvature_speed_gain: 1.8
-    max_lateral_accel_mps2: 0.08
-    slowdown_distance_m: 0.55
+    max_lateral_accel_mps2: 0.06
+    slowdown_distance_m: 0.70
     goal_tolerance_m: 0.18
+    goal_proximity_stop_distance_m: 0.28
     goal_yaw_tolerance_rad: 0.26
     goal_line_stop_margin_m: 0.00
     goal_line_activation_tail_points: 8
     max_path_deviation_m: 0.45
-    angular_cmd_ema_alpha: 0.25
+    angular_cmd_ema_alpha: 0.12
+    curvature_deadband_m_inv: 0.08
     progress_index_backtrack_tolerance_points: 0
     startup_ramp_duration_s: 1.5
     startup_speed_scale_min: 0.65
     low_confidence_abort_hold_s: 0.75
-    global_timeout_s: 12.0
+    global_timeout_s: 15.0
     odom_timeout_s: 0.5
+
+recognition_tour_planner_node:
+  ros__parameters:
+    scan_topic: "/lidar/scan_localization"
+    odom_topic: "/apex/odometry/imu_lidar_fused"
+    fusion_status_topic: "/apex/estimation/status"
+    local_path_topic: "/apex/planning/recognition_tour_local_path"
+    route_topic: "/apex/planning/recognition_tour_route"
+    status_topic: "/apex/planning/recognition_tour_status"
+    arm_topic: "/apex/tracking/arm"
+    odom_frame_id: "odom_imu_lidar_fused"
+    plan_rate_hz: 12.0
+    status_publish_rate_hz: 5.0
+    rolling_window_s: 0.5
+    dynamic_scan_window_s: 0.14
+    dynamic_scan_speed_threshold_mps: 0.08
+    dynamic_scan_yaw_rate_threshold_rps: 0.30
+    turn_scan_latest_only_yaw_rate_threshold_rps: 0.55
+    planning_horizon_m: 1.8
+    lidar_offset_x_m: 0.18
+    lidar_offset_y_m: 0.0
+    rear_axle_offset_x_m: -0.15
+    rear_axle_offset_y_m: 0.0
+    origin_bridge_point_count: 10
+    planning_wheelbase_m: 0.30
+    planning_max_steering_deg: 18.0
+    path_curvature_limit_scale: 0.90
+    path_resample_step_m: 0.04
+    path_smoothing_alpha: 0.20
+    path_smoothing_max_iterations: 140
+    path_min_forward_progress_m: 1.45
+    min_publish_forward_span_m: 0.65
+    route_suffix_min_progress_m: 0.28
+    route_suffix_min_start_x_m: 0.16
+    route_suffix_target_forward_span_m: 1.45
+    route_heading_soft_reject_deg: 18.0
+    route_heading_soft_margin_deg: 10.0
+    straight_entry_hold_length_m: 0.40
+    replan_path_blend_alpha: 0.60
+    publish_path_persistence_alpha: 0.48
+    publish_path_continuation_alpha: 0.30
+    publish_path_heading_bias_deg: 12.0
+    publish_path_lateral_blend_gain: 0.16
+    previous_path_tail_extension_m: 0.40
+    previous_path_tail_graft_min_span_m: 0.95
+    corridor_bin_m: 0.10
+    corridor_quantile: 0.18
+    corridor_min_bin_points: 8
+    corridor_min_width_m: 0.45
+    corridor_max_width_m: 2.40
+    corridor_gap_fill_bins: 2
+    route_point_spacing_m: 0.05
+    accepted_path_prefix_length_m: 0.80
+    route_resample_step_m: 0.05
+    route_smoothing_alpha: 0.20
+    route_smoothing_max_iterations: 180
+    start_axis_arm_distance_m: 4.0
+    start_axis_arm_time_s: 6.0
+    start_axis_crossing_neg_margin_m: -0.05
+    start_axis_crossing_pos_margin_m: 0.05
+    start_axis_lateral_tolerance_m: 0.60
+    global_timeout_s: 60.0
+    low_confidence_hold_path_s: 0.60
+    second_corridor_target_depth_m: 0.15
+    second_corridor_target_depth_min_m: 0.15
+    second_corridor_target_depth_max_m: 0.15
+    inner_vertex_clearance_m: 0.12
+    curve_apex_width_fraction: 0.40
+
+recognition_tour_tracker_node:
+  ros__parameters:
+    path_topic: "/apex/planning/recognition_tour_local_path"
+    planning_status_topic: "/apex/planning/recognition_tour_status"
+    odom_topic: "/apex/odometry/imu_lidar_fused"
+    fusion_status_topic: "/apex/estimation/status"
+    arm_topic: "/apex/tracking/arm"
+    cmd_vel_topic: "/apex/cmd_vel_track"
+    status_topic: "/apex/tracking/recognition_tour_status"
+    control_rate_hz: 30.0
+    wheelbase_m: 0.30
+    steering_limit_deg: 18.0
+    rear_axle_offset_x_m: -0.15
+    rear_axle_offset_y_m: 0.0
+    min_lookahead_m: 0.40
+    max_lookahead_m: 0.90
+    lookahead_speed_gain: 0.70
+    sharp_turn_lookahead_min_m: 0.26
+    lookahead_curvature_gain: 0.70
+    lookahead_curvature_window_points: 10
+    sharp_turn_speed_boost_start_deg: 24.0
+    sharp_turn_speed_boost_full_deg: 38.0
+    sharp_turn_speed_boost_min_speed_mps: 0.07
+    min_linear_speed_mps: 0.08
+    max_linear_speed_mps: 0.24
+    curvature_speed_gain: 1.10
+    max_lateral_accel_mps2: 0.06
+    path_end_slowdown_distance_m: 0.60
+    path_end_goal_tolerance_m: 0.18
+    path_end_yaw_tolerance_rad: 0.45
+    path_end_line_stop_margin_m: 0.00
+    path_end_line_activation_tail_points: 8
+    max_path_deviation_m: 0.45
+    angular_cmd_ema_alpha: 0.18
+    curvature_deadband_m_inv: 0.08
+    startup_ramp_duration_s: 1.5
+    startup_speed_scale_min: 0.65
+    low_confidence_abort_hold_s: 0.75
+    low_confidence_speed_scale: 0.60
+    path_stale_max_age_s: 0.30
+    path_stale_abort_hold_s: 0.40
+    no_forward_target_abort_hold_s: 0.45
+    waiting_path_refresh_hold_s: 0.60
+    waiting_path_refresh_near_end_distance_m: 0.85
+    path_projection_heading_tolerance_rad: 1.10
+    path_deviation_abort_margin_m: 0.18
+    path_refresh_min_forward_speed_mps: 0.06
+    steering_saturation_start_ratio: 0.85
+    steering_saturation_speed_scale_min: 0.60
+    short_horizon_forward_span_m: 1.25
+    short_horizon_speed_scale_min: 0.60
+    continuation_lookahead_scale_min: 0.76
+    continuation_speed_scale_min: 0.65
+    route_alignment_slowdown_start_deg: 12.0
+    route_alignment_slowdown_full_deg: 26.0
+    route_alignment_speed_scale_min: 0.55
+    global_timeout_s: 60.0
+    odom_timeout_s: 0.75
+
+windows_gamepad_bridge_node:
+  ros__parameters:
+    status_topic: "/apex/manual_control/status"
+    session_toggle_topic: "/apex/manual_control/session_toggle"
+    listen_host: "0.0.0.0"
+    listen_port: 8765
+    publish_rate_hz: 25.0
+    command_timeout_s: 0.50
+    start_button_field: "start_pressed"
+
+recognition_session_manager_node:
+  ros__parameters:
+    manual_control_status_topic: "/apex/manual_control/status"
+    session_toggle_topic: "/apex/manual_control/session_toggle"
+    arm_topic: "/apex/tracking/arm"
+    cmd_vel_topic: "/apex/cmd_vel_track"
+    session_status_topic: "/apex/recognition_session/status"
+    kinematics_status_topic: "/apex/kinematics/status"
+    fusion_status_topic: "/apex/estimation/status"
+    planner_status_topic: "/apex/planning/recognition_tour_status"
+    tracker_status_topic: "/apex/tracking/recognition_tour_status"
+    drive_bridge_status_topic: "/apex/vehicle/drive_bridge_status"
+    control_rate_hz: 20.0
+    status_publish_interval_s: 0.25
+    manual_status_stale_s: 1.0
+    bridge_disconnect_hold_s: 0.75
+    recorder_shutdown_grace_s: 20.0
+    run_id_prefix: "recognition_tour"
+    run_root_dir: "/work/ros2_ws/apex_recognition_tour"
+    runtime_status_path: "/work/repo/APEX/.apex_runtime/real_session/status.json"
+    sensor_capture_script_path: "/work/ros2_ws/scripts/capture/record_manual_sensorfusion_capture.py"
+    recognition_recorder_script_path: "/work/ros2_ws/scripts/capture/record_recognition_tour.py"
+    mapper_script_path: "/work/repo/src/rc_sim_description/scripts/apex_general_track_mapper.py"
+    evaluation_world: "/work/repo/src/rc_sim_description/worlds/basic_track.world"
+    record_timeout_s: 60.0
+    publish_tracker_arm: false
+    sensor_capture_max_total_bytes: 134217728
+    recognition_recorder_max_total_bytes: 134217728
+    run_max_total_bytes: 268435456
+    min_free_disk_bytes: 536870912
+    storage_check_interval_s: 1.0
+    lidar_offset_x_m: 0.18
+    lidar_offset_y_m: 0.0
+    rear_axle_offset_x_m: -0.15
+    rear_axle_offset_y_m: 0.0
+    planner_wait_ready_states: "waiting_arm,tracking"
 
 cmd_vel_to_apex_actuation_node:
   ros__parameters:
@@ -202,24 +456,36 @@ cmd_vel_to_apex_actuation_node:
     applied_speed_topic: "/apex/vehicle/applied_speed_pct"
     applied_steering_topic: "/apex/vehicle/applied_steering_deg"
     status_topic: "/apex/vehicle/drive_bridge_status"
-    control_rate_hz: 50.0
+    manual_control_status_topic: "/apex/manual_control/status"
+    actuation_backend: "sysfs_pwm"
+    sim_motor_pwm_topic: "/apex/sim/pwm/motor_dc"
+    sim_steering_pwm_topic: "/apex/sim/pwm/steering_dc"
+    control_rate_hz: 60.0
     command_timeout_s: 0.35
+    manual_status_stale_s: 0.50
+    use_direct_manual_steering: true
     wheelbase_m: 0.30
     max_steering_deg: 18.0
-    max_linear_speed_mps: 0.55
-    min_effective_speed_pct: 18.0
-    max_speed_pct: 18.0
-    speed_pct_ramp_duration_s: 1.0
-    speed_pct_ramp_exp_k: 4.0
-    speed_pct_ramp_down_per_s: 24.0
-    steering_rate_limit_deg_per_s: 90.0
+    max_linear_speed_mps: 0.24
+    min_effective_speed_pct: 17.0
+    max_speed_pct: 25.0
+    min_effective_reverse_speed_pct: 25.0
+    max_reverse_speed_pct: 25.0
+    speed_pct_ramp_duration_s: 0.70
+    speed_pct_ramp_exp_k: 3.0
+    speed_pct_ramp_down_per_s: 18.0
+    launch_boost_speed_pct: 20.0
+    launch_boost_hold_s: 0.35
+    steering_rate_limit_deg_per_s: 65.0
+    active_brake_on_zero: false
     steering_channel: 1
     steering_frequency_hz: 50.0
     steering_limit_deg: 18.0
     steering_dc_min: 5.0
-    steering_dc_max: 8.6
-    steering_center_trim_dc: 1.4
+    steering_dc_max: 10.0
+    steering_center_trim_dc: 0.7
     steering_direction_sign: -1.0
+    steering_min_authority_ratio: 0.0
     motor_channel: 0
     motor_frequency_hz: 50.0
     motor_dc_min: 5.0
@@ -236,8 +502,8 @@ apex_vehicle:
     steering_frequency_hz: 50.0
     steering_limit_deg: 18.0
     steering_dc_min: 5.0
-    steering_dc_max: 8.6
-    steering_center_trim_dc: 1.4
+    steering_dc_max: 10.0
+    steering_center_trim_dc: 0.7
     steering_direction_sign: -1.0
     motor_channel: 0
     motor_frequency_hz: 50.0

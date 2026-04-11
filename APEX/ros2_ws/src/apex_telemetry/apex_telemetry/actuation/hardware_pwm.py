@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal sysfs PWM helper for Raspberry-hosted actuation."""
+"""Minimal PWM backend for Raspberry-hosted or simulated actuation."""
 
 from __future__ import annotations
 
@@ -13,17 +13,41 @@ from typing import Any
 class HardwarePWM:
     """Simple PWM wrapper around `/sys/class/pwm`."""
 
-    def __init__(self, channel: int, frequency_hz: float, logger) -> None:
+    def __init__(
+        self,
+        channel: int,
+        frequency_hz: float,
+        logger,
+        *,
+        backend: str = "sysfs_pwm",
+        node=None,
+        publish_topic: str = "",
+    ) -> None:
         self._channel = int(channel)
         self._frequency_hz = float(frequency_hz)
         self._logger = logger
+        self._backend = str(backend).strip().lower() or "sysfs_pwm"
+        self._node = node
+        self._publish_topic = str(publish_topic)
+        self._enabled = 0
+        self._duty_cycle_pct = 0.0
+        self._publisher = None
 
-        self._chip_path = self._find_chip_path()
-        self._pwm_dir = os.path.join(self._chip_path, f"pwm{self._channel}")
         self._period_ns = int(round(1.0e9 / self._frequency_hz))
+        self._chip_path = ""
+        self._pwm_dir = ""
 
-        self._ensure_channel()
-        self._write_int(os.path.join(self._pwm_dir, "period"), self._period_ns)
+        if self._backend == "sim_pwm_topic":
+            if self._node is None or not self._publish_topic:
+                raise ValueError("sim_pwm_topic backend requires a ROS node and publish_topic")
+            from std_msgs.msg import Float64
+
+            self._publisher = self._node.create_publisher(Float64, self._publish_topic, 20)
+        else:
+            self._chip_path = self._find_chip_path()
+            self._pwm_dir = os.path.join(self._chip_path, f"pwm{self._channel}")
+            self._ensure_channel()
+            self._write_int(os.path.join(self._pwm_dir, "period"), self._period_ns)
 
     def _find_chip_path(self) -> str:
         chips = sorted(glob.glob("/sys/class/pwm/pwmchip*"))
@@ -66,17 +90,34 @@ class HardwarePWM:
 
     def set_duty_cycle(self, duty_cycle_pct: float) -> None:
         duty_cycle_pct = max(0.0, min(100.0, float(duty_cycle_pct)))
+        self._duty_cycle_pct = duty_cycle_pct
+        if self._backend == "sim_pwm_topic":
+            if self._publisher is None:
+                return
+            from std_msgs.msg import Float64
+
+            msg = Float64()
+            msg.data = duty_cycle_pct
+            self._publisher.publish(msg)
+            return
+
         active_ns = int(round(self._period_ns * duty_cycle_pct / 100.0))
         self._write_int(os.path.join(self._pwm_dir, "duty_cycle"), active_ns)
 
     def start(self, duty_cycle_pct: float) -> None:
         self.set_duty_cycle(duty_cycle_pct)
-        self._write_int(os.path.join(self._pwm_dir, "enable"), 1)
+        self._enabled = 1
+        if self._backend != "sim_pwm_topic":
+            self._write_int(os.path.join(self._pwm_dir, "enable"), 1)
         self._logger.debug(
-            "PWM started on %s at %.3f%%" % (self._pwm_dir, float(duty_cycle_pct))
+            "PWM started on %s at %.3f%%"
+            % (self._pwm_dir or self._publish_topic, float(duty_cycle_pct))
         )
 
     def disable(self) -> None:
+        self._enabled = 0
+        if self._backend == "sim_pwm_topic":
+            return
         try:
             self._write_int(os.path.join(self._pwm_dir, "enable"), 0)
         except Exception:
@@ -86,9 +127,21 @@ class HardwarePWM:
         self.disable()
 
     def get_state(self) -> dict[str, Any]:
+        duty_cycle_ns = None
+        enabled = self._enabled
+        if self._backend != "sim_pwm_topic":
+            duty_cycle_ns = self._read_int(os.path.join(self._pwm_dir, "duty_cycle"))
+            enabled = self._read_int(os.path.join(self._pwm_dir, "enable")) or 0
         return {
             "pwm_dir": self._pwm_dir,
-            "period_ns": self._read_int(os.path.join(self._pwm_dir, "period")),
-            "duty_cycle_ns": self._read_int(os.path.join(self._pwm_dir, "duty_cycle")),
-            "enabled": self._read_int(os.path.join(self._pwm_dir, "enable")),
+            "publish_topic": self._publish_topic,
+            "backend": self._backend,
+            "period_ns": (
+                self._read_int(os.path.join(self._pwm_dir, "period"))
+                if self._backend != "sim_pwm_topic"
+                else self._period_ns
+            ),
+            "duty_cycle_ns": duty_cycle_ns,
+            "enabled": enabled,
+            "duty_cycle_pct": self._duty_cycle_pct,
         }

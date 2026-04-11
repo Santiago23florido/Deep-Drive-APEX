@@ -1,0 +1,11 @@
+{
+  "run_id": "recognition_tour_11_20260403T151223Z",
+  "mode": "recognition_tour",
+  "timeout_s": 60.0,
+  "enable_imu_lidar_fusion": 1,
+  "enable_recognition_tour_planner": 1,
+  "enable_recognition_tour_tracker": 1,
+  "enable_cmdvel_actuation_bridge": 1,
+  "bridge_min_effective_speed_pct": 14.0,
+  "bridge_max_speed_pct": 20.0
+}

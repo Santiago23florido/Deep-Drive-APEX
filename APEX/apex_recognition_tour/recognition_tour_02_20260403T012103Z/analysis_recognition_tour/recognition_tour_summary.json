@@ -1,0 +1,80 @@
+{
+  "run_dir": "/work/ros2_ws/apex_recognition_tour/recognition_tour_02_20260403T012103Z",
+  "initial_pose": {
+    "x_m": 0.09282073096388535,
+    "y_m": -0.3207455626054185,
+    "yaw_rad": 0.14081329593241368,
+    "vx_mps": 0.0006107804705565947,
+    "vy_mps": -0.0009635503168177072,
+    "yaw_rate_rps": 7.3049757285111e-05
+  },
+  "final_pose": {
+    "x_m": 1.8511158676237467,
+    "y_m": -0.29495062981976417,
+    "yaw_rad": -0.1940494289981523,
+    "vx_mps": 0.14038205303182977,
+    "vy_mps": 0.128709571747208,
+    "yaw_rate_rps": 0.506205260488519
+  },
+  "time_total_s": 10.146133165999998,
+  "end_cause": "aborted_odom_timeout",
+  "trajectory_row_count": 78,
+  "local_path_message_count": 26,
+  "route_point_count": 36,
+  "lidar_scan_count": 93,
+  "lidar_point_count": 10729,
+  "planner_status": {
+    "state": "tracking",
+    "ready": true,
+    "loop_closure_armed": false,
+    "loop_closed": false,
+    "travel_distance_m": 2.0558095884064183,
+    "elapsed_s": 22.945464370000025,
+    "start_pose": {
+      "x_m": -0.14852849243359337,
+      "y_m": -0.40471999547429216,
+      "yaw_rad": 0.1151471348580915
+    },
+    "start_axis": {
+      "normal_xy": [
+        0.9933778903237274,
+        0.11489285015169896
+      ],
+      "tangent_xy": [
+        -0.11489285015169896,
+        0.9933778903237274
+      ],
+      "signed_distance_m": 0.9045573361153171,
+      "lateral_offset_m": 0.20266310189717385
+    },
+    "local_path_age_s": 0.0,
+    "fusion_confidence": "high",
+    "corridor_width_m": 0.7608225196293104,
+    "route_point_count": 1182,
+    "local_path_source": "tracking",
+    "rolling_scan_count": 11,
+    "rolling_point_count": 721,
+    "path_point_count": 42,
+    "path_length_m": 1.6322650799588208,
+    "path_max_curvature_m_inv": 1.023137415772749
+  },
+  "tracker_status": {
+    "state": "aborted_odom_timeout",
+    "terminal": true,
+    "cause": "aborted_odom_timeout",
+    "planner_state": "tracking",
+    "path_age_s": 0.0
+  },
+  "bridge_status": {
+    "state": "tracking",
+    "timed_out": false,
+    "desired_linear_x_mps": 0.0,
+    "desired_angular_z_rps": 0.0,
+    "desired_speed_pct": 0.0,
+    "desired_steering_deg": 0.0,
+    "speed_ramp_target_pct": 0.0,
+    "speed_ramp_active": false,
+    "applied_speed_pct": 0.0,
+    "applied_steering_deg": 0.0
+  }
+}

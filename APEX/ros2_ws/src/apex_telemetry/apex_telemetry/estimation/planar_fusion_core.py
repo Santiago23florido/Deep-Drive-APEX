@@ -638,6 +638,57 @@ class OnlinePlanarFusion:
             parameters=asdict(self._params),
         )
 
+    def live_map_points_world(self, *, window_scans: int, max_points: int) -> np.ndarray:
+        if not self._processed_scans or not self._poses_internal:
+            return np.empty((0, 2), dtype=np.float64)
+
+        total_scans = len(self._processed_scans)
+        start_index = max(0, total_scans - max(2, int(window_scans)))
+        parts: list[np.ndarray] = []
+        for scan_index in range(start_index, total_scans):
+            if (
+                scan_index < len(self._confidences)
+                and self._confidences[scan_index] == "low"
+                and scan_index >= self._initial_scan_count
+            ):
+                continue
+            scan = self._processed_scans[scan_index]
+            pose = self._poses_internal[scan_index]
+            world_points = _transform_points(scan.sampled_points_local, pose)
+            if world_points.size:
+                parts.append(world_points)
+
+        if not parts:
+            return np.empty((0, 2), dtype=np.float64)
+
+        map_points = np.vstack(parts)
+        return _subsample_evenly(map_points, max(32, int(max_points)))
+
+    def full_map_points_world(self, *, max_points: int) -> np.ndarray:
+        if not self._processed_scans or not self._poses_internal:
+            return np.empty((0, 2), dtype=np.float64)
+
+        parts: list[np.ndarray] = []
+        total_scans = min(len(self._processed_scans), len(self._poses_internal))
+        for scan_index in range(total_scans):
+            if (
+                scan_index < len(self._confidences)
+                and self._confidences[scan_index] == "low"
+                and scan_index >= self._initial_scan_count
+            ):
+                continue
+            scan = self._processed_scans[scan_index]
+            pose = self._poses_internal[scan_index]
+            world_points = _transform_points(scan.sampled_points_local, pose)
+            if world_points.size:
+                parts.append(world_points)
+
+        if not parts:
+            return np.empty((0, 2), dtype=np.float64)
+
+        map_points = np.vstack(parts)
+        return _subsample_evenly(map_points, max(64, int(max_points)))
+
     def _try_initialize_imu(self) -> None:
         if len(self._raw_imu_t_s) < 8:
             return

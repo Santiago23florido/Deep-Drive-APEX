@@ -1,0 +1,49 @@
+{
+  "primary_cause": "planner",
+  "scores": {
+    "timing": 2.7,
+    "planner": 4.2,
+    "controller": 2.1
+  },
+  "timing": {
+    "tracker_odom_age_p95_s": 0.06470762491226197,
+    "planner_odom_age_p95_s": 0.6507511615753173,
+    "path_age_p95_s": 0.6328295040000285,
+    "fusion_prediction_age_p95_s": 0.015901529788970546,
+    "stale_odom_fraction": 0.0030120481927710845,
+    "stale_path_fraction": 0.10240963855421686,
+    "tracker_problem_segments": 2
+  },
+  "planner": {
+    "path_forward_span_p10_m": 0.0,
+    "path_length_mean_m": 1.175685103638567,
+    "path_curvature_p95_1pm": 0.9738709946734585,
+    "short_path_fraction": 0.1927710843373494,
+    "fallback_fraction": 0.0,
+    "local_path_count": 24
+  },
+  "controller": {
+    "path_deviation_p95_m": 0.11877625574867313,
+    "steering_error_p95_deg": 23.603773199855386,
+    "speed_error_p95_pct": 1.5299500261895929,
+    "sharp_turn_low_speed_fraction": 0.18373493975903615,
+    "max_desired_steering_deg": 46.141602138499024,
+    "max_applied_steering_deg": 43.1964710300669
+  },
+  "evidence": {
+    "timing": [
+      "planner odom age p95=0.651s",
+      "path age p95=0.633s",
+      "timing-related tracker interruptions=2"
+    ],
+    "planner": [
+      "path forward span p10=0.000m",
+      "short-path fraction=19.3%",
+      "path-loss happened with weak forward path continuity"
+    ],
+    "controller": [
+      "steering mismatch p95=23.6deg",
+      "path deviation p95=0.119m"
+    ]
+  }
+}

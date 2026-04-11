@@ -1,0 +1,9 @@
+{
+  "planner_status": {
+    "state": "waiting_static",
+    "ready": false,
+    "reason": "vehicle_not_static"
+  },
+  "path_point_count": 0,
+  "path_xy_yaw": []
+}

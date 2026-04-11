@@ -1,0 +1,69 @@
+{
+  "estimation_backend": "distance_field_online_seed",
+  "state": "tracking",
+  "imu_initialized": true,
+  "alignment_ready": true,
+  "best_effort_init": false,
+  "pending_scan_count": 0,
+  "processed_scan_count": 9,
+  "quality": {
+    "median_submap_residual_m": 0.0,
+    "low_confidence_scan_count": 0,
+    "latest_inlier_ratio": 1.0,
+    "latest_scan_inserted": true
+  },
+  "latest_pose": {
+    "t_s": 4.566,
+    "x_m": 0.0006304967414714511,
+    "y_m": -0.002727946656936879,
+    "yaw_rad": -0.0010253338974977764,
+    "vx_mps": -0.004726475925624837,
+    "vy_mps": -0.0033352550530279367,
+    "confidence": "high",
+    "median_submap_residual_m": 0.0,
+    "inlier_ratio": 1.0,
+    "scan_inserted": true,
+    "corrected_x_m": 0.0006304967414714511,
+    "corrected_y_m": -0.002727946656936879,
+    "corrected_yaw_rad": -0.0010253338974977764
+  },
+  "external_prior": {
+    "enabled": false,
+    "topic": "",
+    "active": false,
+    "weight_xy": 0.45,
+    "weight_yaw": 0.85
+  },
+  "offline_correction": {
+    "enabled": false,
+    "topic": "/apex/sim/offline_global_correction",
+    "use_yaw": false,
+    "child_frame_id": "odom_imu_lidar_fused",
+    "applied_x_m": 0.0,
+    "applied_y_m": 0.0,
+    "applied_yaw_rad": 0.0,
+    "applied_translation_norm_m": 0.0
+  },
+  "reference": {
+    "mode": "local",
+    "using_offline_submap": false,
+    "using_offline_grid": false
+  },
+  "parameters": {
+    "submap_window_scans": 24,
+    "point_stride": 1,
+    "max_correspondence_m": 0.24,
+    "backend": "distance_field_online_seed",
+    "imu_filter_alpha": 0.25,
+    "accel_bias_x_mps2": -0.00028585710515835044,
+    "accel_bias_y_mps2": 0.0022686829436476276,
+    "accel_bias_z_mps2": 9.810796113682713,
+    "yaw_bias_rps": 0.0008869238724308733,
+    "freeze_scan_insertion_on_low_confidence": true,
+    "local_prior_weight_xy": 0.06,
+    "local_prior_weight_yaw": 0.2,
+    "lidar_residual_weight": 0.85,
+    "low_confidence_residual_threshold_m": 0.14,
+    "low_confidence_inlier_ratio_threshold": 0.24
+  }
+}

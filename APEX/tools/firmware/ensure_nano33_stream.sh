@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APEX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 PORT="${APEX_SERIAL_PORT:-/dev/ttyACM0}"
+RUNTIME_DIR="${APEX_RUNTIME_DIR:-${APEX_ROOT}/.apex_runtime}"
+PROFILE_ENV_FILE="${APEX_NANO_PROFILE_ENV_FILE:-${RUNTIME_DIR}/nano_serial_profile.env}"
+PROFILE_ENV_BACKUP_FILE="${PROFILE_ENV_FILE}.last_good"
 CHECK_TIMEOUT_S="${APEX_NANO_CHECK_TIMEOUT_S:-6}"
 CONNECT_DTR_LOW_S="${APEX_NANO_CONNECT_DTR_LOW_S:-0.2}"
 CONNECT_SETTLE_S="${APEX_NANO_CONNECT_SETTLE_S:-2.0}"
@@ -12,6 +15,9 @@ PASSIVE_HEAD_LINES="${APEX_NANO_PASSIVE_HEAD_LINES:-20}"
 POST_FLASH_RECOVERY_S="${APEX_NANO_POST_FLASH_RECOVERY_S:-8.0}"
 AUTOFLASH="${APEX_NANO_AUTOFLASH:-1}"
 UPLOAD_SCRIPT="${APEX_ROOT}/tools/firmware/upload_nano33_iot.sh"
+MAX_ABS_ACCEL_MPS2="${APEX_NANO_MAX_ABS_ACCEL_MPS2:-30.0}"
+MAX_ABS_GYRO_RPS="${APEX_NANO_MAX_ABS_GYRO_RPS:-15.0}"
+MAX_ACCEL_NORM_MPS2="${APEX_NANO_MAX_ACCEL_NORM_MPS2:-30.0}"
 
 usage() {
   cat <<'EOF'
@@ -50,6 +56,75 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+persist_runtime_profile() {
+  local profile_name="$1"
+  local toggle_dtr="$2"
+  local dtr_low_s="$3"
+  local settle_s="$4"
+  local flush_input="$5"
+  mkdir -p "${RUNTIME_DIR}"
+  cat > "${PROFILE_ENV_FILE}" <<EOF
+export APEX_SERIAL_CONNECT_PROFILE_NAME="${profile_name}"
+export APEX_SERIAL_CONNECT_TOGGLE_DTR="${toggle_dtr}"
+export APEX_SERIAL_CONNECT_DTR_LOW_S="${dtr_low_s}"
+export APEX_SERIAL_CONNECT_SETTLE_S="${settle_s}"
+export APEX_SERIAL_FLUSH_INPUT_ON_CONNECT="${flush_input}"
+EOF
+  cp -f "${PROFILE_ENV_FILE}" "${PROFILE_ENV_BACKUP_FILE}"
+  echo "[APEX] Recorded Nano runtime profile '${profile_name}' in ${PROFILE_ENV_FILE}"
+}
+
+restore_last_good_profile() {
+  if [[ -f "${PROFILE_ENV_BACKUP_FILE}" ]]; then
+    cp -f "${PROFILE_ENV_BACKUP_FILE}" "${PROFILE_ENV_FILE}"
+    echo "[APEX][WARN] Restored last known good Nano runtime profile from ${PROFILE_ENV_BACKUP_FILE}"
+    return 0
+  fi
+  return 1
+}
+
+persist_runtime_attach_profile() {
+  local probe_name="$1"
+  # The probe may need to kick the ACM device with DTR, but once the Nano is
+  # streaming we want the ROS runtime to attach as passively as possible to
+  # avoid a second reset when the serial node opens the same port.
+  persist_runtime_profile \
+    "runtime_passive_after_${probe_name}" \
+    "false" \
+    "0.0" \
+    "0.0" \
+    "false"
+}
+
+sample_is_plausible() {
+  local sample="${1:-}"
+  python3 - "${sample}" "${MAX_ABS_ACCEL_MPS2}" "${MAX_ABS_GYRO_RPS}" "${MAX_ACCEL_NORM_MPS2}" <<'PY'
+import math
+import sys
+
+sample = sys.argv[1].strip()
+max_abs_accel = float(sys.argv[2])
+max_abs_gyro = float(sys.argv[3])
+max_accel_norm = float(sys.argv[4])
+parts = [part.strip() for part in sample.split(",")]
+if len(parts) != 6:
+    raise SystemExit(1)
+try:
+    ax, ay, az, gx, gy, gz = [float(part) for part in parts]
+except ValueError:
+    raise SystemExit(1)
+if not all(math.isfinite(v) for v in (ax, ay, az, gx, gy, gz)):
+    raise SystemExit(1)
+if any(abs(v) > max_abs_accel for v in (ax, ay, az)):
+    raise SystemExit(1)
+if math.sqrt((ax * ax) + (ay * ay) + (az * az)) > max_accel_norm:
+    raise SystemExit(1)
+if any(abs(v) > max_abs_gyro for v in (gx, gy, gz)):
+    raise SystemExit(1)
+raise SystemExit(0)
+PY
+}
 
 check_stream_pyserial() {
   local toggle_dtr="${1}"
@@ -113,6 +188,15 @@ PY
   set -e
 
   [[ -n "${sample}" ]] || return 1
+  if ! sample_is_plausible "${sample}"; then
+    echo "[APEX][WARN] Ignoring implausible Nano IMU sample on ${PORT}: ${sample}" >&2
+    return 1
+  fi
+  if [[ "${toggle_dtr}" == "1" ]]; then
+    persist_runtime_attach_profile "dtr_probe"
+  else
+    persist_runtime_attach_profile "pyserial_probe"
+  fi
   echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
   return 0
 }
@@ -139,6 +223,11 @@ check_stream_passive_cat() {
   set -e
 
   [[ -n "${sample}" ]] || return 1
+  if ! sample_is_plausible "${sample}"; then
+    echo "[APEX][WARN] Ignoring implausible Nano IMU sample on ${PORT}: ${sample}" >&2
+    return 1
+  fi
+  persist_runtime_attach_profile "passive_cat_probe"
   echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
   return 0
 }
@@ -166,6 +255,11 @@ check_stream_passive_head() {
   set -e
 
   [[ -n "${sample}" ]] || return 1
+  if ! sample_is_plausible "${sample}"; then
+    echo "[APEX][WARN] Ignoring implausible Nano IMU sample on ${PORT}: ${sample}" >&2
+    return 1
+  fi
+  persist_runtime_attach_profile "passive_head_probe"
   echo "[APEX] Nano IMU stream detected on ${PORT}: ${sample}"
   return 0
 }
@@ -223,6 +317,7 @@ if check_stream; then
 fi
 
 dump_serial_preview
+restore_last_good_profile || true
 
 echo "[APEX][ERROR] Nano still not streaming after reflashing" >&2
 exit 1

@@ -1,0 +1,69 @@
+{
+  "estimation_backend": "distance_field_online_seed",
+  "state": "tracking",
+  "imu_initialized": true,
+  "alignment_ready": true,
+  "best_effort_init": false,
+  "pending_scan_count": 0,
+  "processed_scan_count": 270,
+  "quality": {
+    "median_submap_residual_m": 0.0,
+    "low_confidence_scan_count": 0,
+    "latest_inlier_ratio": 1.0,
+    "latest_scan_inserted": true
+  },
+  "latest_pose": {
+    "t_s": 75.697,
+    "x_m": 3.4712739421638044,
+    "y_m": 7.287171079286673,
+    "yaw_rad": 1.9833700176173117,
+    "vx_mps": 0.017992098769904957,
+    "vy_mps": 0.009285335225188193,
+    "confidence": "high",
+    "median_submap_residual_m": 0.0,
+    "inlier_ratio": 1.0,
+    "scan_inserted": true,
+    "corrected_x_m": 3.4712739421638044,
+    "corrected_y_m": 7.287171079286673,
+    "corrected_yaw_rad": 1.9833700176173117
+  },
+  "external_prior": {
+    "enabled": false,
+    "topic": "",
+    "active": false,
+    "weight_xy": 0.45,
+    "weight_yaw": 0.85
+  },
+  "offline_correction": {
+    "enabled": false,
+    "topic": "/apex/sim/offline_global_correction",
+    "use_yaw": false,
+    "child_frame_id": "odom_imu_lidar_fused",
+    "applied_x_m": 0.0,
+    "applied_y_m": 0.0,
+    "applied_yaw_rad": 0.0,
+    "applied_translation_norm_m": 0.0
+  },
+  "reference": {
+    "mode": "local",
+    "using_offline_submap": false,
+    "using_offline_grid": false
+  },
+  "parameters": {
+    "submap_window_scans": 24,
+    "point_stride": 1,
+    "max_correspondence_m": 0.24,
+    "backend": "distance_field_online_seed",
+    "imu_filter_alpha": 0.25,
+    "accel_bias_x_mps2": 0.0002604990245523132,
+    "accel_bias_y_mps2": -0.003749956623520311,
+    "accel_bias_z_mps2": 9.78248986059441,
+    "yaw_bias_rps": 0.00038182920705554023,
+    "freeze_scan_insertion_on_low_confidence": true,
+    "local_prior_weight_xy": 0.06,
+    "local_prior_weight_yaw": 0.2,
+    "lidar_residual_weight": 0.85,
+    "low_confidence_residual_threshold_m": 0.14,
+    "low_confidence_inlier_ratio_threshold": 0.24
+  }
+}
