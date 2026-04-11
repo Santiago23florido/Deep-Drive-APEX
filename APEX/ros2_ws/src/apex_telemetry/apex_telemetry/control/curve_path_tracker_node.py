@@ -53,6 +53,7 @@ class CurvePathTrackerNode(Node):
         self.declare_parameter("status_topic", "/apex/tracking/status")
         self.declare_parameter("control_rate_hz", 20.0)
         self.declare_parameter("wheelbase_m", 0.30)
+        self.declare_parameter("steering_limit_deg", 18.0)
         self.declare_parameter("rear_axle_offset_x_m", -0.15)
         self.declare_parameter("rear_axle_offset_y_m", 0.0)
         self.declare_parameter("min_lookahead_m", 0.25)
@@ -64,11 +65,13 @@ class CurvePathTrackerNode(Node):
         self.declare_parameter("max_lateral_accel_mps2", 0.08)
         self.declare_parameter("slowdown_distance_m", 0.55)
         self.declare_parameter("goal_tolerance_m", 0.18)
+        self.declare_parameter("goal_proximity_stop_distance_m", 0.18)
         self.declare_parameter("goal_yaw_tolerance_rad", 0.35)
         self.declare_parameter("goal_line_stop_margin_m", 0.00)
         self.declare_parameter("goal_line_activation_tail_points", 8)
         self.declare_parameter("max_path_deviation_m", 0.45)
         self.declare_parameter("angular_cmd_ema_alpha", 0.25)
+        self.declare_parameter("curvature_deadband_m_inv", 0.0)
         self.declare_parameter("progress_index_backtrack_tolerance_points", 0)
         self.declare_parameter("startup_ramp_duration_s", 1.5)
         self.declare_parameter("startup_speed_scale_min", 0.65)
@@ -85,6 +88,9 @@ class CurvePathTrackerNode(Node):
         self._status_topic = str(self.get_parameter("status_topic").value)
         self._control_rate_hz = max(1.0, float(self.get_parameter("control_rate_hz").value))
         self._wheelbase_m = max(1e-3, float(self.get_parameter("wheelbase_m").value))
+        self._steering_limit_deg = max(
+            1.0, float(self.get_parameter("steering_limit_deg").value)
+        )
         self._rear_axle_offset = np.asarray(
             [
                 float(self.get_parameter("rear_axle_offset_x_m").value),
@@ -116,6 +122,10 @@ class CurvePathTrackerNode(Node):
             self._min_lookahead_m, float(self.get_parameter("slowdown_distance_m").value)
         )
         self._goal_tolerance_m = max(0.05, float(self.get_parameter("goal_tolerance_m").value))
+        self._goal_proximity_stop_distance_m = max(
+            self._goal_tolerance_m,
+            float(self.get_parameter("goal_proximity_stop_distance_m").value),
+        )
         self._goal_yaw_tolerance_rad = max(
             0.0, float(self.get_parameter("goal_yaw_tolerance_rad").value)
         )
@@ -130,6 +140,9 @@ class CurvePathTrackerNode(Node):
         )
         self._angular_cmd_ema_alpha = max(
             0.0, min(1.0, float(self.get_parameter("angular_cmd_ema_alpha").value))
+        )
+        self._curvature_deadband_m_inv = max(
+            0.0, float(self.get_parameter("curvature_deadband_m_inv").value)
         )
         self._progress_index_backtrack_tolerance_points = max(
             0, int(self.get_parameter("progress_index_backtrack_tolerance_points").value)
@@ -146,6 +159,9 @@ class CurvePathTrackerNode(Node):
         )
         self._global_timeout_s = max(1.0, float(self.get_parameter("global_timeout_s").value))
         self._odom_timeout_s = max(0.05, float(self.get_parameter("odom_timeout_s").value))
+        self._max_tracking_curvature_m_inv = (
+            math.tan(math.radians(self._steering_limit_deg)) / self._wheelbase_m
+        )
 
         latched_qos = QoSProfile(
             depth=1,
@@ -193,6 +209,9 @@ class CurvePathTrackerNode(Node):
             "CurvePathTrackerNode started (path=%s odom=%s arm=%s cmd=%s)"
             % (self._path_topic, self._odom_topic, self._arm_topic, self._cmd_vel_topic)
         )
+
+    def _ros_time_s(self) -> float:
+        return 1.0e-9 * float(self.get_clock().now().nanoseconds)
 
     def _path_cb(self, msg: Path) -> None:
         if not msg.poses:
@@ -415,7 +434,7 @@ class CurvePathTrackerNode(Node):
         elif (now_monotonic - self._tracking_started_monotonic) >= self._global_timeout_s:
             self._set_terminal("timeout")
 
-        odom_age_s = max(0.0, time.time() - float(self._latest_odom["stamp_s"]))
+        odom_age_s = max(0.0, self._ros_time_s() - float(self._latest_odom["stamp_s"]))
         if odom_age_s > self._odom_timeout_s:
             self._set_terminal("aborted_odom_timeout")
 
@@ -468,8 +487,11 @@ class CurvePathTrackerNode(Node):
         goal_yaw_error_rad = abs(
             _normalize_angle(goal_yaw_rad - float(rear_yaw))
         )
+        goal_proximity_stop = goal_distance_m <= self._goal_proximity_stop_distance_m
         goal_line_alignment_ready = goal_yaw_error_rad <= self._goal_yaw_tolerance_rad
-        if goal_line_crossed and goal_line_alignment_ready:
+        if goal_proximity_stop:
+            self._set_terminal("goal_proximity_stop")
+        elif goal_line_crossed and goal_line_alignment_ready:
             self._set_terminal("goal_line_crossed")
         elif goal_distance_m <= self._goal_tolerance_m and goal_yaw_error_rad <= self._goal_yaw_tolerance_rad:
             self._set_terminal("goal_reached")
@@ -484,6 +506,7 @@ class CurvePathTrackerNode(Node):
                 "goal_line_projection_m": goal_line_projection_m,
                 "goal_line_lateral_error_m": goal_line_lateral_error_m,
                 "goal_line_crossed": goal_line_crossed,
+                "goal_proximity_stop": goal_proximity_stop,
                 "goal_line_alignment_ready": goal_line_alignment_ready,
             }
             self._publish_cmd(0.0, 0.0)
@@ -535,9 +558,12 @@ class CurvePathTrackerNode(Node):
             self._min_lookahead_m,
             math.hypot(dx_local, dy_local),
         )
-        curvature = (2.0 * dy_local) / max(1e-6, lookahead_actual_m * lookahead_actual_m)
+        raw_curvature = (2.0 * dy_local) / max(1e-6, lookahead_actual_m * lookahead_actual_m)
+        curvature = raw_curvature
+        if abs(curvature) < self._curvature_deadband_m_inv:
+            curvature = 0.0
 
-        curvature_abs = abs(curvature)
+        curvature_abs = abs(raw_curvature)
         curvature_speed_limit_mps = self._max_linear_speed_mps / (
             1.0 + (self._curvature_speed_gain * curvature_abs)
         )
@@ -603,13 +629,17 @@ class CurvePathTrackerNode(Node):
             "goal_line_projection_m": goal_line_projection_m,
             "goal_line_lateral_error_m": goal_line_lateral_error_m,
             "goal_line_crossed": goal_line_crossed,
+            "goal_proximity_stop": goal_proximity_stop,
             "goal_line_alignment_ready": goal_line_alignment_ready,
             "raw_path_deviation_m": raw_path_deviation_m,
             "path_deviation_m": path_deviation_m,
             "startup_ramp_scale": startup_ramp_scale,
             "lookahead_m": lookahead_actual_m,
+            "raw_curvature_m_inv": raw_curvature,
             "curvature_m_inv": curvature,
             "filtered_curvature_m_inv": filtered_curvature_m_inv,
+            "curvature_deadband_m_inv": self._curvature_deadband_m_inv,
+            "tracking_curvature_limit_m_inv": self._max_tracking_curvature_m_inv,
             "curvature_speed_limit_mps": curvature_speed_limit_mps,
             "lateral_accel_speed_limit_mps": lateral_accel_speed_limit_mps,
             "goal_speed_limit_mps": goal_speed_limit_mps,

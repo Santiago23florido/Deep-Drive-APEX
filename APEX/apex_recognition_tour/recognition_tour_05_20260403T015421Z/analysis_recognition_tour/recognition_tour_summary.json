@@ -1,0 +1,80 @@
+{
+  "run_dir": "/work/ros2_ws/apex_recognition_tour/recognition_tour_05_20260403T015421Z",
+  "initial_pose": {
+    "x_m": -0.10744879474340865,
+    "y_m": -0.10216662188125622,
+    "yaw_rad": 0.09972666666662658,
+    "vx_mps": 0.0,
+    "vy_mps": 0.0,
+    "yaw_rate_rps": 0.0
+  },
+  "final_pose": {
+    "x_m": 1.5617464891567543,
+    "y_m": 0.0451055336594032,
+    "yaw_rad": 0.09635019973425267,
+    "vx_mps": 0.0,
+    "vy_mps": 0.0,
+    "yaw_rate_rps": 0.0
+  },
+  "time_total_s": 19.048269126000037,
+  "end_cause": "aborted_path_loss",
+  "trajectory_row_count": 232,
+  "local_path_message_count": 93,
+  "route_point_count": 46,
+  "lidar_scan_count": 231,
+  "lidar_point_count": 22244,
+  "planner_status": {
+    "state": "waiting_local_path",
+    "ready": false,
+    "loop_closure_armed": false,
+    "loop_closed": false,
+    "travel_distance_m": 3.8129840782160267,
+    "elapsed_s": 33.30046761299991,
+    "start_pose": {
+      "x_m": -0.1492732738866715,
+      "y_m": -0.10558975652648708,
+      "yaw_rad": 0.09847596557509732
+    },
+    "start_axis": {
+      "normal_xy": [
+        0.9951551592444766,
+        0.0983168806924857
+      ],
+      "tangent_xy": [
+        -0.0983168806924857,
+        0.9951551592444766
+      ],
+      "signed_distance_m": 1.5857904914859082,
+      "lateral_offset_m": -0.002287038885262552
+    },
+    "local_path_age_s": 1.6551523879999195,
+    "fusion_confidence": "high",
+    "corridor_width_m": 1.5259009190217374,
+    "route_point_count": 1587,
+    "local_path_source": "tracking",
+    "rolling_scan_count": 7,
+    "rolling_point_count": 378,
+    "path_point_count": 46,
+    "path_length_m": 1.7652906764290925,
+    "path_max_curvature_m_inv": 0.9674026579866591
+  },
+  "tracker_status": {
+    "state": "aborted_path_loss",
+    "terminal": true,
+    "cause": "aborted_path_loss",
+    "planner_state": "waiting_local_path",
+    "path_age_s": 1.6551523879999195
+  },
+  "bridge_status": {
+    "state": "tracking",
+    "timed_out": false,
+    "desired_linear_x_mps": 0.0,
+    "desired_angular_z_rps": 0.0,
+    "desired_speed_pct": 0.0,
+    "desired_steering_deg": 0.0,
+    "speed_ramp_target_pct": 0.0,
+    "speed_ramp_active": false,
+    "applied_speed_pct": 0.0,
+    "applied_steering_deg": 0.0
+  }
+}

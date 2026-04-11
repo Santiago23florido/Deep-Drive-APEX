@@ -1,0 +1,47 @@
+{
+  "primary_cause": "mixed",
+  "scores": {
+    "timing": 1.8,
+    "planner": 0.0,
+    "controller": 2.5
+  },
+  "timing": {
+    "tracker_odom_age_p95_s": 0.06601980924606313,
+    "planner_odom_age_p95_s": 0.6438541769981377,
+    "path_age_p95_s": 0.0,
+    "fusion_prediction_age_p95_s": 0.0,
+    "stale_odom_fraction": 0.011821974965229486,
+    "stale_path_fraction": 0.0,
+    "tracker_problem_segments": 2
+  },
+  "planner": {
+    "path_forward_span_p10_m": 1.3882520595708812,
+    "path_length_mean_m": 1.483266777150012,
+    "path_curvature_p95_1pm": 0.974634206861829,
+    "short_path_fraction": 0.0,
+    "fallback_fraction": 0.0,
+    "local_path_count": 78
+  },
+  "controller": {
+    "path_deviation_p95_m": 0.06216759115939145,
+    "steering_error_p95_deg": 23.920013594922537,
+    "speed_error_p95_pct": 0.6692458709927709,
+    "sharp_turn_low_speed_fraction": 0.5910987482614742,
+    "max_desired_steering_deg": 24.35394644400873,
+    "max_applied_steering_deg": 19.936715414805732,
+    "steering_saturation_fraction": 0.0,
+    "waiting_path_refresh_fraction": 0.0
+  },
+  "evidence": {
+    "timing": [
+      "planner odom age p95=0.644s",
+      "timing-related tracker interruptions=2"
+    ],
+    "planner": [],
+    "controller": [
+      "steering mismatch p95=23.9deg",
+      "sharp-turn low-speed fraction=59.1%",
+      "path loss reason=projection_behind_target"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "apex-xbox-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows Xbox controller bridge for APEX simulation over TCP",
+  "bin": {
+    "apex-xbox-bridge": "src/apex_xbox_bridge.js"
+  }
+}

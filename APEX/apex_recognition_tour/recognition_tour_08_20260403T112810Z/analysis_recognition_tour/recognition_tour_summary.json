@@ -1,0 +1,176 @@
+{
+  "run_dir": "/work/ros2_ws/apex_recognition_tour/recognition_tour_08_20260403T112810Z",
+  "initial_pose": {
+    "x_m": 0.029737881014282038,
+    "y_m": -0.305055643749214,
+    "yaw_rad": 0.032697037358448394,
+    "vx_mps": -0.025765307565845604,
+    "vy_mps": -0.021090762001296372,
+    "yaw_rate_rps": 0.0003986458613678627
+  },
+  "final_pose": {
+    "x_m": 1.4591813401236724,
+    "y_m": 0.06338860140361144,
+    "yaw_rad": 0.9145162941887964,
+    "vx_mps": 0.059523533539289464,
+    "vy_mps": -0.11720123345712775,
+    "yaw_rate_rps": -0.0010036603266204865
+  },
+  "time_total_s": 10.386224025000047,
+  "end_cause": "aborted_path_loss",
+  "trajectory_row_count": 332,
+  "local_path_message_count": 68,
+  "route_point_count": 45,
+  "lidar_scan_count": 127,
+  "lidar_point_count": 12974,
+  "fusion_status": {
+    "state": "tracking",
+    "imu_initialized": true,
+    "alignment_ready": true,
+    "best_effort_init": false,
+    "raw_imu_sample_count": 1420,
+    "processed_imu_sample_count": 1420,
+    "pending_scan_count": 0,
+    "processed_scan_count": 358,
+    "initial_scan_count": 6,
+    "alignment_yaw_rad": 0.02305356865784131,
+    "origin_projection_m": [
+      0.0,
+      0.3501822786969747
+    ],
+    "static_initialization": {
+      "best_effort_init": false,
+      "static_start_s": 1775215792.289048,
+      "static_end_s": 1775215792.6813104,
+      "static_sample_count": 23,
+      "bias_ax_mps2": 0.3733914347826088,
+      "bias_ay_mps2": 0.309997,
+      "bias_az_mps2": -0.03815082608695519,
+      "bias_gz_rps": -0.04997465217391304
+    },
+    "corridor_model": {
+      "width_m": 0.9367232694571167,
+      "lower_wall_coef": [
+        -0.2154445499707245,
+        -0.006148941446974835
+      ],
+      "upper_wall_coef": [
+        -0.09664102900360871,
+        0.7065134988409243
+      ],
+      "alignment_yaw_rad": 0.02305356865784131,
+      "origin_projection_m": [
+        0.0,
+        0.3501822786969747
+      ]
+    },
+    "quality": {
+      "high_confidence_pct": 100.0,
+      "low_confidence_scan_count": 0,
+      "median_submap_residual_m": 0.004814941149936098,
+      "median_wall_residual_m": 0.09999496649178387
+    },
+    "latest_pose": {
+      "scan_index": 357,
+      "t_s": 1775215818.7725894,
+      "x_m": 1.4568910848418335,
+      "y_m": 0.06789809081062109,
+      "yaw_rad": 0.914554911492366,
+      "vx_mps": 0.059523533539289464,
+      "vy_mps": -0.11720123345712775,
+      "yaw_rate_rps": -0.0010036603266204865,
+      "confidence": "high",
+      "median_submap_residual_m": 0.006918586763067985,
+      "median_wall_residual_m": 0.6362368280321684,
+      "valid_correspondence_count": 39
+    },
+    "published_pose": {
+      "x_m": 1.4568910848418335,
+      "y_m": 0.06789809081062109,
+      "yaw_rad": 0.914554911492366,
+      "vx_mps": 0.059523533539289464,
+      "vy_mps": -0.11720123345712775,
+      "yaw_rate_rps": -0.0010036603266204865,
+      "confidence": "high",
+      "stamp_s": 1775215818.7725894,
+      "predicted": false,
+      "prediction_age_s": 0.0
+    },
+    "published_source": "corrected",
+    "odom_prediction_age_s": 0.0,
+    "parameters": {
+      "median_window": 5,
+      "ema_alpha": 0.25,
+      "static_window_s": 0.4,
+      "static_search_s": 2.0,
+      "velocity_decay_tau_s": 1.1,
+      "submap_window_scans": 6,
+      "point_stride": 2,
+      "max_correspondence_m": 0.35,
+      "initial_scan_count_min": 4,
+      "max_initial_alignment_scans": 6,
+      "corridor_bin_m": 0.1,
+      "low_confidence_residual_m": 0.16,
+      "min_valid_correspondence_count": 14,
+      "max_scan_optimization_evals": 80
+    }
+  },
+  "planner_status": {
+    "state": "holding_last_path",
+    "ready": true,
+    "loop_closure_armed": false,
+    "loop_closed": false,
+    "travel_distance_m": 2.8966686351484583,
+    "elapsed_s": 25.365149168999977,
+    "start_pose": {
+      "x_m": -0.15091965828276474,
+      "y_m": -0.35143944354396994,
+      "yaw_rad": 0.024429179160597576
+    },
+    "start_axis": {
+      "normal_xy": [
+        0.999701622442145,
+        0.024426749405990038
+      ],
+      "tangent_xy": [
+        -0.024426749405990038,
+        0.999701622442145
+      ],
+      "signed_distance_m": 1.5509016075039064,
+      "lateral_offset_m": 0.3565393211020034
+    },
+    "local_path_age_s": 0.22216973499996584,
+    "odom_age_s": 0.4995155334472656,
+    "fusion_confidence": "high",
+    "corridor_width_m": 1.029075349263052,
+    "route_point_count": 1261,
+    "local_path_source": "tracking",
+    "rolling_scan_count": 3,
+    "rolling_point_count": 210,
+    "path_point_count": 33,
+    "path_length_m": 1.2720283682220317,
+    "path_forward_span_m": 0.0,
+    "path_max_curvature_m_inv": 0.9584101836854487
+  },
+  "tracker_status": {
+    "state": "aborted_path_loss",
+    "terminal": true,
+    "cause": "aborted_path_loss",
+    "planner_state": "holding_last_path",
+    "path_age_s": 0.22216973499996584,
+    "odom_age_s": 0.0023450851440429688
+  },
+  "bridge_status": {
+    "state": "tracking",
+    "timed_out": false,
+    "desired_linear_x_mps": 0.0,
+    "desired_angular_z_rps": 0.0,
+    "desired_speed_pct": 0.0,
+    "desired_steering_deg": 0.0,
+    "speed_ramp_start_pct": 0.0,
+    "speed_ramp_target_pct": 0.0,
+    "speed_ramp_active": false,
+    "applied_speed_pct": 0.0,
+    "applied_steering_deg": 0.0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "planner_status": {
+    "state": "waiting_fusion",
+    "ready": false,
+    "loop_closure_armed": false,
+    "loop_closed": false,
+    "travel_distance_m": 0.0,
+    "elapsed_s": 0.0,
+    "local_path_age_s": null,
+    "fusion_confidence": "unknown",
+    "corridor_width_m": null,
+    "route_point_count": 0
+  },
+  "route_point_count": 0,
+  "path_xy_yaw": []
+}

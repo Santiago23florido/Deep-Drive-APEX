@@ -1,0 +1,1 @@
+stamp_sec,stamp_nanosec,x_m,y_m,yaw_rad,vx_mps,vy_mps,yaw_rate_rps,tracker_state,goal_distance_m,path_deviation_m,fusion_confidence,desired_speed_pct,applied_speed_pct,desired_steering_deg,applied_steering_deg,bridge_state

@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import math
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
@@ -45,6 +46,8 @@ GLOBAL_VELOCITY_WEIGHT = 0.55
 GLOBAL_SMOOTHNESS_WEIGHT = 0.70
 GLOBAL_STATIC_ANCHOR_WEIGHT = 3.5
 GLOBAL_STATIC_YAW_WEIGHT = 4.5
+
+DEFAULT_PROGRESS_EVERY_SCANS = 25
 
 
 @dataclass(frozen=True)
@@ -112,6 +115,55 @@ class ScanQuality:
     median_wall_residual_m: float
     valid_correspondence_count: int
     confidence: str
+
+
+def _format_duration_s(duration_s: float) -> str:
+    duration_s = max(0.0, float(duration_s))
+    total_seconds = int(round(duration_s))
+    minutes, seconds = divmod(total_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours:d}h{minutes:02d}m{seconds:02d}s"
+    if minutes > 0:
+        return f"{minutes:d}m{seconds:02d}s"
+    return f"{seconds:d}s"
+
+
+def _progress_update(
+    stage: str,
+    current: int,
+    total: int,
+    *,
+    start_monotonic: float,
+    force: bool = False,
+    every: int = DEFAULT_PROGRESS_EVERY_SCANS,
+) -> None:
+    if total <= 0:
+        return
+    if not force:
+        if current <= 0:
+            return
+        if current < total and (current % max(1, every)) != 0:
+            return
+    elapsed_s = time.monotonic() - start_monotonic
+    progress = current / max(1, total)
+    eta_text = "ETA=?"
+    if progress > 1.0e-6 and current < total:
+        total_estimate_s = elapsed_s / progress
+        eta_s = max(0.0, total_estimate_s - elapsed_s)
+        eta_text = f"ETA={_format_duration_s(eta_s)}"
+    elif current >= total:
+        eta_text = "ETA=0s"
+    print(
+        f"[sensor_fusionn] {stage}: {current}/{total} ({progress * 100.0:.1f}%) "
+        f"elapsed={_format_duration_s(elapsed_s)} {eta_text}",
+        flush=True,
+    )
+
+
+def _stage(message: str) -> float:
+    print(f"[sensor_fusionn] {message}", flush=True)
+    return time.monotonic()
 
 
 def _validate_filter_params(median_window: int, ema_alpha: float) -> None:
@@ -598,6 +650,7 @@ def _estimate_sequential_poses(
     submap_window_scans: int,
     max_correspondence_m: float,
 ) -> tuple[np.ndarray, list[ScanQuality]]:
+    stage_start = _stage("Estimando poses secuenciales...")
     scan_times_s = np.asarray([scan.t_s for scan in scans], dtype=np.float64)
     poses = np.zeros((len(scans), 3), dtype=np.float64)
     poses[:, 2] = yaw_priors_rad
@@ -624,6 +677,12 @@ def _estimate_sequential_poses(
                 valid_correspondence_count=valid_count,
                 confidence="high",
             )
+        )
+        _progress_update(
+            "poses secuenciales",
+            scan_index + 1,
+            len(scans),
+            start_monotonic=stage_start,
         )
 
     for scan_index in range(initial_scan_count, len(scans)):
@@ -654,6 +713,12 @@ def _estimate_sequential_poses(
                     valid_correspondence_count=0,
                     confidence="low",
                 )
+            )
+            _progress_update(
+                "poses secuenciales",
+                scan_index + 1,
+                len(scans),
+                start_monotonic=stage_start,
             )
             continue
 
@@ -747,7 +812,20 @@ def _estimate_sequential_poses(
                 confidence=confidence,
             )
         )
+        _progress_update(
+            "poses secuenciales",
+            scan_index + 1,
+            len(scans),
+            start_monotonic=stage_start,
+        )
 
+    _progress_update(
+        "poses secuenciales",
+        len(scans),
+        len(scans),
+        start_monotonic=stage_start,
+        force=True,
+    )
     return poses, qualities
 
 
@@ -851,7 +929,14 @@ def _refine_global_poses(
     max_correspondence_m: float,
 ) -> np.ndarray:
     poses = initial_poses.copy()
-    for _iteration in range(2):
+    stage_start = _stage("Refinando poses globales...")
+    for iteration_index in range(2):
+        iteration_start = time.monotonic()
+        print(
+            f"[sensor_fusionn] refinamiento global: iteracion {iteration_index + 1}/2 "
+            f"preparando correspondencias...",
+            flush=True,
+        )
         bundles = _build_correspondence_bundles(
             scans,
             poses,
@@ -913,8 +998,25 @@ def _refine_global_poses(
             loss="soft_l1",
             f_scale=0.08,
             max_nfev=120,
+            verbose=2,
         )
         poses = _unpack_poses(solution.x, first_pose) if solution.success else poses
+        elapsed_s = time.monotonic() - iteration_start
+        remaining_s = max(0.0, (2 - (iteration_index + 1)) * elapsed_s)
+        print(
+            f"[sensor_fusionn] refinamiento global: iteracion {iteration_index + 1}/2 "
+            f"completa elapsed={_format_duration_s(elapsed_s)} "
+            f"ETA={_format_duration_s(remaining_s)}",
+            flush=True,
+        )
+    _progress_update(
+        "refinamiento global",
+        2,
+        2,
+        start_monotonic=stage_start,
+        force=True,
+        every=1,
+    )
     return poses
 
 
@@ -947,6 +1049,7 @@ def _compute_scan_qualities(
     submap_window_scans: int,
     max_correspondence_m: float,
 ) -> list[ScanQuality]:
+    stage_start = _stage("Calculando calidades finales por scan...")
     qualities: list[ScanQuality] = []
     confidences = ["high"] * len(scans)
     for scan_index, scan in enumerate(scans):
@@ -988,6 +1091,19 @@ def _compute_scan_qualities(
                 confidence=confidence,
             )
         )
+        _progress_update(
+            "calidad final",
+            scan_index + 1,
+            len(scans),
+            start_monotonic=stage_start,
+        )
+    _progress_update(
+        "calidad final",
+        len(scans),
+        len(scans),
+        start_monotonic=stage_start,
+        force=True,
+    )
     return qualities
 
 
@@ -1216,6 +1332,7 @@ def _write_summary_json(
 
 
 def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
+    overall_start = _stage("Iniciando sensor fusion offline...")
     run_dir = args.run_dir.resolve()
     imu_path = run_dir / "imu_raw.csv"
     lidar_path = run_dir / "lidar_points.csv"
@@ -1224,8 +1341,14 @@ def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
     if not lidar_path.exists():
         raise SystemExit(f"No existe {lidar_path}")
 
+    stage_start = _stage("Cargando scans LiDAR...")
     scans = _load_lidar_scans(lidar_path, point_stride=args.point_stride)
     scan_times_s = np.asarray([scan.t_s for scan in scans], dtype=np.float64)
+    print(
+        f"[sensor_fusionn] scans cargados: {len(scans)} "
+        f"elapsed={_format_duration_s(time.monotonic() - stage_start)}",
+        flush=True,
+    )
 
     initial_alignment_scan_count = max(DEFAULT_INITIAL_SCAN_COUNT_MIN, min(6, len(scans)))
     initial_points = np.vstack(
@@ -1236,7 +1359,14 @@ def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
         bin_m=args.corridor_bin_m,
     )
 
+    stage_start = _stage("Cargando serie IMU...")
     imu_raw = _load_imu_series(imu_path)
+    print(
+        f"[sensor_fusionn] muestras IMU cargadas: {imu_raw.t_s.size} "
+        f"elapsed={_format_duration_s(time.monotonic() - stage_start)}",
+        flush=True,
+    )
+    stage_start = _stage("Procesando IMU...")
     imu_processing = _process_imu(
         imu_raw,
         median_window=args.median_window,
@@ -1245,6 +1375,10 @@ def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
         static_search_s=args.static_search_s,
         velocity_decay_tau_s=args.velocity_decay_tau_s,
         world_yaw_offset_rad=alignment_yaw_rad,
+    )
+    print(
+        f"[sensor_fusionn] IMU procesada elapsed={_format_duration_s(time.monotonic() - stage_start)}",
+        flush=True,
     )
 
     yaw_priors_rad, velocity_priors_mps, accel_priors_mps2 = _interpolate_scan_priors(
@@ -1268,6 +1402,7 @@ def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
         max_correspondence_m=args.max_correspondence_m,
     )
 
+    stage_start = _stage("Recolectando puntos para modelo de paredes refinado...")
     high_conf_filter = [quality.confidence for quality in sequential_qualities]
     refit_points = _collect_world_points(
         scans,
@@ -1282,7 +1417,18 @@ def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
             point_stride=args.global_point_stride,
             confidence_filter=None,
         )
+    print(
+        f"[sensor_fusionn] puntos de refit: {refit_points.shape[0]} "
+        f"elapsed={_format_duration_s(time.monotonic() - stage_start)}",
+        flush=True,
+    )
+    stage_start = _stage("Ajustando modelo de paredes refinado...")
     refined_wall_model = _fit_wall_model(refit_points, args.corridor_bin_m)
+    print(
+        f"[sensor_fusionn] paredes refinadas width={refined_wall_model.width_m:.3f} m "
+        f"elapsed={_format_duration_s(time.monotonic() - stage_start)}",
+        flush=True,
+    )
 
     global_poses = _refine_global_poses(
         sequential_poses,
@@ -1297,16 +1443,29 @@ def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
         max_correspondence_m=args.max_correspondence_m,
     )
 
+    stage_start = _stage("Recolectando puntos corregidos...")
     correction_points = _collect_world_points(
         scans,
         global_poses,
         point_stride=args.global_point_stride,
         confidence_filter=None,
     )
+    print(
+        f"[sensor_fusionn] puntos corregidos: {correction_points.shape[0]} "
+        f"elapsed={_format_duration_s(time.monotonic() - stage_start)}",
+        flush=True,
+    )
+    stage_start = _stage("Aplicando correccion global final...")
     correction_model = _fit_wall_model(correction_points, args.corridor_bin_m)
     final_rotation_correction_rad = -float(correction_model.corridor_yaw_rad)
     corrected_poses = _rotate_world_poses(global_poses, final_rotation_correction_rad)
+    print(
+        f"[sensor_fusionn] correccion yaw={final_rotation_correction_rad:.4f} rad "
+        f"elapsed={_format_duration_s(time.monotonic() - stage_start)}",
+        flush=True,
+    )
 
+    stage_start = _stage("Calculando muro final y origen...")
     corrected_points = _collect_world_points(
         scans,
         corrected_poses,
@@ -1315,6 +1474,11 @@ def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
     )
     final_wall_model = _fit_wall_model(corrected_points, args.corridor_bin_m)
     final_poses, origin_projection_m = _shift_world_origin(corrected_poses, final_wall_model)
+    print(
+        f"[sensor_fusionn] muro final width={final_wall_model.width_m:.3f} m "
+        f"elapsed={_format_duration_s(time.monotonic() - stage_start)}",
+        flush=True,
+    )
     final_qualities = _compute_scan_qualities(
         scans,
         final_poses,
@@ -1335,6 +1499,7 @@ def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
     summary_path = output_dir / "sensor_fusion_summary.json"
     overlay_path = output_dir / "sensor_fusion_overlay.png"
 
+    stage_start = _stage("Escribiendo resultados...")
     _write_trajectory_csv(trajectory_path, scans, final_poses, final_qualities)
 
     median_submap_residual_m = _nanmedian_or_default(
@@ -1380,6 +1545,14 @@ def _run_fusion(args: argparse.Namespace) -> dict[str, object]:
             "max_correspondence_m": args.max_correspondence_m,
             "initial_scan_count": initial_scan_count,
         },
+    )
+    print(
+        f"[sensor_fusionn] resultados escritos elapsed={_format_duration_s(time.monotonic() - stage_start)}",
+        flush=True,
+    )
+    print(
+        f"[sensor_fusionn] fusion offline completa elapsed={_format_duration_s(time.monotonic() - overall_start)}",
+        flush=True,
     )
 
     return {
