@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-SKETCH_DIR="${REPO_ROOT}/arduino/nano33_iot_accel_stream"
+SKETCH_DIR="${APEX_NANO_SKETCH_DIR:-${REPO_ROOT}/arduino/wt61pc_uart_stream}"
 PORT="/dev/ttyACM0"
 FQBN="arduino:samd:nano_33_iot"
 STOP_CORE=0
@@ -11,11 +11,12 @@ STOP_CORE=0
 usage() {
   cat <<'EOF'
 Usage:
-  tools/upload_nano33_iot.sh [--port /dev/ttyACM0] [--fqbn arduino:samd:nano_33_iot] [--stop-core]
+  tools/upload_nano33_iot.sh [--port /dev/ttyACM0] [--fqbn arduino:samd:nano_33_iot] [--sketch-dir <dir>] [--stop-core]
 
 Notes:
   - Requires arduino-cli installed on the Raspberry.
-  - Requires the Arduino SAMD core and Arduino_LSM6DS3 library.
+  - Requires the Arduino SAMD core.
+  - Default sketch: arduino/wt61pc_uart_stream.
   - By default this script refuses to run if apex_pipeline is still using the serial port.
 EOF
 }
@@ -28,6 +29,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --fqbn)
       FQBN="${2:?missing fqbn value}"
+      shift 2
+      ;;
+    --sketch-dir)
+      SKETCH_DIR="${2:?missing sketch directory value}"
       shift 2
       ;;
     --stop-core)
@@ -55,13 +60,12 @@ Install example:
   sudo apt-get install -y arduino-cli
   arduino-cli core update-index
   arduino-cli core install arduino:samd
-  arduino-cli lib install Arduino_LSM6DS3
 EOF
   exit 1
 fi
 
-if [[ ! -f "${SKETCH_DIR}/nano33_iot_accel_stream.ino" ]]; then
-  echo "[APEX][ERROR] Sketch not found: ${SKETCH_DIR}/nano33_iot_accel_stream.ino" >&2
+if ! compgen -G "${SKETCH_DIR}"'/*.ino' >/dev/null; then
+  echo "[APEX][ERROR] Sketch not found in: ${SKETCH_DIR}" >&2
   exit 1
 fi
 

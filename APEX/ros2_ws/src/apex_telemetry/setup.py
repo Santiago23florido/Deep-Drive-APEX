@@ -48,6 +48,8 @@ setup(
             "recognition_tour_planner_node = apex_telemetry.perception.recognition_tour_planner_node:main",
             "curve_path_tracker_node = apex_telemetry.control.curve_path_tracker_node:main",
             "recognition_tour_tracker_node = apex_telemetry.control.recognition_tour_tracker_node:main",
+            "apex_windows_gamepad_bridge_node = apex_telemetry.control.windows_gamepad_bridge_node:main",
+            "recognition_session_manager_node = apex_telemetry.control.recognition_session_manager_node:main",
             "cmd_vel_to_apex_actuation_node = apex_telemetry.actuation.cmd_vel_to_apex_actuation_node:main",
         ],
     },

@@ -21,20 +21,13 @@ RUN set -eux; \
       -o Acquire::http::No-Cache=true \
       -o Acquire::https::No-Cache=true \
       && apt-get install -y --no-install-recommends \
-        python3-colcon-common-extensions \
+        python3-matplotlib \
         python3-numpy \
         python3-scipy \
         python3-pip \
         python3-serial \
-        python3-venv \
-        ros-jazzy-imu-filter-madgwick \
-        ros-jazzy-nav2-map-server \
-        ros-jazzy-robot-localization \
-        ros-jazzy-ros2bag \
-        ros-jazzy-rosbag2-storage-default-plugins \
-        ros-jazzy-rosbag2-storage-mcap \
-        ros-jazzy-slam-toolbox \
-        ros-dev-tools; then \
+        python3-yaml \
+        python3-venv; then \
       install_ok=1; \
       break; \
     fi; \

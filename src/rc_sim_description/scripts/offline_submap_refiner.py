@@ -17,6 +17,7 @@ from bisect import bisect_left, bisect_right
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import rclpy
@@ -149,6 +150,17 @@ class RelativeMotionEstimate:
     median_residual_m: float
 
 
+@dataclass(frozen=True)
+class InterWindowAlignmentResult:
+    enabled: bool
+    applied: bool
+    reason: str
+    overlap_scan_count: int
+    paired_point_count: int
+    raw_delta_xyyaw: np.ndarray
+    applied_delta_xyyaw: np.ndarray
+
+
 class OfflineSubmapRefiner(Node):
     def __init__(self) -> None:
         super().__init__("offline_submap_refiner")
@@ -182,6 +194,20 @@ class OfflineSubmapRefiner(Node):
         self.declare_parameter("global_correction_topic", "/apex/sim/offline_global_correction")
         self.declare_parameter("anchor_pose_topic", "/apex/sim/offline_anchor_pose")
         self.declare_parameter("seed_odom_frame_id", "odom_imu_lidar_fused")
+        self.declare_parameter("enable_inter_window_alignment", False)
+        self.declare_parameter("inter_window_alignment_gain", 0.85)
+        self.declare_parameter("inter_window_min_overlap_scans", 4)
+        self.declare_parameter("inter_window_min_points", 80)
+        self.declare_parameter("inter_window_max_points", 2500)
+        self.declare_parameter("inter_window_max_translation_m", 0.25)
+        self.declare_parameter("inter_window_max_yaw_deg", 10.0)
+        self.declare_parameter("enable_manual_idle_finalize", False)
+        self.declare_parameter("manual_status_topic", "/apex/manual_control/status")
+        self.declare_parameter("manual_idle_timeout_s", 4.0)
+        self.declare_parameter("manual_motion_linear_deadband_mps", 0.02)
+        self.declare_parameter("final_min_scan_count", 8)
+        self.declare_parameter("save_on_finalize", False)
+        self.declare_parameter("save_output_dir", "")
         self.declare_parameter("use_track_geometry_prior", False)
         self.declare_parameter("track_geometry_file", "")
         self.declare_parameter("track_geometry_weight", 0.08)
@@ -228,6 +254,47 @@ class OfflineSubmapRefiner(Node):
         )
         self._anchor_pose_topic = str(self.get_parameter("anchor_pose_topic").value)
         self._seed_odom_frame_id = str(self.get_parameter("seed_odom_frame_id").value).strip() or "odom_imu_lidar_fused"
+        self._enable_inter_window_alignment = bool(
+            self.get_parameter("enable_inter_window_alignment").value
+        )
+        self._inter_window_alignment_gain = min(
+            1.0,
+            max(0.0, float(self.get_parameter("inter_window_alignment_gain").value)),
+        )
+        self._inter_window_min_overlap_scans = max(
+            1,
+            int(self.get_parameter("inter_window_min_overlap_scans").value),
+        )
+        self._inter_window_min_points = max(
+            3,
+            int(self.get_parameter("inter_window_min_points").value),
+        )
+        self._inter_window_max_points = max(
+            self._inter_window_min_points,
+            int(self.get_parameter("inter_window_max_points").value),
+        )
+        self._inter_window_max_translation_m = max(
+            0.0,
+            float(self.get_parameter("inter_window_max_translation_m").value),
+        )
+        self._inter_window_max_yaw_rad = math.radians(
+            max(0.0, float(self.get_parameter("inter_window_max_yaw_deg").value))
+        )
+        self._enable_manual_idle_finalize = bool(
+            self.get_parameter("enable_manual_idle_finalize").value
+        )
+        self._manual_status_topic = str(self.get_parameter("manual_status_topic").value).strip()
+        self._manual_idle_timeout_s = max(
+            0.5, float(self.get_parameter("manual_idle_timeout_s").value)
+        )
+        self._manual_motion_linear_deadband_mps = max(
+            0.0, float(self.get_parameter("manual_motion_linear_deadband_mps").value)
+        )
+        self._final_min_scan_count = max(
+            4, int(self.get_parameter("final_min_scan_count").value)
+        )
+        self._save_on_finalize = bool(self.get_parameter("save_on_finalize").value)
+        self._save_output_dir = str(self.get_parameter("save_output_dir").value).strip()
         self._use_track_geometry_prior = bool(
             self.get_parameter("use_track_geometry_prior").value
         )
@@ -303,6 +370,17 @@ class OfflineSubmapRefiner(Node):
         self._processing_thread: threading.Thread | None = None
         self._processed_window_count = 0
         self._last_gate_reason = ""
+        self._analysis_closed = False
+        self._analysis_closing = False
+        self._closed_reason = ""
+        self._saved_output_dir = ""
+        self._manual_motion_seen = False
+        self._manual_motion_active = False
+        self._last_manual_status_monotonic = 0.0
+        self._last_manual_motion_monotonic = 0.0
+        self._last_manual_motion_scan_index = -1
+        self._manual_idle_started_monotonic: float | None = None
+        self._manual_idle_start_scan_index: int | None = None
 
         self._refined_records: dict[int, dict[str, object]] = {}
         self._latest_map_points = np.empty((0, 2), dtype=np.float64)
@@ -337,6 +415,8 @@ class OfflineSubmapRefiner(Node):
                 self.create_subscription(Odometry, self._seed_odom_topic, self._odom_cb, 40)
             if self._seed_status_topic:
                 self.create_subscription(String, self._seed_status_topic, self._seed_status_cb, 20)
+            if self._enable_manual_idle_finalize and self._manual_status_topic:
+                self.create_subscription(String, self._manual_status_topic, self._manual_status_cb, 20)
         else:
             self.get_logger().info(
                 "offline_replay_mode=%s is accepted but not implemented in v1"
@@ -368,7 +448,7 @@ class OfflineSubmapRefiner(Node):
 
         self.create_timer(self._offline_update_period_s, self._tick)
         self.get_logger().info(
-            "OfflineSubmapRefiner started (scan=%s imu=%s seed_odom=%s seed_status=%s mode=%s window=%d overlap=%d)"
+            "OfflineSubmapRefiner started (scan=%s imu=%s seed_odom=%s seed_status=%s mode=%s window=%d overlap=%d inter_window=%s manual_idle_finalize=%s)"
             % (
                 self._scan_topic,
                 self._imu_topic,
@@ -377,6 +457,8 @@ class OfflineSubmapRefiner(Node):
                 self._replay_mode,
                 self._window_scan_count,
                 self._window_overlap_count,
+                "on" if self._enable_inter_window_alignment else "off",
+                "on" if self._enable_manual_idle_finalize else "off",
             )
         )
 
@@ -491,6 +573,48 @@ class OfflineSubmapRefiner(Node):
         with self._lock:
             self._seed_status_records.append(record)
 
+    def _manual_status_cb(self, msg: String) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+        motion_active = self._manual_status_has_motion_command(payload)
+        now_monotonic = time.monotonic()
+        with self._lock:
+            latest_scan_index = (
+                int(self._scan_records[-1].scan_index)
+                if self._scan_records
+                else max(-1, int(self._next_scan_index) - 1)
+            )
+            self._last_manual_status_monotonic = now_monotonic
+            if motion_active:
+                self._manual_motion_seen = True
+                self._manual_motion_active = True
+                self._last_manual_motion_monotonic = now_monotonic
+                self._last_manual_motion_scan_index = latest_scan_index
+                self._manual_idle_started_monotonic = None
+                self._manual_idle_start_scan_index = None
+                return
+            if self._manual_motion_seen and self._manual_idle_started_monotonic is None:
+                self._manual_idle_started_monotonic = now_monotonic
+                self._manual_idle_start_scan_index = latest_scan_index
+            self._manual_motion_active = False
+
+    def _manual_status_has_motion_command(self, payload: dict[str, Any]) -> bool:
+        if not bool(payload.get("bridge_connected", False)):
+            return False
+        if not bool(payload.get("controller_connected", False)):
+            return False
+        if not bool(payload.get("enabled", False)):
+            return False
+        try:
+            linear_x_mps = float(payload.get("linear_x_mps", 0.0))
+        except Exception:
+            return False
+        return abs(linear_x_mps) > self._manual_motion_linear_deadband_mps
+
     def _scan_points_in_base_frame(self, msg: LaserScan) -> np.ndarray:
         points_xy: list[tuple[float, float]] = []
         angle_rad = float(msg.angle_min)
@@ -538,6 +662,19 @@ class OfflineSubmapRefiner(Node):
             return
         if self._processing_thread is not None and self._processing_thread.is_alive():
             return
+        close_reason = self._manual_idle_close_reason()
+        if close_reason:
+            self._last_gate_reason = ""
+            self._processing_thread = threading.Thread(
+                target=self._process_final_window,
+                args=(close_reason,),
+                daemon=True,
+            )
+            self._processing_thread.start()
+            return
+        with self._lock:
+            if self._analysis_closed or self._analysis_closing:
+                return
         pending_window, gate_reason = self._has_pending_window()
         if gate_reason and gate_reason != self._last_gate_reason:
             self.get_logger().info(f"Deferring offline window: {gate_reason}")
@@ -547,6 +684,57 @@ class OfflineSubmapRefiner(Node):
         self._last_gate_reason = ""
         self._processing_thread = threading.Thread(target=self._process_next_window, daemon=True)
         self._processing_thread.start()
+
+    def _manual_idle_close_reason(self) -> str:
+        if not self._enable_manual_idle_finalize:
+            return ""
+        now_monotonic = time.monotonic()
+        with self._lock:
+            if self._analysis_closed or self._analysis_closing:
+                return ""
+            if not self._manual_motion_seen:
+                return ""
+            if self._manual_motion_active:
+                status_age_s = (
+                    now_monotonic - self._last_manual_status_monotonic
+                    if self._last_manual_status_monotonic > 0.0
+                    else 0.0
+                )
+                if status_age_s <= self._manual_idle_timeout_s:
+                    return ""
+                self._manual_motion_active = False
+                self._manual_idle_started_monotonic = self._last_manual_status_monotonic
+                if self._manual_idle_start_scan_index is None:
+                    self._manual_idle_start_scan_index = (
+                        self._last_manual_motion_scan_index
+                        if self._last_manual_motion_scan_index >= 0
+                        else (
+                            int(self._scan_records[-1].scan_index)
+                            if self._scan_records
+                            else max(-1, int(self._next_scan_index) - 1)
+                        )
+                    )
+            idle_started = self._manual_idle_started_monotonic
+            if idle_started is None:
+                idle_started = self._last_manual_motion_monotonic
+                self._manual_idle_started_monotonic = idle_started
+                if self._manual_idle_start_scan_index is None:
+                    self._manual_idle_start_scan_index = (
+                        self._last_manual_motion_scan_index
+                        if self._last_manual_motion_scan_index >= 0
+                        else (
+                            int(self._scan_records[-1].scan_index)
+                            if self._scan_records
+                            else max(-1, int(self._next_scan_index) - 1)
+                        )
+                    )
+            if idle_started <= 0.0:
+                return ""
+            idle_s = now_monotonic - idle_started
+            if idle_s < self._manual_idle_timeout_s:
+                return ""
+            self._analysis_closing = True
+            return "manual_idle_timeout"
 
     def _has_pending_window(self) -> tuple[bool, str]:
         with self._lock:
@@ -585,107 +773,180 @@ class OfflineSubmapRefiner(Node):
             snapshot = self._window_snapshot()
             if snapshot is None:
                 return
-            (
-                window_records,
-                imu_records,
-                seed_records,
-                window_start_scan_index,
-                window_end_scan_index,
-            ) = snapshot
-            start_perf = time.perf_counter()
-            initial_poses, seed_available = self._build_initial_pose_chain(
-                window_records,
-                imu_records,
-                seed_records,
+            self._process_window_snapshot(snapshot, final_window=False, close_reason="")
+            self._republish_latest_outputs()
+        except Exception as exc:
+            self.get_logger().warn(f"Offline submap refinement failed: {repr(exc)}")
+
+    def _process_final_window(self, close_reason: str) -> None:
+        try:
+            self.get_logger().info(f"Closing offline analysis (reason={close_reason})")
+            snapshot, skip_reason = self._final_window_snapshot()
+            if snapshot is None:
+                self._finalize_without_new_window(
+                    close_reason=close_reason,
+                    skip_reason=skip_reason,
+                )
+                self._republish_latest_outputs()
+                return
+            self._process_window_snapshot(
+                snapshot,
+                final_window=True,
+                close_reason=close_reason,
             )
-            overlap_anchor_points = self._build_overlap_anchor_points(window_start_scan_index)
-            reference_deltas = self._build_reference_deltas(
-                window_records,
-                initial_poses,
-                imu_records,
-                seed_available,
-            )
-            refined_poses = initial_poses.copy()
-            for _ in range(3):
-                correspondences, qualities = self._build_correspondences(
-                    window_records,
-                    refined_poses,
-                    overlap_anchor_points,
-                )
-                updated_poses = self._refine_window_poses(
-                    window_records,
-                    refined_poses,
-                    initial_poses,
-                    imu_records,
-                    seed_available,
-                    correspondences,
-                    qualities,
-                    reference_deltas,
-                )
-                translation_update_m = float(
-                    np.max(np.linalg.norm(updated_poses[:, :2] - refined_poses[:, :2], axis=1))
-                )
-                yaw_update_rad = float(
-                    np.max(
-                        np.abs(
-                            [
-                                _wrap_angle(float(updated_poses[index, 2] - refined_poses[index, 2]))
-                                for index in range(updated_poses.shape[0])
-                            ]
-                        )
-                    )
-                )
-                refined_poses = updated_poses
-                if translation_update_m < 0.015 and yaw_update_rad < 0.02:
-                    break
+            self._republish_latest_outputs()
+        except Exception as exc:
+            with self._lock:
+                self._analysis_closing = False
+            self.get_logger().warn(f"Final offline submap refinement failed: {repr(exc)}")
+
+    def _process_window_snapshot(
+        self,
+        snapshot: tuple[list[ScanRecord], list[ImuRecord], list[OdomRecord], int, int],
+        *,
+        final_window: bool,
+        close_reason: str,
+    ) -> None:
+        (
+            window_records,
+            imu_records,
+            seed_records,
+            window_start_scan_index,
+            window_end_scan_index,
+        ) = snapshot
+        start_perf = time.perf_counter()
+        initial_poses, seed_available = self._build_initial_pose_chain(
+            window_records,
+            imu_records,
+            seed_records,
+        )
+        overlap_anchor_points = self._build_overlap_anchor_points(window_start_scan_index)
+        reference_deltas = self._build_reference_deltas(
+            window_records,
+            initial_poses,
+            imu_records,
+            seed_available,
+        )
+        refined_poses = initial_poses.copy()
+        for _ in range(3):
             correspondences, qualities = self._build_correspondences(
                 window_records,
                 refined_poses,
                 overlap_anchor_points,
             )
-            current_submap_points = self._build_window_submap_points(window_records, refined_poses)
-            self._merge_window_results(window_records, refined_poses, qualities)
-            accumulated_map_points, accumulated_path_poses = self._build_accumulated_outputs()
-            latest_pose = (
-                accumulated_path_poses[-1]
-                if accumulated_path_poses.shape[0]
-                else refined_poses[-1]
-            )
-            global_correction, global_correction_child_frame_id = self._compute_global_correction(
+            updated_poses = self._refine_window_poses(
                 window_records,
                 refined_poses,
-                seed_records,
+                initial_poses,
+                imu_records,
+                seed_available,
+                correspondences,
+                qualities,
+                reference_deltas,
             )
-            duration_ms = 1000.0 * (time.perf_counter() - start_perf)
-            status = self._status_payload(
-                window_start_scan_index=window_start_scan_index,
-                window_end_scan_index=window_end_scan_index,
-                qualities=qualities,
-                current_submap_points=current_submap_points,
-                accumulated_map_points=accumulated_map_points,
-                accumulated_path_poses=accumulated_path_poses,
-                latest_pose=latest_pose,
-                duration_ms=duration_ms,
-                seed_available=seed_available,
-                global_correction=global_correction,
-                global_correction_child_frame_id=global_correction_child_frame_id,
+            translation_update_m = float(
+                np.max(np.linalg.norm(updated_poses[:, :2] - refined_poses[:, :2], axis=1))
             )
-            with self._lock:
-                self._latest_submap_points = current_submap_points
-                self._latest_map_points = accumulated_map_points
-                self._latest_path_poses = accumulated_path_poses
-                self._latest_pose = latest_pose
-                self._latest_global_correction = global_correction
-                self._latest_global_correction_child_frame_id = global_correction_child_frame_id
-                self._latest_status.data = json.dumps(status, separators=(",", ":"))
-                self._processed_window_count += 1
-                self._next_window_start_index = max(
-                    0,
-                    int(window_end_scan_index) - self._window_overlap_count + 1,
+            yaw_update_rad = float(
+                np.max(
+                    np.abs(
+                        [
+                            _wrap_angle(float(updated_poses[index, 2] - refined_poses[index, 2]))
+                            for index in range(updated_poses.shape[0])
+                        ]
+                    )
                 )
-            self._republish_latest_outputs()
-        except Exception as exc:
-            self.get_logger().warn(f"Offline submap refinement failed: {repr(exc)}")
+            )
+            refined_poses = updated_poses
+            if translation_update_m < 0.015 and yaw_update_rad < 0.02:
+                break
+        correspondences, qualities = self._build_correspondences(
+            window_records,
+            refined_poses,
+            overlap_anchor_points,
+        )
+        inter_window_alignment = self._estimate_inter_window_alignment(
+            window_records,
+            refined_poses,
+            qualities,
+        )
+        if inter_window_alignment.applied:
+            refined_poses = self._apply_world_delta_to_poses(
+                refined_poses,
+                inter_window_alignment.applied_delta_xyyaw,
+            )
+            correspondences, qualities = self._build_correspondences(
+                window_records,
+                refined_poses,
+                overlap_anchor_points,
+            )
+        current_submap_points = self._build_window_submap_points(window_records, refined_poses)
+        self._merge_window_results(window_records, refined_poses, qualities)
+        accumulated_map_points, accumulated_path_poses = self._build_accumulated_outputs()
+        latest_pose = (
+            accumulated_path_poses[-1]
+            if accumulated_path_poses.shape[0]
+            else refined_poses[-1]
+        )
+        global_correction, global_correction_child_frame_id = self._compute_global_correction(
+            window_records,
+            refined_poses,
+            seed_records,
+        )
+        duration_ms = 1000.0 * (time.perf_counter() - start_perf)
+        status = self._status_payload(
+            window_start_scan_index=window_start_scan_index,
+            window_end_scan_index=window_end_scan_index,
+            qualities=qualities,
+            current_submap_points=current_submap_points,
+            accumulated_map_points=accumulated_map_points,
+            accumulated_path_poses=accumulated_path_poses,
+            latest_pose=latest_pose,
+            duration_ms=duration_ms,
+            seed_available=seed_available,
+            global_correction=global_correction,
+            global_correction_child_frame_id=global_correction_child_frame_id,
+            inter_window_alignment=inter_window_alignment,
+            final_window=final_window,
+            analysis_closed=final_window,
+            close_reason=close_reason,
+        )
+        saved_output_dir = ""
+        if final_window:
+            saved_output_dir = self._save_final_outputs(
+                map_points=accumulated_map_points,
+                path_poses=accumulated_path_poses,
+                status=status,
+                close_reason=close_reason,
+            )
+            if saved_output_dir:
+                status["saved_output_dir"] = saved_output_dir
+        with self._lock:
+            self._latest_submap_points = current_submap_points
+            self._latest_map_points = accumulated_map_points
+            self._latest_path_poses = accumulated_path_poses
+            self._latest_pose = latest_pose
+            self._latest_global_correction = global_correction
+            self._latest_global_correction_child_frame_id = global_correction_child_frame_id
+            self._latest_status.data = json.dumps(
+                self._json_ready(status),
+                separators=(",", ":"),
+            )
+            self._processed_window_count += 1
+            self._next_window_start_index = max(
+                0,
+                int(window_end_scan_index) - self._window_overlap_count + 1,
+            )
+            if final_window:
+                self._analysis_closed = True
+                self._analysis_closing = False
+                self._closed_reason = close_reason
+                self._saved_output_dir = saved_output_dir
+        if final_window:
+            self.get_logger().info(
+                "Offline analysis closed with final window "
+                f"{window_start_scan_index}-{window_end_scan_index}"
+            )
 
     def _window_snapshot(
         self,
@@ -732,6 +993,144 @@ class OfflineSubmapRefiner(Node):
             odom_window,
             int(window_records[0].scan_index),
             int(window_records[-1].scan_index),
+        )
+
+    def _final_window_snapshot(
+        self,
+    ) -> tuple[
+        tuple[list[ScanRecord], list[ImuRecord], list[OdomRecord], int, int] | None,
+        str,
+    ]:
+        with self._lock:
+            scan_records = list(self._scan_records)
+            if not scan_records:
+                return None, "no_scan_records"
+            oldest_index = int(scan_records[0].scan_index)
+            newest_index = int(scan_records[-1].scan_index)
+            latest_refined_index = max(self._refined_records) if self._refined_records else -1
+            requested_end_index = (
+                self._manual_idle_start_scan_index
+                if self._manual_idle_start_scan_index is not None
+                else self._last_manual_motion_scan_index
+            )
+            if requested_end_index is None or requested_end_index < oldest_index:
+                requested_end_index = newest_index
+            final_end = min(newest_index, max(oldest_index, int(requested_end_index)))
+            if latest_refined_index >= final_end:
+                return None, "no_unclosed_window"
+
+            window_start = max(self._next_window_start_index, oldest_index)
+            if window_start > final_end:
+                window_start = max(oldest_index, final_end - self._final_min_scan_count + 1)
+            if (final_end - window_start + 1) > self._window_scan_count:
+                window_start = max(oldest_index, final_end - self._window_scan_count + 1)
+
+            window_records = [
+                record
+                for record in scan_records
+                if window_start <= int(record.scan_index) <= final_end
+            ]
+            if len(window_records) < self._final_min_scan_count:
+                fallback_start = max(oldest_index, final_end - self._final_min_scan_count + 1)
+                window_records = [
+                    record
+                    for record in scan_records
+                    if fallback_start <= int(record.scan_index) <= final_end
+                ]
+            if len(window_records) < self._final_min_scan_count:
+                return (
+                    None,
+                    "insufficient_final_scans="
+                    f"{len(window_records)}/{self._final_min_scan_count}",
+                )
+
+            imu_records = list(self._imu_records)
+            seed_records = list(self._odom_records)
+
+        t_start = float(window_records[0].stamp_s)
+        t_end = float(window_records[-1].stamp_s)
+        imu_window = [
+            record
+            for record in imu_records
+            if (t_start - 0.2) <= float(record.stamp_s) <= (t_end + 0.2)
+        ]
+        odom_window = [
+            record
+            for record in seed_records
+            if (t_start - 0.5) <= float(record.stamp_s) <= (t_end + 0.5)
+        ]
+        return (
+            (
+                window_records,
+                imu_window,
+                odom_window,
+                int(window_records[0].scan_index),
+                int(window_records[-1].scan_index),
+            ),
+            "",
+        )
+
+    def _finalize_without_new_window(self, *, close_reason: str, skip_reason: str) -> None:
+        with self._lock:
+            map_points = self._latest_map_points.copy()
+            submap_point_count = int(self._latest_submap_points.shape[0])
+            path_poses = self._latest_path_poses.copy()
+            latest_pose = self._latest_pose.copy()
+            processed_window_count = int(self._processed_window_count)
+        initial_pose = (
+            path_poses[0].copy()
+            if path_poses.shape[0]
+            else latest_pose.copy()
+        )
+        final_pose = (
+            path_poses[-1].copy()
+            if path_poses.shape[0]
+            else latest_pose.copy()
+        )
+        status: dict[str, object] = {
+            "state": "analysis_closed",
+            "replay_mode": self._replay_mode,
+            "seed_odom_topic": self._seed_odom_topic,
+            "processed_window_count": processed_window_count,
+            "final_window": False,
+            "analysis_closed": True,
+            "close_reason": close_reason,
+            "skip_final_window_reason": skip_reason,
+            "manual_idle": {
+                "enabled": bool(self._enable_manual_idle_finalize),
+                "timeout_s": float(self._manual_idle_timeout_s),
+                "motion_linear_deadband_mps": float(self._manual_motion_linear_deadband_mps),
+                "status_topic": self._manual_status_topic,
+            },
+            "outputs": {
+                "current_submap_point_count": submap_point_count,
+                "accumulated_map_point_count": int(map_points.shape[0]),
+                "accumulated_path_pose_count": int(path_poses.shape[0]),
+            },
+            "initial_pose": self._pose_payload(initial_pose),
+            "latest_pose": self._pose_payload(final_pose),
+            "final_pose": self._pose_payload(final_pose),
+            "save_on_finalize": bool(self._save_on_finalize),
+        }
+        saved_output_dir = self._save_final_outputs(
+            map_points=map_points,
+            path_poses=path_poses,
+            status=status,
+            close_reason=close_reason,
+        )
+        if saved_output_dir:
+            status["saved_output_dir"] = saved_output_dir
+        with self._lock:
+            self._latest_status.data = json.dumps(
+                self._json_ready(status),
+                separators=(",", ":"),
+            )
+            self._analysis_closed = True
+            self._analysis_closing = False
+            self._closed_reason = close_reason
+            self._saved_output_dir = saved_output_dir
+        self.get_logger().info(
+            f"Offline analysis closed without final window ({skip_reason})"
         )
 
     def _seed_status_allows_window(
@@ -1237,6 +1636,154 @@ class OfflineSubmapRefiner(Node):
         refined[:, 2] = np.asarray([_wrap_angle(value) for value in refined[:, 2]], dtype=np.float64)
         return refined
 
+    def _inter_window_result(
+        self,
+        *,
+        applied: bool,
+        reason: str,
+        overlap_scan_count: int = 0,
+        paired_point_count: int = 0,
+        raw_delta_xyyaw: np.ndarray | None = None,
+        applied_delta_xyyaw: np.ndarray | None = None,
+    ) -> InterWindowAlignmentResult:
+        return InterWindowAlignmentResult(
+            enabled=bool(self._enable_inter_window_alignment),
+            applied=bool(applied),
+            reason=reason,
+            overlap_scan_count=int(overlap_scan_count),
+            paired_point_count=int(paired_point_count),
+            raw_delta_xyyaw=(
+                np.asarray(raw_delta_xyyaw, dtype=np.float64).copy()
+                if raw_delta_xyyaw is not None
+                else np.zeros(3, dtype=np.float64)
+            ),
+            applied_delta_xyyaw=(
+                np.asarray(applied_delta_xyyaw, dtype=np.float64).copy()
+                if applied_delta_xyyaw is not None
+                else np.zeros(3, dtype=np.float64)
+            ),
+        )
+
+    def _estimate_inter_window_alignment(
+        self,
+        window_records: list[ScanRecord],
+        refined_poses: np.ndarray,
+        qualities: list[ScanQuality],
+    ) -> InterWindowAlignmentResult:
+        if not self._enable_inter_window_alignment:
+            return self._inter_window_result(applied=False, reason="disabled")
+        if not self._refined_records:
+            return self._inter_window_result(applied=False, reason="no_prior_window")
+
+        source_chunks: list[np.ndarray] = []
+        target_chunks: list[np.ndarray] = []
+        overlap_scan_count = 0
+        for index, record in enumerate(window_records):
+            prior_record = self._refined_records.get(int(record.scan_index))
+            if prior_record is None:
+                continue
+            if str(prior_record.get("confidence", "low")) == "low":
+                continue
+            if index < len(qualities) and qualities[index].confidence == "low":
+                continue
+            points_xy = np.asarray(record.points_xy, dtype=np.float64)
+            if points_xy.shape[0] < 3:
+                continue
+            per_scan_limit = 120
+            stride = max(1, int(math.ceil(points_xy.shape[0] / per_scan_limit)))
+            sampled_points = points_xy[::stride]
+            previous_pose = np.asarray(prior_record["pose_xyyaw"], dtype=np.float64)
+            source_chunks.append(_transform_points(sampled_points, refined_poses[index]))
+            target_chunks.append(_transform_points(sampled_points, previous_pose))
+            overlap_scan_count += 1
+
+        if overlap_scan_count < self._inter_window_min_overlap_scans:
+            return self._inter_window_result(
+                applied=False,
+                reason="insufficient_overlap_scans",
+                overlap_scan_count=overlap_scan_count,
+            )
+        if not source_chunks or not target_chunks:
+            return self._inter_window_result(
+                applied=False,
+                reason="no_overlap_points",
+                overlap_scan_count=overlap_scan_count,
+            )
+
+        source_xy = np.vstack(source_chunks)
+        target_xy = np.vstack(target_chunks)
+        if source_xy.shape[0] > self._inter_window_max_points:
+            stride = max(1, int(math.ceil(source_xy.shape[0] / self._inter_window_max_points)))
+            source_xy = source_xy[::stride]
+            target_xy = target_xy[::stride]
+        paired_point_count = int(source_xy.shape[0])
+        if paired_point_count < self._inter_window_min_points:
+            return self._inter_window_result(
+                applied=False,
+                reason="insufficient_paired_points",
+                overlap_scan_count=overlap_scan_count,
+                paired_point_count=paired_point_count,
+            )
+
+        raw_delta_xyyaw = _best_fit_rigid_transform_2d(source_xy, target_xy)
+        if not np.all(np.isfinite(raw_delta_xyyaw)):
+            return self._inter_window_result(
+                applied=False,
+                reason="non_finite_delta",
+                overlap_scan_count=overlap_scan_count,
+                paired_point_count=paired_point_count,
+                raw_delta_xyyaw=raw_delta_xyyaw,
+            )
+
+        raw_translation_m = float(np.linalg.norm(raw_delta_xyyaw[:2]))
+        raw_yaw_rad = abs(float(raw_delta_xyyaw[2]))
+        if raw_translation_m > self._inter_window_max_translation_m:
+            return self._inter_window_result(
+                applied=False,
+                reason="translation_limit",
+                overlap_scan_count=overlap_scan_count,
+                paired_point_count=paired_point_count,
+                raw_delta_xyyaw=raw_delta_xyyaw,
+            )
+        if raw_yaw_rad > self._inter_window_max_yaw_rad:
+            return self._inter_window_result(
+                applied=False,
+                reason="yaw_limit",
+                overlap_scan_count=overlap_scan_count,
+                paired_point_count=paired_point_count,
+                raw_delta_xyyaw=raw_delta_xyyaw,
+            )
+
+        applied_delta_xyyaw = raw_delta_xyyaw.copy()
+        applied_delta_xyyaw[:2] *= self._inter_window_alignment_gain
+        applied_delta_xyyaw[2] = _wrap_angle(
+            float(applied_delta_xyyaw[2]) * self._inter_window_alignment_gain
+        )
+        return self._inter_window_result(
+            applied=True,
+            reason="applied",
+            overlap_scan_count=overlap_scan_count,
+            paired_point_count=paired_point_count,
+            raw_delta_xyyaw=raw_delta_xyyaw,
+            applied_delta_xyyaw=applied_delta_xyyaw,
+        )
+
+    def _apply_world_delta_to_poses(
+        self,
+        poses_xyyaw: np.ndarray,
+        delta_xyyaw: np.ndarray,
+    ) -> np.ndarray:
+        poses = np.asarray(poses_xyyaw, dtype=np.float64)
+        delta = np.asarray(delta_xyyaw, dtype=np.float64)
+        corrected = poses.copy()
+        rotation = _rotation_matrix(float(delta[2]))
+        corrected[:, :2] = (poses[:, :2] @ rotation.T) + delta[:2]
+        corrected[:, 2] = np.asarray(
+            [_wrap_angle(float(yaw) + float(delta[2])) for yaw in poses[:, 2]],
+            dtype=np.float64,
+        )
+        return corrected
+
     def _build_window_submap_points(
         self,
         window_records: list[ScanRecord],
@@ -1312,6 +1859,10 @@ class OfflineSubmapRefiner(Node):
         seed_available: bool,
         global_correction: np.ndarray,
         global_correction_child_frame_id: str,
+        inter_window_alignment: InterWindowAlignmentResult,
+        final_window: bool = False,
+        analysis_closed: bool = False,
+        close_reason: str = "",
     ) -> dict[str, object]:
         high_count = sum(1 for quality in qualities if quality.confidence == "high")
         medium_count = sum(1 for quality in qualities if quality.confidence == "medium")
@@ -1323,11 +1874,20 @@ class OfflineSubmapRefiner(Node):
             if math.isfinite(quality.median_residual_m)
         ]
         return {
-            "state": "window_refined",
+            "state": "analysis_closed" if analysis_closed else "window_refined",
             "replay_mode": self._replay_mode,
             "seed_odom_topic": self._seed_odom_topic,
             "seed_available": seed_available,
             "processed_window_count": int(self._processed_window_count + 1),
+            "final_window": bool(final_window),
+            "analysis_closed": bool(analysis_closed),
+            "close_reason": str(close_reason),
+            "manual_idle": {
+                "enabled": bool(self._enable_manual_idle_finalize),
+                "timeout_s": float(self._manual_idle_timeout_s),
+                "motion_linear_deadband_mps": float(self._manual_motion_linear_deadband_mps),
+                "status_topic": self._manual_status_topic,
+            },
             "window": {
                 "start_scan_index": int(window_start_scan_index),
                 "end_scan_index": int(window_end_scan_index),
@@ -1357,6 +1917,10 @@ class OfflineSubmapRefiner(Node):
                 "y_m": float(latest_pose[1]),
                 "yaw_rad": float(latest_pose[2]),
             },
+            "initial_pose": self._pose_payload(
+                accumulated_path_poses[0] if accumulated_path_poses.shape[0] else latest_pose
+            ),
+            "final_pose": self._pose_payload(latest_pose),
             "global_correction": {
                 "enabled": bool(self._publish_global_correction),
                 "child_frame_id": str(global_correction_child_frame_id),
@@ -1365,14 +1929,177 @@ class OfflineSubmapRefiner(Node):
                 "yaw_rad": float(global_correction[2]),
                 "translation_norm_m": float(np.linalg.norm(global_correction[:2])),
             },
+            "inter_window_alignment": {
+                "enabled": bool(inter_window_alignment.enabled),
+                "applied": bool(inter_window_alignment.applied),
+                "reason": str(inter_window_alignment.reason),
+                "overlap_scan_count": int(inter_window_alignment.overlap_scan_count),
+                "paired_point_count": int(inter_window_alignment.paired_point_count),
+                "gain": float(self._inter_window_alignment_gain),
+                "raw": {
+                    "x_m": float(inter_window_alignment.raw_delta_xyyaw[0]),
+                    "y_m": float(inter_window_alignment.raw_delta_xyyaw[1]),
+                    "yaw_rad": float(inter_window_alignment.raw_delta_xyyaw[2]),
+                    "translation_norm_m": float(
+                        np.linalg.norm(inter_window_alignment.raw_delta_xyyaw[:2])
+                    ),
+                },
+                "applied_delta": {
+                    "x_m": float(inter_window_alignment.applied_delta_xyyaw[0]),
+                    "y_m": float(inter_window_alignment.applied_delta_xyyaw[1]),
+                    "yaw_rad": float(inter_window_alignment.applied_delta_xyyaw[2]),
+                    "translation_norm_m": float(
+                        np.linalg.norm(inter_window_alignment.applied_delta_xyyaw[:2])
+                    ),
+                },
+            },
             "track_geometry_prior": {
                 "enabled": bool(self._use_track_geometry_prior and self._track_geometry_tree is not None),
                 "point_count": int(self._track_geometry_points.shape[0]),
                 "weight": float(self._track_geometry_weight),
                 "file": self._track_geometry_file,
             },
+            "save_on_finalize": bool(self._save_on_finalize),
             "processing_ms": float(duration_ms),
         }
+
+    def _pose_payload(self, pose_xyyaw: np.ndarray) -> dict[str, object]:
+        pose = np.asarray(pose_xyyaw, dtype=np.float64)
+        qx, qy, qz, qw = _yaw_to_quat(float(pose[2]))
+        return {
+            "frame_id": self._frame_id,
+            "child_frame_id": self._child_frame_id,
+            "x_m": float(pose[0]),
+            "y_m": float(pose[1]),
+            "yaw_rad": float(pose[2]),
+            "orientation": {
+                "x": qx,
+                "y": qy,
+                "z": qz,
+                "w": qw,
+            },
+        }
+
+    def _save_final_outputs(
+        self,
+        *,
+        map_points: np.ndarray,
+        path_poses: np.ndarray,
+        status: dict[str, object],
+        close_reason: str,
+    ) -> str:
+        if not self._save_on_finalize:
+            return ""
+        output_root = Path(
+            self._save_output_dir or "/tmp/apex_offline_refined_maps"
+        ).expanduser()
+        try:
+            output_root.mkdir(parents=True, exist_ok=True)
+            base_name = time.strftime("offline_refined_%Y%m%d_%H%M%S")
+            output_dir = output_root / base_name
+            for suffix in range(1000):
+                candidate = (
+                    output_dir
+                    if suffix == 0
+                    else output_root / f"{base_name}_{suffix:03d}"
+                )
+                try:
+                    candidate.mkdir(parents=True, exist_ok=False)
+                except FileExistsError:
+                    continue
+                output_dir = candidate
+                break
+            else:
+                output_dir = output_root / f"{base_name}_{time.monotonic_ns()}"
+                output_dir.mkdir(parents=True, exist_ok=False)
+
+            map_xy = np.asarray(map_points, dtype=np.float64)
+            if map_xy.size == 0:
+                map_xy = np.empty((0, 2), dtype=np.float64)
+            else:
+                map_xy = map_xy.reshape((-1, 2))
+            path_xyyaw = np.asarray(path_poses, dtype=np.float64)
+            if path_xyyaw.size == 0:
+                path_xyyaw = np.empty((0, 3), dtype=np.float64)
+            else:
+                path_xyyaw = path_xyyaw.reshape((-1, 3))
+
+            np.savetxt(
+                output_dir / "map_points_xy.csv",
+                map_xy,
+                delimiter=",",
+                header="x_m,y_m",
+                comments="",
+            )
+            indexed_path = (
+                np.column_stack((np.arange(path_xyyaw.shape[0], dtype=np.int64), path_xyyaw))
+                if path_xyyaw.shape[0]
+                else np.empty((0, 4), dtype=np.float64)
+            )
+            np.savetxt(
+                output_dir / "path_poses_xyyaw.csv",
+                indexed_path,
+                delimiter=",",
+                header="index,x_m,y_m,yaw_rad",
+                comments="",
+            )
+            initial_pose = (
+                path_xyyaw[0] if path_xyyaw.shape[0] else np.zeros(3, dtype=np.float64)
+            )
+            final_pose = (
+                path_xyyaw[-1] if path_xyyaw.shape[0] else np.zeros(3, dtype=np.float64)
+            )
+            poses_payload = {
+                "frame_id": self._frame_id,
+                "child_frame_id": self._child_frame_id,
+                "close_reason": close_reason,
+                "initial_pose": status.get(
+                    "initial_pose",
+                    self._pose_payload(initial_pose),
+                ),
+                "final_pose": status.get(
+                    "final_pose",
+                    self._pose_payload(final_pose),
+                ),
+                "path_pose_count": int(path_xyyaw.shape[0]),
+                "map_point_count": int(map_xy.shape[0]),
+            }
+            (output_dir / "poses.json").write_text(
+                json.dumps(self._json_ready(poses_payload), indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            status_payload = dict(status)
+            status_payload["saved_output_dir"] = str(output_dir)
+            status_payload["saved_files"] = [
+                "map_points_xy.csv",
+                "path_poses_xyyaw.csv",
+                "poses.json",
+                "status.json",
+            ]
+            (output_dir / "status.json").write_text(
+                json.dumps(self._json_ready(status_payload), indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            self.get_logger().info(f"Offline refined map saved to {output_dir}")
+            return str(output_dir)
+        except Exception as exc:
+            self.get_logger().warn(f"Could not save offline refined map: {repr(exc)}")
+            return ""
+
+    def _json_ready(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(key): self._json_ready(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._json_ready(item) for item in value]
+        if isinstance(value, np.ndarray):
+            return self._json_ready(value.tolist())
+        if isinstance(value, (np.integer,)):
+            return int(value)
+        if isinstance(value, (np.floating,)):
+            value = float(value)
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
+        return value
 
     def _republish_latest_outputs(self) -> None:
         now_msg = self.get_clock().now().to_msg()

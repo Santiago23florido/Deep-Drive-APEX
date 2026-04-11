@@ -92,7 +92,7 @@ Antes, genera una vez el puente Windows:
 Luego abre en Windows:
 
 ```text
-APEX/tools/windows/dist/apex_xbox_bridge.exe
+APEX/tools/windows/dist/apex_xbox_bridge_sim.exe
 ```
 
 Por defecto:
@@ -134,7 +134,7 @@ Notas:
 
 - En este modo `slam_toolbox` usa el `LaserScan` ideal de Gazebo en `/apex/sim/scan`.
 - La odometria ideal para SLAM sale de `/apex/sim/ground_truth/odom` y se adapta a la cadena `odom -> base_link`.
-- Usa `control_mode:=manual_windows_bridge` cuando el mando entra por `APEX/tools/windows/dist/apex_xbox_bridge.exe` y llega a WSL por el puente de Windows.
+- Usa `control_mode:=manual_windows_bridge` cuando el mando entra por `APEX/tools/windows/dist/apex_xbox_bridge_sim.exe` y llega a WSL por el puente de Windows.
 - Usa `control_mode:=manual_xbox` solo si Linux/WSL ve el joystick directamente por `pygame`.
 
 Escenarios disponibles:

@@ -10,7 +10,7 @@ shift || true
 echo "[APEX] Syncing code-only payload to ${REMOTE_TARGET}"
 
 rsync -av \
-  --no-perms --no-owner --no-group \
+  --no-perms --no-owner --no-group --omit-dir-times \
   --exclude '.git/' \
   --exclude '__pycache__/' \
   --exclude '*.pyc' \
@@ -27,6 +27,9 @@ rsync -av \
   --exclude 'apex_static_curve/' \
   --exclude 'ros2_ws/apex_curve_track/' \
   --exclude 'ros2_ws/apex_recognition_tour/' \
+  --exclude 'ros2_ws/build/' \
+  --exclude 'ros2_ws/install/' \
+  --exclude 'ros2_ws/log/' \
   --exclude 'ros2_ws/logs/' \
   --exclude 'docker_tail.log' \
   --exclude 'capture_meta.json' \

@@ -36,6 +36,8 @@ export APEX_ENABLE_PATH_TRACKER="${APEX_ENABLE_PATH_TRACKER:-0}"
 export APEX_ENABLE_RECOGNITION_TOUR_PLANNER="${APEX_ENABLE_RECOGNITION_TOUR_PLANNER:-0}"
 export APEX_ENABLE_RECOGNITION_TOUR_TRACKER="${APEX_ENABLE_RECOGNITION_TOUR_TRACKER:-0}"
 export APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-0}"
+export APEX_ENABLE_MANUAL_CONTROL_BRIDGE="${APEX_ENABLE_MANUAL_CONTROL_BRIDGE:-0}"
+export APEX_ENABLE_RECOGNITION_SESSION_MANAGER="${APEX_ENABLE_RECOGNITION_SESSION_MANAGER:-0}"
 
 if [[ "${STARTUP_COMPAT}" == "safe" ]]; then
   POSTCHECK_READY_DELAY_S="${APEX_RAW_POSTCHECK_READY_DELAY_S:-8}"
@@ -167,5 +169,17 @@ fi
 if [[ "${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
   require_topic /apex/vehicle/drive_bridge_status || {
     postcheck_fail "Missing /apex/vehicle/drive_bridge_status in raw-capture mode"
+  }
+fi
+
+if [[ "${APEX_ENABLE_MANUAL_CONTROL_BRIDGE}" == "1" ]]; then
+  require_topic /apex/manual_control/status || {
+    postcheck_fail "Missing /apex/manual_control/status in real-ready mode"
+  }
+fi
+
+if [[ "${APEX_ENABLE_RECOGNITION_SESSION_MANAGER}" == "1" ]]; then
+  require_topic /apex/recognition_session/status || {
+    postcheck_fail "Missing /apex/recognition_session/status in real-ready mode"
   }
 fi
