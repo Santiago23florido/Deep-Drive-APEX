@@ -29,6 +29,7 @@ def generate_launch_description() -> LaunchDescription:
     enable_curve_entry_planner = LaunchConfiguration("enable_curve_entry_planner")
     enable_path_tracker = LaunchConfiguration("enable_path_tracker")
     enable_recognition_tour_planner = LaunchConfiguration("enable_recognition_tour_planner")
+    enable_trajectory_supervisor = LaunchConfiguration("enable_trajectory_supervisor")
     enable_recognition_tour_tracker = LaunchConfiguration("enable_recognition_tour_tracker")
     enable_cmdvel_actuation_bridge = LaunchConfiguration("enable_cmdvel_actuation_bridge")
 
@@ -131,6 +132,15 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(enable_recognition_tour_planner),
     )
 
+    trajectory_supervisor = Node(
+        package="apex_telemetry",
+        executable="trajectory_supervisor_node",
+        name="trajectory_supervisor_node",
+        output="screen",
+        parameters=[params_file, {"use_sim_time": use_sim_time}],
+        condition=IfCondition(enable_trajectory_supervisor),
+    )
+
     recognition_tour_tracker = Node(
         package="apex_telemetry",
         executable="recognition_tour_tracker_node",
@@ -189,6 +199,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("enable_curve_entry_planner", default_value="false"),
             DeclareLaunchArgument("enable_path_tracker", default_value="false"),
             DeclareLaunchArgument("enable_recognition_tour_planner", default_value="false"),
+            DeclareLaunchArgument("enable_trajectory_supervisor", default_value="false"),
             DeclareLaunchArgument("enable_recognition_tour_tracker", default_value="false"),
             DeclareLaunchArgument("enable_cmdvel_actuation_bridge", default_value="false"),
             serial_reader,
@@ -200,6 +211,7 @@ def generate_launch_description() -> LaunchDescription:
             curve_entry_path_planner,
             curve_path_tracker,
             recognition_tour_planner,
+            trajectory_supervisor,
             recognition_tour_tracker,
             cmdvel_actuation_bridge,
         ]

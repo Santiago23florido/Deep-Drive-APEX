@@ -15,6 +15,7 @@ The goal of this documentation is to explain the code as a set of cooperating mo
 - [Curve Window Detection](./curve-window-detection.md)
 - [Curve Entry Path Planner](./curve-entry-path-planner.md)
 - [Curve Path Tracker](./curve-path-tracker.md)
+- [Trajectory Supervisor](./trajectory-supervisor.md)
 - [Actuation Bridge and ESC/Servo Mapping](./actuation-bridge.md)
 - [Final Tests README](./FINAL_TESTS_README.md)
 - [Final Test Commands](./final-test-commands.md)

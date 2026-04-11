@@ -387,6 +387,46 @@ fixed_map_route_planner_node:
     clearance_min_m: 0.15
     replan_backtrack_points: 2
 
+trajectory_supervisor_node:
+  ros__parameters:
+    global_path_topic: "/apex/planning/fixed_map_path"
+    global_status_topic: "/apex/planning/fixed_map_status"
+    scan_topic: "/lidar/scan_localization"
+    odom_topic: "/apex/odometry/fixed_map_localized"
+    local_path_topic: "/apex/planning/trajectory_supervisor/local_path"
+    status_topic: "/apex/planning/trajectory_supervisor/status"
+    frame_id: "odom_imu_lidar_fused"
+    scan_projection_mode: "apex_forward_left"
+    plan_rate_hz: 10.0
+    scan_timeout_s: 0.45
+    odom_timeout_s: 0.75
+    lookahead_distance: 1.8
+    local_window_length: 2.0
+    local_window_width: 1.8
+    path_resample_step_m: 0.04
+    obstacle_inflation_radius: 0.14
+    collision_distance_threshold: 0.14
+    path_corridor_width_m: 0.14
+    rejoin_distance_threshold: 0.16
+    max_avoid_curvature: 0.0
+    wheelbase_m: 0.30
+    max_steering_deg: 18.0
+    emergency_stop_distance: 0.28
+    num_candidate_paths: 7
+    candidate_offset_values: [-0.42, -0.28, -0.14, 0.0, 0.14, 0.28, 0.42]
+    candidate_clearance_weight: 0.70
+    candidate_deviation_weight: 1.20
+    candidate_curvature_weight: 0.20
+    candidate_previous_offset_weight: 0.35
+    path_smoothing_alpha: 0.18
+    path_smoothing_max_iterations: 80
+    min_path_forward_span_m: 0.55
+    lidar_offset_x_m: 0.18
+    lidar_offset_y_m: 0.0
+    tracking_origin_offset_x_m: 0.0
+    tracking_origin_offset_y_m: 0.0
+    publish_pass_through_when_scan_missing: true
+
 recognition_tour_tracker_node:
   ros__parameters:
     path_topic: "/apex/planning/recognition_tour_local_path"

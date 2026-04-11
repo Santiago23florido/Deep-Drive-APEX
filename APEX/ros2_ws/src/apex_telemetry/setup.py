@@ -47,6 +47,7 @@ setup(
             "curve_entry_path_planner_node = apex_telemetry.perception.curve_entry_path_planner_node:main",
             "recognition_tour_planner_node = apex_telemetry.perception.recognition_tour_planner_node:main",
             "fixed_map_route_planner_node = apex_telemetry.perception.fixed_map_route_planner_node:main",
+            "trajectory_supervisor_node = apex_telemetry.perception.trajectory_supervisor_node:main",
             "curve_path_tracker_node = apex_telemetry.control.curve_path_tracker_node:main",
             "recognition_tour_tracker_node = apex_telemetry.control.recognition_tour_tracker_node:main",
             "apex_windows_gamepad_bridge_node = apex_telemetry.control.windows_gamepad_bridge_node:main",
