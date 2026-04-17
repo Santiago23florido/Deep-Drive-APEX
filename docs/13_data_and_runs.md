@@ -29,6 +29,8 @@ These artifacts are used for debugging, evaluation, mapping, replay, and post-ru
 
 Some run folders may be large. Treat them as experimental artifacts unless a specific run is promoted to a baseline dataset.
 
+Local virtual environments, runtime PID/status folders, generated logs, and legacy simulator log exports are intentionally not part of the repository source set. Recreate Python environments locally, and let APEX regenerate `APEX/.apex_runtime/` and `APEX/ros2_ws/logs/` during execution.
+
 ## Recognition-Tour Run Structure
 
 The real recognition-tour capture script writes under:
@@ -103,6 +105,8 @@ The parameter file references a status path similar to:
 
 This path is inside the Docker container view of the repository. On the host, it corresponds to the mounted repository under `APEX/.apex_runtime`.
 
+`APEX/.apex_runtime/` is generated runtime state. It should be ignored by Git and removed between sessions when stale PID/status files cause confusion.
+
 ## Simulation Run Data
 
 Simulation recording tools in `rc_sim_description` can write run data under:
@@ -154,4 +158,3 @@ For example, the active `recognition_tour_diagnostic_report.md` describes one re
 - [Mapping and Recording Pipeline](18_mapping_and_recording_pipeline.md)
 - [Troubleshooting](15_troubleshooting.md)
 - [Known Limitations and Legacy Parts](16_known_limitations_and_legacy_parts.md)
-

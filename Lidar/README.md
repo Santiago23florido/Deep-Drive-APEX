@@ -135,6 +135,8 @@ python -m pip install -U pip
 python -m pip install -r Lidar/pc/requirements.txt
 ```
 
+`.venv_lidar/` is a local virtual environment. It is intentionally ignored by Git and should be recreated on each developer machine instead of committed.
+
 ### 2.4 Start subscriber (console summary)
 
 ```bash

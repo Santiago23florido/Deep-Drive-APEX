@@ -15,6 +15,7 @@ log/
 __pycache__/
 *.pyc
 .venv*/
+.codex_pydeps/
 
 # VS Code / IDE
 .vscode/
@@ -29,4 +30,10 @@ __pycache__/
 # APEX debug artifacts
 APEX/debug_runs/
 APEX/.apex_runtime/
+APEX/ros2_ws/logs/
 src/rc_sim_description/data/runs/
+
+# Legacy generated artifacts
+full_soft/docs/.old_images/
+full_soft/Simulateur/logs_simulation/
+full_soft/Simulateur/*.zip
