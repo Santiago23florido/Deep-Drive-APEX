@@ -1,103 +1,80 @@
-# RC Simulation Description
+# Deep Drive APEX
 
-Description package for a simple RC car in ROS 2 with Gazebo (gz). Instructions are tailored for WSL2 on Windows with Ubuntu 24.04 (Noble) and ROS Jazzy.
+Deep Drive APEX is a ROS 2 and Gazebo-based autonomous RC car project. It includes a current APEX workflow for Gazebo simulation and the real blue vehicle ("voiture blue"), plus alternate and legacy stacks that are documented separately.
 
-## Package layout
-- `urdf/`: `rc_car.urdf.xacro` with steerable front wheels.
-- `launch/`: `spawn_rc_car.launch.py` starts Gazebo (gz) and spawns the robot.
-- `worlds/`: `basic_track.world` with a rectangular track and arrow marker (local ground and light, no `model://`).
-- `config/rviz/`: quick RViz config (optional).
-- `meshes/`: placeholder for custom meshes.
+This root README is the main navigation hub. The detailed technical documentation lives in [`docs/`](docs/), while supplementary report material is grouped under [`docs/Reportes/`](docs/Reportes/).
 
-## Installation (WSL2, Ubuntu 24.04, ROS Jazzy)
-1) Base tools:
-```
-sudo apt update
-sudo apt install -y curl gnupg2 lsb-release software-properties-common \
-  build-essential git python3-colcon-common-extensions python3-vcstool
-```
+## Documentation at a Glance
 
-2) Add ROS 2 Jazzy apt repo:
-```
-sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2.list
-sudo apt update
-```
+The documentation explains the project from both user and developer perspectives: installation, quick start workflows, ROS package architecture, Gazebo simulation, real blue-car operation, launch flows, topics, parameters, data recording, hardware interfaces, troubleshooting, and known legacy areas.
 
-3) Install ROS desktop and runtime deps:
-```
-sudo apt install -y ros-jazzy-desktop \
-  ros-jazzy-ros-gz-sim \
-  ros-jazzy-joint-state-publisher ros-jazzy-robot-state-publisher ros-jazzy-xacro
-```
+## Start Here
 
-4) Install rosdep (on Noble use `python3-rosdep`), init and update:
-```
-sudo apt install -y python3-rosdep
-sudo rosdep init        # first time only
-rosdep update
-```
+| Goal | Recommended page |
+| --- | --- |
+| Understand the project | [📘 Project Overview](docs/01_project_overview.md) |
+| Find the full documentation map | [🧭 Documentation Index](docs/00_index.md) |
+| Run something quickly | [🚀 Quick Start](docs/05_quick_start.md) |
+| Work with Gazebo simulation | [🕹 Gazebo Simulation](docs/08_simulation_gazebo.md) |
+| Work with the real blue car | [🚗 Blue Vehicle Real System](docs/09_blue_vehicle_real_system.md) |
+| Learn the ROS graph | [🧠 ROS Architecture](docs/07_ros_architecture.md) |
 
-5) (Optional) Confirm `gz` is on PATH:
-```
-gz --help
-```
+## Documentation Index
 
-6) Build the workspace (use symlink install so changes in `urdf/` are picked up without reinstalling):
-```
-cd ~/AiAtonomousRc
-source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install
-source install/setup.bash
-```
+### 📘 Overview
 
-## Run
-Launch Gazebo and spawn the car:
-```
-ros2 launch rc_sim_description spawn_rc_car.launch.py
-```
-Defaults: `x:=0.0`, `y:=-2.5`, `z:=0.02`.
+- [📘 Documentation Index](docs/00_index.md) - entry point for the full documentation set.
+- [🌍 Project Overview](docs/01_project_overview.md) - objectives, scope, technology stack, and current workflow.
+- [🗂 Repository Structure](docs/02_repository_structure.md) - top-level folders, ROS packages, auxiliary areas, and legacy code.
 
-## Control nodes (nodos de control)
-This package uses ROS <-> Gazebo bridges plus control nodes:
-- `rear_wheel_speed_bridge.py`: subscribes to `/rear_wheel_speed` and `/steering_angle` (Float64) and forwards them to Gazebo joints. Enabled by default in `spawn_rc_car.launch.py` (`rear_wheel_bridge:=true`).
-- `gazebo_lidar_reader_node.py`: subscribes to `/scan`, applies filtering, and publishes `/lidar_processed` (LaserScan). Enabled by default (`lidar_reader:=true`).
-- `voiture_control_node.py`: subscribes to `/lidar_processed` and `/measured_wheelspeed`, publishes `/rear_wheel_speed` and `/steering_angle`. Enabled by default (`control_node:=true`).
-- `turning_command_mapper.py`: subscribes to `/cmd_vel` (Twist). Uses `linear.x` as vehicle speed (m/s) and `angular.z` as steering angle. By default it expects degrees (`steering_angle_unit=deg`) and publishes `/rear_wheel_speed` (rad/s) and `/steering_angle` (rad).
-- `rear_wheel_speed_publisher.py`: demo publisher for `/rear_wheel_speed` and `/steering_angle`.
+### ⚙️ Setup
 
-### Example (2 terminals)
-Terminal 1 (full sim):
-```
-source /opt/ros/jazzy/setup.bash
-cd ~/AiAtonomousRc
-colcon build --packages-select rc_sim_description --symlink-install
-source install/setup.bash
-ros2 launch rc_sim_description spawn_rc_car.launch.py
-```
+- [🐧 Installation on Linux](docs/03_installation_linux.md) - Ubuntu, ROS 2 Jazzy, Gazebo, dependencies, and build steps.
+- [🪟 Installation on Windows](docs/04_installation_windows.md) - WSL2 guidance and native Windows caveats.
+- [🚀 Quick Start](docs/05_quick_start.md) - fastest build, simulation, and real-car commands.
+- [🎛 Configuration Reference](docs/17_configuration_reference.md) - important YAML, JSON, launch, and Docker configuration.
 
-Terminal 2 (camera image):
-```
-ros2 run image_tools showimage --ros-args -r image:=/camera/image_raw
-```
+### 🧠 Architecture
 
-Note: Do not run `rear_wheel_speed_publisher.py` at the same time as
-`turning_command_mapper.py` unless you want overlapping commands.
+- [🏗 System Architecture](docs/06_system_architecture.md) - high-level data flow and subsystem responsibilities.
+- [🧠 ROS Architecture](docs/07_ros_architecture.md) - packages, nodes, topics, TF, URDF/Xacro, and Gazebo bridges.
+- [📦 Packages and Modules](docs/10_packages_and_modules.md) - package-by-package responsibilities and executables.
+- [▶️ Launch Files and Execution Flows](docs/11_launch_files_and_execution_flows.md) - recommended entry points and runtime flows.
+- [🔌 Topics, Services, Actions, and Parameters](docs/12_topics_services_actions_parameters.md) - ROS interface reference.
 
-## After changes to the Xacro/URDF
-If you edit `src/rc_sim_description/urdf/rc_car.urdf.xacro`, rebuild and re-source:
-```
-cd ~/AiAtonomousRc
-colcon build --packages-select rc_sim_description --symlink-install
-source install/setup.bash
-```
+### 🕹 Simulation
 
-Useful arguments:
-- `x`, `y`, `z`: initial pose (keep `z` > 0 to avoid spawn collision).
-- `world`: SDF world path (defaults to `worlds/basic_track.world`).
-- `rviz:=true` to open RViz (default `false`, Gazebo only).
+- [🕹 Gazebo Simulation](docs/08_simulation_gazebo.md) - Gazebo Sim worlds, vehicle model, sensors, bridges, and control flow.
+- [🗺 Mapping and Recording Pipeline](docs/18_mapping_and_recording_pipeline.md) - simulation and real capture workflows, offline refinement, and analysis.
+- [📊 Data and Runs](docs/13_data_and_runs.md) - run artifacts, logs, CSV files, maps, trajectories, and diagnostics.
 
-## WSL notes
-- Use WSLg or an X/Wayland server to view the Gazebo GUI; on Windows 11 with WSLg it usually works out of the box.
-- If you switch ROS or Gazebo distros, adjust package names accordingly.
--Use networkingMode=mirrored
+### 🚗 Real Vehicle
+
+- [🚗 Blue Vehicle Real System](docs/09_blue_vehicle_real_system.md) - APEX real-car workflow for the current blue vehicle.
+- [🔋 Hardware Interfaces](docs/19_hardware_interfaces.md) - IMU, LiDAR, PWM, Docker devices, networking, and gamepad bridge.
+
+### 🛠 Developer Reference
+
+- [🛠 Developer Guide](docs/14_developer_guide.md) - how to extend nodes, launch files, configuration, and documentation.
+- [🧪 Troubleshooting](docs/15_troubleshooting.md) - build, Gazebo, Docker, ROS, networking, and hardware debugging.
+- [⚠️ Known Limitations and Legacy Parts](docs/16_known_limitations_and_legacy_parts.md) - alternate stacks, older code, and cleanup recommendations.
+- [📚 ROS Glossary](docs/20_glossary_ros_terms.md) - beginner-friendly ROS and Gazebo terminology.
+
+### 📎 Reports
+
+Supplementary French report materials are stored separately from the main documentation set:
+
+- [📄 Simulation Status Report](docs/Reportes/simulation-status/SimulationStatus.pdf) - PDF report and LaTeX sources for the simulator status.
+- [📄 Software Selection Report](docs/Reportes/software-selection/SoftwareSelection.pdf) - PDF report and LaTeX sources for simulation software selection.
+- [📁 Report Folder](docs/Reportes/) - grouped report sources, PDFs, build artifacts, and related assets.
+
+## Current Workflow Summary
+
+| Workflow | Status | Main documentation |
+| --- | --- | --- |
+| APEX Gazebo simulation | Recommended | [🕹 Gazebo Simulation](docs/08_simulation_gazebo.md) |
+| APEX real blue-car stack | Recommended | [🚗 Blue Vehicle Real System](docs/09_blue_vehicle_real_system.md) |
+| `voiture_system` SLAM/Nav2 stack | Alternate | [📦 Packages and Modules](docs/10_packages_and_modules.md) |
+| `full_soft` and older utilities | Legacy or auxiliary | [⚠️ Known Limitations and Legacy Parts](docs/16_known_limitations_and_legacy_parts.md) |
+
+For new work, start with the APEX documentation and use the alternate or legacy sections only when maintaining those specific paths.
