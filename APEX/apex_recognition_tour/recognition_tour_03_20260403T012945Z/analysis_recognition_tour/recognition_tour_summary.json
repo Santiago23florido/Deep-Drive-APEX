@@ -1,0 +1,80 @@
+{
+  "run_dir": "/work/ros2_ws/apex_recognition_tour/recognition_tour_03_20260403T012945Z",
+  "initial_pose": {
+    "x_m": 0.038400721650150196,
+    "y_m": -0.26423334579715,
+    "yaw_rad": 0.060696501993900705,
+    "vx_mps": -5.848214692478682e-17,
+    "vy_mps": 1.9791684007832636e-15,
+    "yaw_rate_rps": 0.0
+  },
+  "final_pose": {
+    "x_m": 1.7847424972693602,
+    "y_m": -0.35155543152483326,
+    "yaw_rad": 0.06973653518264608,
+    "vx_mps": -5.84560295070175e-17,
+    "vy_mps": 1.9782845281712408e-15,
+    "yaw_rate_rps": 0.0
+  },
+  "time_total_s": 9.113245688999996,
+  "end_cause": "aborted_path_loss",
+  "trajectory_row_count": 94,
+  "local_path_message_count": 25,
+  "route_point_count": 27,
+  "lidar_scan_count": 109,
+  "lidar_point_count": 12150,
+  "planner_status": {
+    "state": "holding_last_path",
+    "ready": true,
+    "loop_closure_armed": false,
+    "loop_closed": false,
+    "travel_distance_m": 3.141587482746434,
+    "elapsed_s": 20.377472198999982,
+    "start_pose": {
+      "x_m": -0.14855317408174135,
+      "y_m": -0.3264189839926308,
+      "yaw_rad": 0.06277415088591302
+    },
+    "start_axis": {
+      "normal_xy": [
+        0.998030349917013,
+        0.06273293110101368
+      ],
+      "tangent_xy": [
+        -0.06273293110101368,
+        0.998030349917013
+      ],
+      "signed_distance_m": 1.247265665396892,
+      "lateral_offset_m": 0.08747777129616922
+    },
+    "local_path_age_s": 0.5034191379999982,
+    "fusion_confidence": "high",
+    "corridor_width_m": 0.7682274688182085,
+    "route_point_count": 1490,
+    "local_path_source": "tracking",
+    "rolling_scan_count": 8,
+    "rolling_point_count": 355,
+    "path_point_count": 43,
+    "path_length_m": 1.6797985645372417,
+    "path_max_curvature_m_inv": 1.1832698214063215
+  },
+  "tracker_status": {
+    "state": "aborted_path_loss",
+    "terminal": true,
+    "cause": "aborted_path_loss",
+    "planner_state": "holding_last_path",
+    "path_age_s": 0.5034191379999982
+  },
+  "bridge_status": {
+    "state": "tracking",
+    "timed_out": false,
+    "desired_linear_x_mps": 0.0,
+    "desired_angular_z_rps": 0.0,
+    "desired_speed_pct": 0.0,
+    "desired_steering_deg": 0.0,
+    "speed_ramp_target_pct": 0.0,
+    "speed_ramp_active": false,
+    "applied_speed_pct": 0.0,
+    "applied_steering_deg": 0.0
+  }
+}

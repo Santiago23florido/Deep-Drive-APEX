@@ -20,7 +20,7 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 from .curve_entry_path_planner_node import (
     _cubic_bezier_xy,
@@ -95,11 +95,275 @@ def _truncate_polyline_length(path_xy: np.ndarray, max_length_m: float) -> np.nd
     return truncated_xy
 
 
+def _extend_path_forward(path_xy: np.ndarray, target_forward_x_m: float, step_m: float) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] <= 1:
+        return path_xy.copy()
+    target_forward_x_m = max(float(target_forward_x_m), float(path_xy[-1, 0]))
+    if float(path_xy[-1, 0]) >= (target_forward_x_m - 1.0e-6):
+        return path_xy.copy()
+
+    tail_window_xy = path_xy[-min(6, path_xy.shape[0]) :]
+    delta_xy = tail_window_xy[-1] - tail_window_xy[0]
+    dx_m = float(delta_xy[0])
+    dy_m = float(delta_xy[1])
+    if abs(dx_m) <= 1.0e-6:
+        slope = 0.0
+    else:
+        slope = dy_m / dx_m
+    slope = float(np.clip(slope, -1.1, 1.1))
+
+    xs = np.arange(
+        float(path_xy[-1, 0]) + max(1.0e-3, float(step_m)),
+        target_forward_x_m + (0.5 * max(1.0e-3, float(step_m))),
+        max(1.0e-3, float(step_m)),
+        dtype=np.float64,
+    )
+    if xs.size == 0:
+        return path_xy.copy()
+    ys = float(path_xy[-1, 1]) + slope * (xs - float(path_xy[-1, 0]))
+    extension_xy = np.column_stack([xs, ys])
+    return np.vstack([path_xy, extension_xy])
+
+
+def _enforce_monotonic_forward_x(path_xy: np.ndarray) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64).copy()
+    if path_xy.shape[0] == 0:
+        return path_xy
+    path_xy[:, 0] = np.maximum.accumulate(path_xy[:, 0])
+    return path_xy
+
+
+def _apply_straight_entry_hold(path_xy: np.ndarray, hold_length_m: float) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64).copy()
+    if path_xy.shape[0] <= 1 or hold_length_m <= 1.0e-6:
+        return path_xy
+    path_s = _compute_path_s(path_xy)
+    hold_length_m = max(1.0e-3, float(hold_length_m))
+    mask = path_s < hold_length_m
+    if not np.any(mask):
+        return path_xy
+    blend = np.clip(path_s[mask] / hold_length_m, 0.0, 1.0)
+    path_xy[mask, 1] *= blend
+    return path_xy
+
+
+def _deduplicate_polyline_xy(path_xy: np.ndarray, min_segment_m: float) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] <= 1:
+        return path_xy.copy()
+    min_segment_m = max(1.0e-6, float(min_segment_m))
+    kept_points = [path_xy[0]]
+    last_xy = path_xy[0]
+    for point_xy in path_xy[1:]:
+        if float(np.linalg.norm(point_xy - last_xy)) < min_segment_m:
+            continue
+        kept_points.append(point_xy)
+        last_xy = point_xy
+    if len(kept_points) == 1:
+        kept_points.append(path_xy[-1])
+    elif not np.allclose(kept_points[-1], path_xy[-1]):
+        kept_points.append(path_xy[-1])
+    return np.asarray(kept_points, dtype=np.float64)
+
+
+def _blend_paths_by_arclength(
+    new_path_xy: np.ndarray,
+    previous_path_xy: np.ndarray,
+    *,
+    new_path_weight: float,
+) -> np.ndarray:
+    new_path_xy = np.asarray(new_path_xy, dtype=np.float64)
+    previous_path_xy = np.asarray(previous_path_xy, dtype=np.float64)
+    if new_path_xy.shape[0] < 2 or previous_path_xy.shape[0] < 2:
+        return new_path_xy.copy()
+    sample_count = max(new_path_xy.shape[0], previous_path_xy.shape[0], 36)
+    new_eval_xy = _resample_polyline_xy_to_count(new_path_xy, sample_count)
+    previous_eval_xy = _resample_polyline_xy_to_count(previous_path_xy, sample_count)
+    new_path_weight = max(0.0, min(1.0, float(new_path_weight)))
+    blended_xy = (
+        (new_path_weight * new_eval_xy)
+        + ((1.0 - new_path_weight) * previous_eval_xy)
+    )
+    blended_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+    return blended_xy
+
+
+def _path_terminal_heading(path_xy: np.ndarray) -> float:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] < 2:
+        return 0.0
+    tail_xy = path_xy[-min(4, path_xy.shape[0]) :]
+    delta_xy = tail_xy[-1] - tail_xy[0]
+    if float(np.linalg.norm(delta_xy)) <= 1.0e-9:
+        delta_xy = path_xy[-1] - path_xy[-2]
+    return math.atan2(float(delta_xy[1]), float(delta_xy[0]))
+
+
+def _path_initial_heading(path_xy: np.ndarray) -> float:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] < 2:
+        return 0.0
+    head_xy = path_xy[: min(4, path_xy.shape[0])]
+    delta_xy = head_xy[-1] - head_xy[0]
+    if float(np.linalg.norm(delta_xy)) <= 1.0e-9:
+        delta_xy = path_xy[1] - path_xy[0]
+    return math.atan2(float(delta_xy[1]), float(delta_xy[0]))
+
+
+def _path_forward_span_m(path_xy: np.ndarray) -> float:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] < 2:
+        return 0.0
+    return max(0.0, float(path_xy[-1, 0] - path_xy[0, 0]))
+
+
+def _heading_alignment_deg(heading_a_rad: float, heading_b_rad: float) -> float:
+    return abs(math.degrees(_normalize_angle(float(heading_a_rad) - float(heading_b_rad))))
+
+
+def _bridge_path_from_origin(path_xy: np.ndarray, bridge_point_count: int) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] == 0:
+        return path_xy.copy()
+    if float(path_xy[0, 0]) <= 1.0e-6:
+        bridged_xy = path_xy.copy()
+        bridged_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        return bridged_xy
+    tangent_length_m = max(0.10, min(0.45, 0.5 * float(path_xy[0, 0])))
+    connector_xy = _cubic_bezier_xy(
+        p0_xy=np.asarray([0.0, 0.0], dtype=np.float64),
+        p1_xy=np.asarray([tangent_length_m, 0.0], dtype=np.float64),
+        p2_xy=np.asarray(
+            [
+                max(0.04, float(path_xy[0, 0]) - tangent_length_m),
+                float(path_xy[0, 1]),
+            ],
+            dtype=np.float64,
+        ),
+        p3_xy=path_xy[0],
+        point_count=max(2, int(bridge_point_count)),
+    )
+    return np.vstack([connector_xy, path_xy])
+
+
+def _graft_previous_tail(
+    path_xy: np.ndarray,
+    previous_path_xy: np.ndarray,
+    *,
+    step_m: float,
+    min_start_forward_delta_m: float,
+) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    previous_path_xy = np.asarray(previous_path_xy, dtype=np.float64)
+    if path_xy.shape[0] < 2 or previous_path_xy.shape[0] < 4:
+        return path_xy.copy()
+
+    tail_start_index = int(
+        np.searchsorted(
+            previous_path_xy[:, 0],
+            float(path_xy[-1, 0]) + max(0.02, float(min_start_forward_delta_m)),
+            side="left",
+        )
+    )
+    if tail_start_index >= (previous_path_xy.shape[0] - 3):
+        return path_xy.copy()
+
+    tail_xy = previous_path_xy[tail_start_index:].copy()
+    if tail_xy.shape[0] < 4:
+        return path_xy.copy()
+    gap_m = float(np.linalg.norm(tail_xy[0] - path_xy[-1]))
+    if gap_m < max(0.03, 0.75 * step_m):
+        return np.vstack([path_xy[:-1], tail_xy])
+
+    entry_heading_rad = _path_terminal_heading(path_xy)
+    tail_heading_rad = _path_terminal_heading(tail_xy[: min(5, tail_xy.shape[0])])
+    entry_tangent_xy = np.asarray(
+        [math.cos(entry_heading_rad), math.sin(entry_heading_rad)],
+        dtype=np.float64,
+    )
+    tail_tangent_xy = np.asarray(
+        [math.cos(tail_heading_rad), math.sin(tail_heading_rad)],
+        dtype=np.float64,
+    )
+    control_length_m = min(0.30, max(0.08, 0.45 * gap_m))
+    connector_xy = _cubic_bezier_xy(
+        p0_xy=path_xy[-1],
+        p1_xy=path_xy[-1] + (control_length_m * entry_tangent_xy),
+        p2_xy=tail_xy[0] - (control_length_m * tail_tangent_xy),
+        p3_xy=tail_xy[0],
+        point_count=max(4, int(math.ceil(gap_m / max(1.0e-3, step_m))) + 2),
+    )
+    return np.vstack([path_xy[:-1], connector_xy, tail_xy[1:]])
+
+
 def _compute_path_s(path_xy: np.ndarray) -> np.ndarray:
     if path_xy.shape[0] <= 1:
         return np.zeros((path_xy.shape[0],), dtype=np.float64)
     diffs = np.diff(path_xy, axis=0)
     return np.concatenate([[0.0], np.cumsum(np.hypot(diffs[:, 0], diffs[:, 1]))])
+
+
+def _trim_leading_path_progress(
+    path_xy: np.ndarray,
+    *,
+    min_progress_m: float,
+    min_forward_x_m: float,
+) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] < 2:
+        return path_xy.copy()
+
+    path_s = _compute_path_s(path_xy)
+    keep_indices = np.flatnonzero(
+        (path_s >= max(0.0, float(min_progress_m)))
+        & (path_xy[:, 0] >= float(min_forward_x_m))
+    )
+    if keep_indices.size == 0:
+        keep_indices = np.flatnonzero(path_s >= max(0.0, float(min_progress_m)))
+    if keep_indices.size == 0:
+        keep_indices = np.flatnonzero(path_xy[:, 0] >= float(min_forward_x_m))
+    if keep_indices.size == 0:
+        return path_xy.copy()
+
+    start_index = max(0, int(keep_indices[0]) - 1)
+    trimmed_xy = path_xy[start_index:].copy()
+    if trimmed_xy.shape[0] < 2:
+        return path_xy.copy()
+    return trimmed_xy
+
+
+def _extend_path_along_terminal_heading(
+    path_xy: np.ndarray,
+    *,
+    target_forward_span_m: float,
+    step_m: float,
+) -> np.ndarray:
+    path_xy = np.asarray(path_xy, dtype=np.float64)
+    if path_xy.shape[0] < 2:
+        return path_xy.copy()
+
+    current_forward_span_m = _path_forward_span_m(path_xy)
+    needed_forward_m = float(target_forward_span_m) - current_forward_span_m
+    if needed_forward_m <= max(0.01, 0.5 * step_m):
+        return path_xy.copy()
+
+    terminal_heading_rad = _path_terminal_heading(path_xy)
+    terminal_tangent_xy = np.asarray(
+        [math.cos(terminal_heading_rad), math.sin(terminal_heading_rad)],
+        dtype=np.float64,
+    )
+    if terminal_tangent_xy[0] <= 1.0e-3:
+        terminal_tangent_xy = np.asarray([1.0, 0.0], dtype=np.float64)
+
+    extension_point_count = max(2, int(math.ceil(needed_forward_m / max(step_m, 1.0e-3))) + 1)
+    extension_points = [path_xy[-1]]
+    for idx in range(1, extension_point_count + 1):
+        extension_points.append(
+            path_xy[-1] + (idx * step_m * terminal_tangent_xy)
+        )
+    extended_xy = np.vstack([path_xy[:-1], np.asarray(extension_points, dtype=np.float64)])
+    return _enforce_monotonic_forward_x(extended_xy)
 
 
 def _polyline_yaw(path_xy: np.ndarray) -> np.ndarray:
@@ -111,6 +375,10 @@ def _polyline_yaw(path_xy: np.ndarray) -> np.ndarray:
     yaw[:-1] = np.arctan2(diffs[:, 1], diffs[:, 0])
     yaw[-1] = yaw[-2]
     return yaw
+
+
+def _normalize_angle(angle_rad: float) -> float:
+    return math.atan2(math.sin(angle_rad), math.cos(angle_rad))
 
 
 def _fill_small_gaps(values: np.ndarray, max_gap_bins: int) -> np.ndarray:
@@ -234,10 +502,15 @@ class RecognitionTourPlannerNode(Node):
         self.declare_parameter("local_path_topic", "/apex/planning/recognition_tour_local_path")
         self.declare_parameter("route_topic", "/apex/planning/recognition_tour_route")
         self.declare_parameter("status_topic", "/apex/planning/recognition_tour_status")
+        self.declare_parameter("arm_topic", "/apex/tracking/arm")
         self.declare_parameter("odom_frame_id", "odom_imu_lidar_fused")
         self.declare_parameter("plan_rate_hz", 12.0)
         self.declare_parameter("status_publish_rate_hz", 5.0)
         self.declare_parameter("rolling_window_s", 0.5)
+        self.declare_parameter("dynamic_scan_window_s", 0.14)
+        self.declare_parameter("dynamic_scan_speed_threshold_mps", 0.08)
+        self.declare_parameter("dynamic_scan_yaw_rate_threshold_rps", 0.30)
+        self.declare_parameter("turn_scan_latest_only_yaw_rate_threshold_rps", 0.55)
         self.declare_parameter("planning_horizon_m", 1.8)
         self.declare_parameter("lidar_offset_x_m", 0.18)
         self.declare_parameter("lidar_offset_y_m", 0.0)
@@ -250,6 +523,21 @@ class RecognitionTourPlannerNode(Node):
         self.declare_parameter("path_resample_step_m", 0.04)
         self.declare_parameter("path_smoothing_alpha", 0.20)
         self.declare_parameter("path_smoothing_max_iterations", 140)
+        self.declare_parameter("path_min_forward_progress_m", 1.45)
+        self.declare_parameter("min_publish_forward_span_m", 0.55)
+        self.declare_parameter("route_suffix_min_progress_m", 0.18)
+        self.declare_parameter("route_suffix_min_start_x_m", 0.10)
+        self.declare_parameter("route_suffix_target_forward_span_m", 1.30)
+        self.declare_parameter("route_heading_soft_reject_deg", 18.0)
+        self.declare_parameter("route_heading_soft_margin_deg", 10.0)
+        self.declare_parameter("straight_entry_hold_length_m", 0.45)
+        self.declare_parameter("replan_path_blend_alpha", 0.68)
+        self.declare_parameter("publish_path_persistence_alpha", 0.52)
+        self.declare_parameter("publish_path_continuation_alpha", 0.36)
+        self.declare_parameter("publish_path_heading_bias_deg", 12.0)
+        self.declare_parameter("publish_path_lateral_blend_gain", 0.18)
+        self.declare_parameter("previous_path_tail_extension_m", 0.55)
+        self.declare_parameter("previous_path_tail_graft_min_span_m", 0.85)
         self.declare_parameter("corridor_bin_m", 0.10)
         self.declare_parameter("corridor_quantile", 0.18)
         self.declare_parameter("corridor_min_bin_points", 8)
@@ -280,12 +568,26 @@ class RecognitionTourPlannerNode(Node):
         self._local_path_topic = str(self.get_parameter("local_path_topic").value)
         self._route_topic = str(self.get_parameter("route_topic").value)
         self._status_topic = str(self.get_parameter("status_topic").value)
+        self._arm_topic = str(self.get_parameter("arm_topic").value)
         self._odom_frame = str(self.get_parameter("odom_frame_id").value)
         self._plan_rate_hz = max(1.0, float(self.get_parameter("plan_rate_hz").value))
         self._status_publish_rate_hz = max(
             0.5, float(self.get_parameter("status_publish_rate_hz").value)
         )
         self._rolling_window_s = max(0.1, float(self.get_parameter("rolling_window_s").value))
+        self._dynamic_scan_window_s = max(
+            0.0, float(self.get_parameter("dynamic_scan_window_s").value)
+        )
+        self._dynamic_scan_speed_threshold_mps = max(
+            0.0, float(self.get_parameter("dynamic_scan_speed_threshold_mps").value)
+        )
+        self._dynamic_scan_yaw_rate_threshold_rps = max(
+            0.0, float(self.get_parameter("dynamic_scan_yaw_rate_threshold_rps").value)
+        )
+        self._turn_scan_latest_only_yaw_rate_threshold_rps = max(
+            self._dynamic_scan_yaw_rate_threshold_rps,
+            float(self.get_parameter("turn_scan_latest_only_yaw_rate_threshold_rps").value),
+        )
         self._planning_horizon_m = max(0.6, float(self.get_parameter("planning_horizon_m").value))
         self._lidar_offset = np.asarray(
             [
@@ -321,6 +623,55 @@ class RecognitionTourPlannerNode(Node):
         )
         self._path_smoothing_max_iterations = max(
             0, int(self.get_parameter("path_smoothing_max_iterations").value)
+        )
+        self._path_min_forward_progress_m = max(
+            0.4, float(self.get_parameter("path_min_forward_progress_m").value)
+        )
+        self._min_publish_forward_span_m = max(
+            0.15, float(self.get_parameter("min_publish_forward_span_m").value)
+        )
+        self._route_suffix_min_progress_m = max(
+            0.0, float(self.get_parameter("route_suffix_min_progress_m").value)
+        )
+        self._route_suffix_min_start_x_m = max(
+            0.0, float(self.get_parameter("route_suffix_min_start_x_m").value)
+        )
+        self._route_suffix_target_forward_span_m = max(
+            self._min_publish_forward_span_m + 0.10,
+            min(
+                self._planning_horizon_m,
+                float(self.get_parameter("route_suffix_target_forward_span_m").value),
+            ),
+        )
+        self._route_heading_soft_reject_deg = max(
+            0.0, float(self.get_parameter("route_heading_soft_reject_deg").value)
+        )
+        self._route_heading_soft_margin_deg = max(
+            0.0, float(self.get_parameter("route_heading_soft_margin_deg").value)
+        )
+        self._straight_entry_hold_length_m = max(
+            0.0, float(self.get_parameter("straight_entry_hold_length_m").value)
+        )
+        self._replan_path_blend_alpha = max(
+            0.0, min(1.0, float(self.get_parameter("replan_path_blend_alpha").value))
+        )
+        self._publish_path_persistence_alpha = max(
+            0.0, min(1.0, float(self.get_parameter("publish_path_persistence_alpha").value))
+        )
+        self._publish_path_continuation_alpha = max(
+            0.0, min(1.0, float(self.get_parameter("publish_path_continuation_alpha").value))
+        )
+        self._publish_path_heading_bias_deg = max(
+            0.0, float(self.get_parameter("publish_path_heading_bias_deg").value)
+        )
+        self._publish_path_lateral_blend_gain = max(
+            0.0, float(self.get_parameter("publish_path_lateral_blend_gain").value)
+        )
+        self._previous_path_tail_extension_m = max(
+            0.0, float(self.get_parameter("previous_path_tail_extension_m").value)
+        )
+        self._previous_path_tail_graft_min_span_m = max(
+            0.2, float(self.get_parameter("previous_path_tail_graft_min_span_m").value)
         )
         self._corridor_bin_m = max(0.02, float(self.get_parameter("corridor_bin_m").value))
         corridor_quantile = max(0.01, min(0.49, float(self.get_parameter("corridor_quantile").value)))
@@ -403,10 +754,16 @@ class RecognitionTourPlannerNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
+        arm_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
 
         self.create_subscription(LaserScan, self._scan_topic, self._scan_cb, qos_profile_sensor_data)
         self.create_subscription(Odometry, self._odom_topic, self._odom_cb, 20)
         self.create_subscription(String, self._fusion_status_topic, self._fusion_status_cb, 20)
+        self.create_subscription(Bool, self._arm_topic, self._arm_cb, arm_qos)
 
         self._local_path_pub = self.create_publisher(Path, self._local_path_topic, latched_qos)
         self._route_pub = self.create_publisher(Path, self._route_topic, latched_qos)
@@ -417,6 +774,7 @@ class RecognitionTourPlannerNode(Node):
         self._latest_odom: dict[str, float] | None = None
         self._latest_fusion_status: dict[str, object] = {}
         self._scan_buffer: deque[_ScanSnapshot] = deque()
+        self._armed = False
         self._mission_started = False
         self._mission_start_monotonic: float | None = None
         self._mission_terminal = False
@@ -435,6 +793,18 @@ class RecognitionTourPlannerNode(Node):
         self._last_local_path_source = "none"
         self._last_local_path_planned_monotonic: float | None = None
         self._latest_corridor_width_m = 0.0
+        self._last_candidate_path_forward_span_m = 0.0
+        self._last_candidate_path_length_m = 0.0
+        self._last_candidate_path_max_curvature_m_inv = 0.0
+        self._last_path_rejected = False
+        self._last_path_rejection_reason: str | None = None
+        self._last_continuation_source = "none"
+        self._last_path_terminal_heading_deg: float | None = None
+        self._last_route_suffix_heading_deg: float | None = None
+        self._last_path_heading_alignment_deg: float | None = None
+        self._last_forward_projection_valid = False
+        self._path_rejection_count = 0
+        self._path_rescue_count = 0
         self._route_points_world: list[np.ndarray] = []
         self._status_payload: dict[str, object] = {
             "state": "waiting_fusion",
@@ -491,6 +861,9 @@ class RecognitionTourPlannerNode(Node):
         lidar_xy = base_xy + (_rotation(yaw_rad) @ self._lidar_offset)
         return lidar_xy, yaw_rad
 
+    def _ros_time_s(self) -> float:
+        return 1.0e-9 * float(self.get_clock().now().nanoseconds)
+
     def _odom_cb(self, msg: Odometry) -> None:
         self._latest_odom = {
             "stamp_s": float(msg.header.stamp.sec) + (1.0e-9 * float(msg.header.stamp.nanosec)),
@@ -509,7 +882,7 @@ class RecognitionTourPlannerNode(Node):
         rear_pose = self._rear_axle_pose()
         if rear_pose is None:
             return
-        rear_xy, _ = rear_pose
+        rear_xy, rear_yaw_rad = rear_pose
         if self._last_rear_xy is None:
             self._last_rear_xy = rear_xy.copy()
             return
@@ -527,6 +900,9 @@ class RecognitionTourPlannerNode(Node):
             return
         if isinstance(payload, dict):
             self._latest_fusion_status = payload
+
+    def _arm_cb(self, msg: Bool) -> None:
+        self._armed = bool(msg.data)
 
     def _scan_cb(self, msg: LaserScan) -> None:
         if self._mission_terminal:
@@ -571,7 +947,12 @@ class RecognitionTourPlannerNode(Node):
             self._append_route_point(point_xy)
 
     def _ensure_mission_started(self) -> None:
-        if self._mission_started or not self._fusion_ready() or self._latest_odom is None:
+        if (
+            self._mission_started
+            or not self._armed
+            or not self._fusion_ready()
+            or self._latest_odom is None
+        ):
             return
         rear_pose = self._rear_axle_pose()
         if rear_pose is None:
@@ -602,11 +983,32 @@ class RecognitionTourPlannerNode(Node):
 
     def _rolling_points_in_current_frame(self) -> np.ndarray:
         rear_pose = self._rear_axle_pose()
-        if rear_pose is None or not self._scan_buffer:
+        if rear_pose is None or not self._scan_buffer or self._latest_odom is None:
             return np.empty((0, 2), dtype=np.float64)
         rear_xy, yaw_rad = rear_pose
+        latest_snapshot = self._scan_buffer[-1]
+        speed_mps = math.hypot(
+            float(self._latest_odom.get("vx_mps", 0.0)),
+            float(self._latest_odom.get("vy_mps", 0.0)),
+        )
+        yaw_rate_rps = abs(float(self._latest_odom.get("yaw_rate_rps", 0.0)))
+        confidence = self._fusion_confidence()
+        latest_scan_only = yaw_rate_rps >= self._turn_scan_latest_only_yaw_rate_threshold_rps
+        effective_window_s = self._rolling_window_s
+        if (
+            speed_mps >= self._dynamic_scan_speed_threshold_mps
+            or yaw_rate_rps >= self._dynamic_scan_yaw_rate_threshold_rps
+            or confidence != "high"
+        ):
+            effective_window_s = min(self._rolling_window_s, self._dynamic_scan_window_s)
+        if latest_scan_only or effective_window_s <= 1.0e-6:
+            return latest_snapshot.lidar_points_local_xy.copy()
+
+        now_stamp_s = float(self._latest_odom["stamp_s"])
         local_parts: list[np.ndarray] = []
         for snapshot in self._scan_buffer:
+            if (now_stamp_s - snapshot.stamp_s) > effective_window_s:
+                continue
             current_local_xy = _transform_world_to_local(snapshot.lidar_world_xy, rear_xy, yaw_rad)
             mask = (
                 np.isfinite(current_local_xy[:, 0])
@@ -619,10 +1021,691 @@ class RecognitionTourPlannerNode(Node):
                 continue
             local_parts.append(current_local_xy[mask])
         if not local_parts:
-            return np.empty((0, 2), dtype=np.float64)
+            return latest_snapshot.lidar_points_local_xy.copy()
         return np.vstack(local_parts)
 
-    def _build_local_path_from_centerline(self, centerline: _CorridorCenterline) -> np.ndarray:
+    def _previous_local_path_xy(self, rear_xy: np.ndarray, yaw_rad: float) -> np.ndarray | None:
+        if self._last_local_path_world_xy is None or self._last_local_path_world_xy.shape[0] < 2:
+            return None
+        previous_local_xy = _transform_world_to_local(
+            self._last_local_path_world_xy,
+            rear_xy,
+            yaw_rad,
+        )
+        mask = (
+            np.isfinite(previous_local_xy[:, 0])
+            & np.isfinite(previous_local_xy[:, 1])
+            & (previous_local_xy[:, 0] >= -0.20)
+            & (previous_local_xy[:, 0] <= (self._planning_horizon_m + 0.50))
+        )
+        previous_local_xy = previous_local_xy[mask]
+        if previous_local_xy.shape[0] < 2:
+            return None
+        previous_local_xy = _enforce_monotonic_forward_x(previous_local_xy)
+        return previous_local_xy
+
+    def _route_suffix_local_path(self, rear_xy: np.ndarray, yaw_rad: float) -> np.ndarray | None:
+        if len(self._route_points_world) < 4:
+            return None
+        route_world_xy = np.vstack(self._route_points_world).astype(np.float64)
+        closest_index = int(np.argmin(np.linalg.norm(route_world_xy - rear_xy.reshape(1, 2), axis=1)))
+        suffix_world_xy = route_world_xy[max(0, closest_index - 1) :]
+        suffix_local_xy = _transform_world_to_local(suffix_world_xy, rear_xy, yaw_rad)
+        mask = (
+            np.isfinite(suffix_local_xy[:, 0])
+            & np.isfinite(suffix_local_xy[:, 1])
+            & (suffix_local_xy[:, 0] >= -0.20)
+            & (suffix_local_xy[:, 0] <= (self._planning_horizon_m + 0.80))
+        )
+        suffix_local_xy = suffix_local_xy[mask]
+        if suffix_local_xy.shape[0] < 2:
+            return None
+        forward_indices = np.flatnonzero(suffix_local_xy[:, 0] >= -0.05)
+        if forward_indices.size == 0:
+            return None
+        start_index = max(0, int(forward_indices[0]) - 1)
+        suffix_local_xy = suffix_local_xy[start_index:]
+        if suffix_local_xy.shape[0] < 2:
+            return None
+        suffix_local_xy = _trim_leading_path_progress(
+            suffix_local_xy,
+            min_progress_m=self._route_suffix_min_progress_m,
+            min_forward_x_m=self._route_suffix_min_start_x_m,
+        )
+        if suffix_local_xy.shape[0] < 2:
+            return None
+        suffix_local_xy = _bridge_path_from_origin(
+            suffix_local_xy,
+            self._origin_bridge_point_count,
+        )
+        suffix_local_xy = _enforce_monotonic_forward_x(suffix_local_xy)
+        suffix_local_xy = _deduplicate_polyline_xy(
+            suffix_local_xy,
+            min_segment_m=0.35 * self._path_resample_step_m,
+        )
+        suffix_local_xy = _resample_polyline_xy(suffix_local_xy, self._path_resample_step_m)
+        suffix_local_xy = _truncate_polyline_length(suffix_local_xy, self._planning_horizon_m)
+        suffix_local_xy = _enforce_monotonic_forward_x(suffix_local_xy)
+        if suffix_local_xy.shape[0] < 2:
+            return None
+        suffix_local_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        return suffix_local_xy
+
+    def _turn_severity(self, path_xy: np.ndarray) -> float:
+        path_xy = np.asarray(path_xy, dtype=np.float64)
+        if path_xy.shape[0] < 3:
+            return 0.0
+        path_yaw = _polyline_yaw(path_xy)
+        tail_count = max(1, min(6, path_yaw.shape[0]))
+        tail_heading_rad = float(np.median(path_yaw[-tail_count:]))
+        heading_score = min(1.0, abs(_normalize_angle(tail_heading_rad)) / math.radians(55.0))
+        lateral_excursion_m = max(
+            abs(float(path_xy[-1, 1])),
+            float(np.percentile(np.abs(path_xy[:, 1]), 92)),
+        )
+        lateral_score = min(1.0, lateral_excursion_m / 0.50)
+        curvature = np.abs(_estimate_path_curvature(path_xy))
+        max_curvature = float(np.max(curvature)) if curvature.size else 0.0
+        curvature_score = min(
+            1.0,
+            max_curvature / max(1.0e-3, 0.85 * self._max_path_curvature_m_inv),
+        )
+        return max(heading_score, lateral_score, curvature_score)
+
+    def _stabilize_local_path(
+        self,
+        local_path_xy: np.ndarray,
+        *,
+        rear_xy: np.ndarray,
+        yaw_rad: float,
+    ) -> np.ndarray:
+        local_path_xy = np.asarray(local_path_xy, dtype=np.float64).copy()
+        if local_path_xy.shape[0] == 0:
+            return local_path_xy
+
+        turn_severity = self._turn_severity(local_path_xy)
+        base_forward_progress_m = min(self._planning_horizon_m, self._path_min_forward_progress_m)
+        effective_forward_progress_m = (
+            ((1.0 - turn_severity) * base_forward_progress_m)
+            + (turn_severity * max(0.95, 0.58 * self._planning_horizon_m))
+        )
+        effective_straight_hold_length_m = (
+            ((1.0 - turn_severity) * self._straight_entry_hold_length_m)
+            + (turn_severity * min(self._straight_entry_hold_length_m, 0.14))
+        )
+        effective_replan_path_blend_alpha = min(
+            0.90,
+            self._replan_path_blend_alpha + (0.25 * turn_severity),
+        )
+
+        local_path_xy = _enforce_monotonic_forward_x(local_path_xy)
+        local_path_xy = _extend_path_forward(
+            local_path_xy,
+            target_forward_x_m=effective_forward_progress_m,
+            step_m=self._path_resample_step_m,
+        )
+        local_path_xy = _apply_straight_entry_hold(
+            local_path_xy,
+            effective_straight_hold_length_m,
+        )
+
+        previous_local_xy = self._previous_local_path_xy(rear_xy, yaw_rad)
+        if previous_local_xy is not None:
+            current_forward_span_m = float(local_path_xy[-1, 0] - local_path_xy[0, 0])
+            if current_forward_span_m < self._previous_path_tail_graft_min_span_m:
+                local_path_xy = _graft_previous_tail(
+                    local_path_xy,
+                    previous_local_xy,
+                    step_m=self._path_resample_step_m,
+                    min_start_forward_delta_m=self._previous_path_tail_extension_m,
+                )
+            previous_local_xy = _extend_path_forward(
+                previous_local_xy,
+                target_forward_x_m=effective_forward_progress_m,
+                step_m=self._path_resample_step_m,
+            )
+            local_path_xy = _blend_paths_by_arclength(
+                local_path_xy,
+                previous_local_xy,
+                new_path_weight=effective_replan_path_blend_alpha,
+            )
+
+        local_path_xy = _enforce_monotonic_forward_x(local_path_xy)
+        local_path_xy = _truncate_polyline_length(local_path_xy, self._planning_horizon_m)
+        local_path_xy, path_max_curvature_m_inv = _smooth_path_to_curvature_limit(
+            path_xy=local_path_xy,
+            max_curvature_m_inv=self._max_path_curvature_m_inv,
+            resample_step_m=self._path_resample_step_m,
+            smoothing_alpha=max(self._path_smoothing_alpha, 0.24),
+            max_iterations=max(self._path_smoothing_max_iterations, 260),
+        )
+
+        if (
+            path_max_curvature_m_inv > (1.35 * self._max_path_curvature_m_inv)
+            and previous_local_xy is not None
+        ):
+            local_path_xy = _blend_paths_by_arclength(
+                local_path_xy,
+                previous_local_xy,
+                new_path_weight=0.45,
+            )
+            local_path_xy = _enforce_monotonic_forward_x(local_path_xy)
+            local_path_xy, _ = _smooth_path_to_curvature_limit(
+                path_xy=local_path_xy,
+                max_curvature_m_inv=self._max_path_curvature_m_inv,
+                resample_step_m=self._path_resample_step_m,
+                smoothing_alpha=max(self._path_smoothing_alpha, 0.28),
+                max_iterations=max(self._path_smoothing_max_iterations, 320),
+            )
+
+        local_path_xy = _extend_path_forward(
+            local_path_xy,
+            target_forward_x_m=effective_forward_progress_m,
+            step_m=self._path_resample_step_m,
+        )
+        local_path_xy = _truncate_polyline_length(local_path_xy, self._planning_horizon_m)
+        local_path_xy = _enforce_monotonic_forward_x(local_path_xy)
+        local_path_xy = _deduplicate_polyline_xy(
+            local_path_xy,
+            min_segment_m=0.35 * self._path_resample_step_m,
+        )
+        local_path_xy = _resample_polyline_xy(local_path_xy, self._path_resample_step_m)
+        local_path_xy, _ = _smooth_path_to_curvature_limit(
+            path_xy=local_path_xy,
+            max_curvature_m_inv=self._max_path_curvature_m_inv,
+            resample_step_m=self._path_resample_step_m,
+            smoothing_alpha=max(self._path_smoothing_alpha, 0.22),
+            max_iterations=max(self._path_smoothing_max_iterations, 220),
+        )
+        local_path_xy = _truncate_polyline_length(local_path_xy, self._planning_horizon_m)
+        local_path_xy = _enforce_monotonic_forward_x(local_path_xy)
+        local_path_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        return local_path_xy
+
+    def _stabilize_published_local_path(
+        self,
+        local_path_xy: np.ndarray,
+        *,
+        publish_source: str,
+        rear_xy: np.ndarray,
+        yaw_rad: float,
+    ) -> np.ndarray:
+        local_path_xy = np.asarray(local_path_xy, dtype=np.float64).copy()
+        if local_path_xy.shape[0] < 2:
+            return local_path_xy
+
+        previous_local_xy = self._previous_local_path_xy(rear_xy, yaw_rad)
+        if previous_local_xy is None or previous_local_xy.shape[0] < 2:
+            return local_path_xy
+
+        turn_severity = self._turn_severity(local_path_xy)
+        heading_alignment_deg = abs(float(self._last_path_heading_alignment_deg or 0.0))
+        new_path_weight = self._publish_path_persistence_alpha
+        if publish_source != "tracking":
+            new_path_weight = min(new_path_weight, self._publish_path_continuation_alpha)
+        if heading_alignment_deg > self._publish_path_heading_bias_deg:
+            heading_alpha = min(
+                1.0,
+                (
+                    (heading_alignment_deg - self._publish_path_heading_bias_deg)
+                    / max(1.0e-6, 40.0 - self._publish_path_heading_bias_deg)
+                ),
+            )
+            heading_weight = (
+                self._publish_path_persistence_alpha
+                - (
+                    heading_alpha
+                    * (
+                        self._publish_path_persistence_alpha
+                        - self._publish_path_continuation_alpha
+                    )
+                )
+            )
+            new_path_weight = min(new_path_weight, heading_weight)
+        new_path_weight *= (1.0 - (0.18 * turn_severity))
+
+        sample_count = max(local_path_xy.shape[0], previous_local_xy.shape[0], 36)
+        current_eval_xy = _resample_polyline_xy_to_count(local_path_xy, sample_count)
+        previous_eval_xy = _resample_polyline_xy_to_count(previous_local_xy, sample_count)
+        prefix_count = max(8, int(math.ceil(0.35 * sample_count)))
+        lateral_change_m = float(
+            np.percentile(
+                np.abs(current_eval_xy[:prefix_count, 1] - previous_eval_xy[:prefix_count, 1]),
+                80,
+            )
+        )
+        if lateral_change_m > 1.0e-6:
+            lateral_alpha = min(
+                1.0,
+                lateral_change_m / max(1.0e-3, self._publish_path_lateral_blend_gain),
+            )
+            new_path_weight *= (1.0 - (0.25 * lateral_alpha))
+
+        current_forward_span_m = _path_forward_span_m(local_path_xy)
+        previous_forward_span_m = _path_forward_span_m(previous_local_xy)
+        if (
+            publish_source != "tracking"
+            and current_forward_span_m < max(
+                self._route_suffix_target_forward_span_m,
+                0.90 * previous_forward_span_m,
+            )
+        ):
+            local_path_xy = _graft_previous_tail(
+                local_path_xy,
+                previous_local_xy,
+                step_m=self._path_resample_step_m,
+                min_start_forward_delta_m=0.18,
+            )
+
+        local_path_xy = _blend_paths_by_arclength(
+            local_path_xy,
+            previous_local_xy,
+            new_path_weight=max(0.18, min(0.92, float(new_path_weight))),
+        )
+        local_path_xy = _enforce_monotonic_forward_x(local_path_xy)
+        local_path_xy = _extend_path_forward(
+            local_path_xy,
+            target_forward_x_m=max(
+                self._route_suffix_target_forward_span_m,
+                self._min_publish_forward_span_m + 0.25,
+                min(self._planning_horizon_m, self._path_min_forward_progress_m),
+            ),
+            step_m=self._path_resample_step_m,
+        )
+        local_path_xy = _truncate_polyline_length(local_path_xy, self._planning_horizon_m)
+        local_path_xy = _deduplicate_polyline_xy(
+            local_path_xy,
+            min_segment_m=0.35 * self._path_resample_step_m,
+        )
+        local_path_xy = _resample_polyline_xy(local_path_xy, self._path_resample_step_m)
+        local_path_xy, _ = _smooth_path_to_curvature_limit(
+            path_xy=local_path_xy,
+            max_curvature_m_inv=self._max_path_curvature_m_inv,
+            resample_step_m=self._path_resample_step_m,
+            smoothing_alpha=max(self._path_smoothing_alpha, 0.24),
+            max_iterations=max(self._path_smoothing_max_iterations, 260),
+        )
+        local_path_xy = _enforce_monotonic_forward_x(local_path_xy)
+        local_path_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        return local_path_xy
+
+    def _rescue_previous_local_path(
+        self,
+        *,
+        rear_xy: np.ndarray,
+        yaw_rad: float,
+    ) -> np.ndarray | None:
+        previous_local_xy = self._previous_local_path_xy(rear_xy, yaw_rad)
+        if previous_local_xy is None or previous_local_xy.shape[0] < 2:
+            return None
+
+        rescue_target_forward_x_m = max(
+            self._min_publish_forward_span_m + 0.25,
+            min(self._planning_horizon_m, self._path_min_forward_progress_m),
+        )
+        rescued_xy = _bridge_path_from_origin(
+            previous_local_xy,
+            self._origin_bridge_point_count,
+        )
+        rescued_xy = _enforce_monotonic_forward_x(rescued_xy)
+        rescued_xy = _extend_path_forward(
+            rescued_xy,
+            target_forward_x_m=rescue_target_forward_x_m,
+            step_m=self._path_resample_step_m,
+        )
+        rescued_xy = _truncate_polyline_length(rescued_xy, self._planning_horizon_m)
+        rescued_xy = _deduplicate_polyline_xy(
+            rescued_xy,
+            min_segment_m=0.35 * self._path_resample_step_m,
+        )
+        rescued_xy = _resample_polyline_xy(rescued_xy, self._path_resample_step_m)
+        rescued_xy, _ = _smooth_path_to_curvature_limit(
+            path_xy=rescued_xy,
+            max_curvature_m_inv=self._max_path_curvature_m_inv,
+            resample_step_m=self._path_resample_step_m,
+            smoothing_alpha=max(self._path_smoothing_alpha, 0.22),
+            max_iterations=max(self._path_smoothing_max_iterations, 220),
+        )
+        rescued_xy = _enforce_monotonic_forward_x(rescued_xy)
+        if rescued_xy.shape[0] == 0:
+            return None
+        rescued_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        return rescued_xy
+
+    def _rescue_candidate_local_path(
+        self,
+        candidate_local_path_xy: np.ndarray,
+    ) -> np.ndarray | None:
+        candidate_local_path_xy = np.asarray(candidate_local_path_xy, dtype=np.float64)
+        if candidate_local_path_xy.shape[0] < 2:
+            return None
+
+        rescue_target_forward_x_m = max(
+            self._min_publish_forward_span_m + 0.25,
+            min(self._planning_horizon_m, self._path_min_forward_progress_m),
+        )
+        rescued_xy = _bridge_path_from_origin(
+            candidate_local_path_xy,
+            self._origin_bridge_point_count,
+        )
+        rescued_xy = _enforce_monotonic_forward_x(rescued_xy)
+        rescued_xy = _extend_path_along_terminal_heading(
+            rescued_xy,
+            target_forward_span_m=rescue_target_forward_x_m,
+            step_m=self._path_resample_step_m,
+        )
+        rescued_xy = _extend_path_forward(
+            rescued_xy,
+            target_forward_x_m=rescue_target_forward_x_m,
+            step_m=self._path_resample_step_m,
+        )
+        rescued_xy = _truncate_polyline_length(rescued_xy, self._planning_horizon_m)
+        rescued_xy = _deduplicate_polyline_xy(
+            rescued_xy,
+            min_segment_m=0.35 * self._path_resample_step_m,
+        )
+        rescued_xy = _resample_polyline_xy(rescued_xy, self._path_resample_step_m)
+        rescued_xy, _ = _smooth_path_to_curvature_limit(
+            path_xy=rescued_xy,
+            max_curvature_m_inv=self._max_path_curvature_m_inv,
+            resample_step_m=self._path_resample_step_m,
+            smoothing_alpha=max(self._path_smoothing_alpha, 0.22),
+            max_iterations=max(self._path_smoothing_max_iterations, 220),
+        )
+        rescued_xy = _enforce_monotonic_forward_x(rescued_xy)
+        if rescued_xy.shape[0] == 0:
+            return None
+        rescued_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        return rescued_xy
+
+    def _route_continuation_local_path(
+        self,
+        candidate_local_path_xy: np.ndarray,
+        route_suffix_local_xy: np.ndarray,
+    ) -> np.ndarray | None:
+        candidate_local_path_xy = np.asarray(candidate_local_path_xy, dtype=np.float64)
+        route_suffix_local_xy = np.asarray(route_suffix_local_xy, dtype=np.float64)
+        if candidate_local_path_xy.shape[0] < 2 or route_suffix_local_xy.shape[0] < 2:
+            return None
+
+        candidate_xy = _bridge_path_from_origin(
+            candidate_local_path_xy,
+            self._origin_bridge_point_count,
+        )
+        candidate_xy = _enforce_monotonic_forward_x(candidate_xy)
+        tail_start_index = int(
+            np.searchsorted(
+                route_suffix_local_xy[:, 0],
+                float(candidate_xy[-1, 0]) + max(0.04, self._path_resample_step_m),
+                side="left",
+            )
+        )
+        route_tail_xy = route_suffix_local_xy[
+            min(max(0, tail_start_index), route_suffix_local_xy.shape[0] - 2) :
+        ].copy()
+        if route_tail_xy.shape[0] < 2:
+            return None
+
+        gap_m = float(np.linalg.norm(route_tail_xy[0] - candidate_xy[-1]))
+        if gap_m < max(0.03, 0.75 * self._path_resample_step_m):
+            stitched_xy = np.vstack([candidate_xy[:-1], route_tail_xy])
+        else:
+            entry_heading_rad = _path_terminal_heading(candidate_xy)
+            route_heading_rad = _path_initial_heading(route_tail_xy)
+            control_length_m = min(0.35, max(0.08, 0.40 * gap_m))
+            connector_xy = _cubic_bezier_xy(
+                p0_xy=candidate_xy[-1],
+                p1_xy=candidate_xy[-1]
+                + (
+                    control_length_m
+                    * np.asarray([math.cos(entry_heading_rad), math.sin(entry_heading_rad)], dtype=np.float64)
+                ),
+                p2_xy=route_tail_xy[0]
+                - (
+                    control_length_m
+                    * np.asarray([math.cos(route_heading_rad), math.sin(route_heading_rad)], dtype=np.float64)
+                ),
+                p3_xy=route_tail_xy[0],
+                point_count=max(4, int(math.ceil(gap_m / max(1.0e-3, self._path_resample_step_m))) + 2),
+            )
+            stitched_xy = np.vstack([candidate_xy[:-1], connector_xy, route_tail_xy[1:]])
+
+        rescue_target_forward_x_m = max(
+            self._min_publish_forward_span_m + 0.25,
+            min(self._planning_horizon_m, self._path_min_forward_progress_m),
+        )
+        stitched_xy = _enforce_monotonic_forward_x(stitched_xy)
+        stitched_xy = _extend_path_forward(
+            stitched_xy,
+            target_forward_x_m=rescue_target_forward_x_m,
+            step_m=self._path_resample_step_m,
+        )
+        stitched_xy = _truncate_polyline_length(stitched_xy, self._planning_horizon_m)
+        stitched_xy = _deduplicate_polyline_xy(
+            stitched_xy,
+            min_segment_m=0.35 * self._path_resample_step_m,
+        )
+        stitched_xy = _resample_polyline_xy(stitched_xy, self._path_resample_step_m)
+        stitched_xy, _ = _smooth_path_to_curvature_limit(
+            path_xy=stitched_xy,
+            max_curvature_m_inv=self._max_path_curvature_m_inv,
+            resample_step_m=self._path_resample_step_m,
+            smoothing_alpha=max(self._path_smoothing_alpha, 0.20),
+            max_iterations=max(self._path_smoothing_max_iterations, 220),
+        )
+        stitched_xy = _enforce_monotonic_forward_x(stitched_xy)
+        if stitched_xy.shape[0] < 2:
+            return None
+        stitched_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        return stitched_xy
+
+    def _route_suffix_only_local_path(
+        self,
+        route_suffix_local_xy: np.ndarray,
+    ) -> np.ndarray | None:
+        route_suffix_local_xy = np.asarray(route_suffix_local_xy, dtype=np.float64)
+        if route_suffix_local_xy.shape[0] < 2:
+            return None
+
+        stitched_xy = _bridge_path_from_origin(
+            route_suffix_local_xy,
+            self._origin_bridge_point_count,
+        )
+        stitched_xy = _enforce_monotonic_forward_x(stitched_xy)
+        rescue_target_forward_x_m = max(
+            self._route_suffix_target_forward_span_m,
+            self._min_publish_forward_span_m + 0.25,
+            min(self._planning_horizon_m, self._path_min_forward_progress_m),
+        )
+        stitched_xy = _extend_path_forward(
+            stitched_xy,
+            target_forward_x_m=rescue_target_forward_x_m,
+            step_m=self._path_resample_step_m,
+        )
+        stitched_xy = _truncate_polyline_length(stitched_xy, self._planning_horizon_m)
+        stitched_xy = _deduplicate_polyline_xy(
+            stitched_xy,
+            min_segment_m=0.35 * self._path_resample_step_m,
+        )
+        stitched_xy = _resample_polyline_xy(stitched_xy, self._path_resample_step_m)
+        stitched_xy, _ = _smooth_path_to_curvature_limit(
+            path_xy=stitched_xy,
+            max_curvature_m_inv=self._max_path_curvature_m_inv,
+            resample_step_m=self._path_resample_step_m,
+            smoothing_alpha=max(self._path_smoothing_alpha, 0.20),
+            max_iterations=max(self._path_smoothing_max_iterations, 220),
+        )
+        stitched_xy = _enforce_monotonic_forward_x(stitched_xy)
+        if stitched_xy.shape[0] < 2:
+            return None
+        stitched_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        return stitched_xy
+
+    def _candidate_path_metrics(self, path_xy: np.ndarray) -> tuple[float, float, float]:
+        path_xy = np.asarray(path_xy, dtype=np.float64)
+        if path_xy.shape[0] < 2:
+            return 0.0, 0.0, 0.0
+        path_length_m = float(_polyline_length_m(path_xy))
+        path_forward_span_m = _path_forward_span_m(path_xy)
+        path_max_curvature_m_inv = (
+            float(np.max(np.abs(_estimate_path_curvature(path_xy))))
+            if path_xy.shape[0] >= 3
+            else 0.0
+        )
+        return path_forward_span_m, path_length_m, path_max_curvature_m_inv
+
+    def _select_publishable_local_path(
+        self,
+        *,
+        candidate_local_path_xy: np.ndarray | None,
+        candidate_source: str,
+        rear_xy: np.ndarray,
+        yaw_rad: float,
+    ) -> tuple[np.ndarray | None, str, str | None]:
+        self._last_path_rejected = False
+        self._last_path_rejection_reason = None
+        self._last_continuation_source = candidate_source
+        self._last_path_terminal_heading_deg = None
+        self._last_route_suffix_heading_deg = None
+        self._last_path_heading_alignment_deg = None
+        route_suffix_local_xy = self._route_suffix_local_path(rear_xy=rear_xy, yaw_rad=yaw_rad)
+        self._last_forward_projection_valid = route_suffix_local_xy is not None
+        route_suffix_heading_deg: float | None = None
+        if route_suffix_local_xy is not None and route_suffix_local_xy.shape[0] >= 2:
+            route_suffix_heading_deg = math.degrees(_path_initial_heading(route_suffix_local_xy))
+            self._last_route_suffix_heading_deg = route_suffix_heading_deg
+
+        if candidate_local_path_xy is None or candidate_local_path_xy.shape[0] < 2:
+            self._last_candidate_path_forward_span_m = 0.0
+            self._last_candidate_path_length_m = 0.0
+            self._last_candidate_path_max_curvature_m_inv = 0.0
+            route_continuation_xy = None
+            if route_suffix_local_xy is not None:
+                route_continuation_xy = self._route_suffix_only_local_path(route_suffix_local_xy)
+            if route_continuation_xy is not None:
+                route_continuation_forward_span_m, _, _ = self._candidate_path_metrics(
+                    route_continuation_xy
+                )
+                if route_continuation_forward_span_m >= self._min_publish_forward_span_m:
+                    self._path_rejection_count += 1
+                    self._path_rescue_count += 1
+                    self._last_path_rejected = True
+                    self._last_path_rejection_reason = "empty_candidate"
+                    self._last_continuation_source = "route_suffix_continuation"
+                    return route_continuation_xy, "route_suffix_continuation", "empty_candidate"
+            rescue_xy = self._rescue_previous_local_path(rear_xy=rear_xy, yaw_rad=yaw_rad)
+            if rescue_xy is None:
+                return None, candidate_source, "empty_candidate"
+            self._path_rescue_count += 1
+            self._path_rejection_count += 1
+            self._last_path_rejected = True
+            self._last_path_rejection_reason = "empty_candidate"
+            return rescue_xy, "rescue_previous_path", "empty_candidate"
+
+        candidate_forward_span_m, candidate_length_m, candidate_max_curvature_m_inv = (
+            self._candidate_path_metrics(candidate_local_path_xy)
+        )
+        self._last_candidate_path_forward_span_m = candidate_forward_span_m
+        self._last_candidate_path_length_m = candidate_length_m
+        self._last_candidate_path_max_curvature_m_inv = candidate_max_curvature_m_inv
+
+        previous_local_xy = self._previous_local_path_xy(rear_xy, yaw_rad)
+        previous_forward_span_m = (
+            _path_forward_span_m(previous_local_xy)
+            if previous_local_xy is not None and previous_local_xy.shape[0] >= 2
+            else 0.0
+        )
+        candidate_terminal_heading_deg = math.degrees(_path_terminal_heading(candidate_local_path_xy))
+        self._last_path_terminal_heading_deg = candidate_terminal_heading_deg
+        if route_suffix_heading_deg is not None:
+            self._last_path_heading_alignment_deg = _heading_alignment_deg(
+                math.radians(candidate_terminal_heading_deg),
+                math.radians(route_suffix_heading_deg),
+            )
+        forward_span_floor_m = max(
+            self._min_publish_forward_span_m,
+            min(self._path_min_forward_progress_m, 0.65 * previous_forward_span_m),
+        )
+
+        rejection_reason: str | None = None
+        if candidate_forward_span_m < forward_span_floor_m:
+            rejection_reason = "short_forward_span"
+        if (
+            rejection_reason is None
+            and self._last_path_heading_alignment_deg is not None
+            and self._last_path_heading_alignment_deg > 95.0
+        ):
+            rejection_reason = "route_heading_mismatch"
+        if (
+            rejection_reason is None
+            and route_suffix_heading_deg is not None
+            and self._last_path_heading_alignment_deg is not None
+        ):
+            candidate_heading_abs_deg = abs(candidate_terminal_heading_deg)
+            route_heading_abs_deg = abs(route_suffix_heading_deg)
+            if (
+                route_heading_abs_deg >= (candidate_heading_abs_deg + self._route_heading_soft_margin_deg)
+                and route_heading_abs_deg >= 25.0
+                and self._last_path_heading_alignment_deg >= self._route_heading_soft_reject_deg
+            ):
+                rejection_reason = "route_heading_underturn"
+
+        if rejection_reason is None:
+            self._last_continuation_source = candidate_source
+            return candidate_local_path_xy, candidate_source, None
+
+        candidate_rescue_xy = self._rescue_candidate_local_path(candidate_local_path_xy)
+        if candidate_rescue_xy is not None:
+            candidate_rescue_forward_span_m, _, _ = self._candidate_path_metrics(candidate_rescue_xy)
+            if candidate_rescue_forward_span_m >= self._min_publish_forward_span_m:
+                self._path_rejection_count += 1
+                self._path_rescue_count += 1
+                self._last_path_rejected = True
+                self._last_path_rejection_reason = rejection_reason
+                self._last_continuation_source = "rescue_candidate_extension"
+                return candidate_rescue_xy, "rescue_candidate_extension", rejection_reason
+
+        route_continuation_xy = None
+        if route_suffix_local_xy is not None:
+            route_continuation_xy = self._route_continuation_local_path(
+                candidate_local_path_xy,
+                route_suffix_local_xy,
+            )
+        if route_continuation_xy is not None:
+            route_continuation_forward_span_m, _, _ = self._candidate_path_metrics(
+                route_continuation_xy
+            )
+            if route_continuation_forward_span_m >= self._min_publish_forward_span_m:
+                self._path_rejection_count += 1
+                self._path_rescue_count += 1
+                self._last_path_rejected = True
+                self._last_path_rejection_reason = rejection_reason
+                self._last_continuation_source = "route_suffix_continuation"
+                return route_continuation_xy, "route_suffix_continuation", rejection_reason
+
+        rescue_xy = self._rescue_previous_local_path(rear_xy=rear_xy, yaw_rad=yaw_rad)
+        if rescue_xy is not None:
+            rescue_forward_span_m, _, _ = self._candidate_path_metrics(rescue_xy)
+            if rescue_forward_span_m >= self._min_publish_forward_span_m:
+                self._path_rejection_count += 1
+                self._path_rescue_count += 1
+                self._last_path_rejected = True
+                self._last_path_rejection_reason = rejection_reason
+                self._last_continuation_source = "rescue_previous_path"
+                return rescue_xy, "rescue_previous_path", rejection_reason
+
+        self._path_rejection_count += 1
+        self._last_path_rejected = True
+        self._last_path_rejection_reason = rejection_reason
+        return None, candidate_source, rejection_reason
+
+    def _build_local_path_from_centerline(
+        self,
+        centerline: _CorridorCenterline,
+        *,
+        rear_xy: np.ndarray,
+        yaw_rad: float,
+    ) -> np.ndarray:
         centerline_xy = np.column_stack([centerline.x_m, centerline.y_m]).astype(np.float64)
         if centerline_xy.shape[0] == 0:
             return np.empty((0, 2), dtype=np.float64)
@@ -645,20 +1728,14 @@ class RecognitionTourPlannerNode(Node):
         else:
             local_path_xy = centerline_xy.copy()
             local_path_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
-        local_path_xy = _truncate_polyline_length(local_path_xy, self._planning_horizon_m)
-        local_path_xy, _ = _smooth_path_to_curvature_limit(
-            path_xy=local_path_xy,
-            max_curvature_m_inv=self._max_path_curvature_m_inv,
-            resample_step_m=self._path_resample_step_m,
-            smoothing_alpha=self._path_smoothing_alpha,
-            max_iterations=self._path_smoothing_max_iterations,
-        )
-        local_path_xy = _truncate_polyline_length(local_path_xy, self._planning_horizon_m)
-        if local_path_xy.shape[0] > 0:
-            local_path_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
-        return local_path_xy
+        return self._stabilize_local_path(local_path_xy, rear_xy=rear_xy, yaw_rad=yaw_rad)
 
-    def _build_fallback_curve_window_path(self) -> tuple[np.ndarray, float] | None:
+    def _build_fallback_curve_window_path(
+        self,
+        *,
+        rear_xy: np.ndarray,
+        yaw_rad: float,
+    ) -> tuple[np.ndarray, float] | None:
         if not self._scan_buffer:
             return None
         latest_scan = self._scan_buffer[-1].lidar_points_local_xy
@@ -675,20 +1752,26 @@ class RecognitionTourPlannerNode(Node):
             [detection.trajectory.x_m, detection.trajectory.y_m]
         ).astype(np.float64)
         local_path_rear_xy = local_path_lidar_xy + self._rear_to_lidar_local.reshape(1, 2)
-        local_path_rear_xy = _truncate_polyline_length(local_path_rear_xy, self._planning_horizon_m)
-        local_path_rear_xy, _ = _smooth_path_to_curvature_limit(
-            path_xy=local_path_rear_xy,
-            max_curvature_m_inv=self._max_path_curvature_m_inv,
-            resample_step_m=self._path_resample_step_m,
-            smoothing_alpha=self._path_smoothing_alpha,
-            max_iterations=self._path_smoothing_max_iterations,
+        local_path_rear_xy = self._stabilize_local_path(
+            local_path_rear_xy,
+            rear_xy=rear_xy,
+            yaw_rad=yaw_rad,
         )
         if local_path_rear_xy.shape[0] == 0:
             return None
         local_path_rear_xy[0] = np.asarray([0.0, 0.0], dtype=np.float64)
+        candidate = detection.candidate
+        candidate_width_m = 0.0
+        if candidate is not None:
+            candidate_width_m = max(
+                float(candidate.window_width_m),
+                float(candidate.entry_width_m),
+                float(candidate.straight_width_m),
+                float(candidate.curve_width_m),
+            )
         corridor_width_m = max(
             self._corridor_min_width_m,
-            min(self._corridor_max_width_m, float(detection.summary.get("window_width_m", 0.0) or 0.0)),
+            min(self._corridor_max_width_m, candidate_width_m),
         )
         return local_path_rear_xy, corridor_width_m
 
@@ -724,6 +1807,8 @@ class RecognitionTourPlannerNode(Node):
         if len(self._route_points_world) < 2:
             return None
         route_xy = np.vstack(self._route_points_world).astype(np.float64)
+        raw_start_xy = route_xy[0].copy()
+        raw_end_xy = route_xy[-1].copy()
         if self._loop_closed and self._start_pose is not None:
             start_xy = np.asarray(
                 [self._start_pose["x_m"], self._start_pose["y_m"]],
@@ -731,6 +1816,7 @@ class RecognitionTourPlannerNode(Node):
             )
             if float(np.linalg.norm(route_xy[-1] - start_xy)) >= self._route_point_spacing_m:
                 route_xy = np.vstack([route_xy, start_xy.reshape(1, 2)])
+            raw_end_xy = start_xy.copy()
         route_xy = _resample_polyline_xy(route_xy, self._route_resample_step_m)
         route_xy, _ = _smooth_path_to_curvature_limit(
             path_xy=route_xy,
@@ -742,6 +1828,8 @@ class RecognitionTourPlannerNode(Node):
         route_xy = _resample_polyline_xy(route_xy, self._route_resample_step_m)
         if route_xy.shape[0] < 2:
             return None
+        route_xy[0] = raw_start_xy
+        route_xy[-1] = raw_end_xy
         stamp_sec = int(self._latest_odom["stamp_s"]) if self._latest_odom is not None else 0
         stamp_nanosec = int(
             (float(self._latest_odom["stamp_s"]) - stamp_sec) * 1.0e9
@@ -776,8 +1864,16 @@ class RecognitionTourPlannerNode(Node):
         self._ensure_mission_started()
         now_monotonic = time.monotonic()
         if not self._mission_started:
+            if not self._fusion_ready():
+                waiting_state = "waiting_fusion"
+            elif self._latest_odom is None:
+                waiting_state = "waiting_odom"
+            elif not self._armed:
+                waiting_state = "waiting_arm"
+            else:
+                waiting_state = "waiting_odom"
             self._status_payload = {
-                "state": "waiting_fusion" if not self._fusion_ready() else "waiting_odom",
+                "state": waiting_state,
                 "ready": False,
                 "loop_closure_armed": False,
                 "loop_closed": False,
@@ -787,6 +1883,7 @@ class RecognitionTourPlannerNode(Node):
                 "fusion_confidence": self._fusion_confidence(),
                 "corridor_width_m": None,
                 "route_point_count": len(self._route_points_world),
+                "armed": self._armed,
             }
             return
 
@@ -806,8 +1903,13 @@ class RecognitionTourPlannerNode(Node):
             }
             return
 
-        rear_xy, _ = rear_pose
+        rear_xy, rear_yaw_rad = rear_pose
         elapsed_s = max(0.0, now_monotonic - float(self._mission_start_monotonic or now_monotonic))
+        odom_age_s = (
+            max(0.0, self._ros_time_s() - float(self._latest_odom["stamp_s"]))
+            if self._latest_odom is not None
+            else None
+        )
         current_axis_distance_m, current_axis_lateral_m = self._start_axis_metrics(rear_xy)
         self._loop_closure_armed = (
             self._travel_distance_m >= self._start_axis_arm_distance_m
@@ -858,10 +1960,16 @@ class RecognitionTourPlannerNode(Node):
                     "lateral_offset_m": current_axis_lateral_m,
                 },
                 "local_path_age_s": local_path_age_s,
+                "odom_age_s": odom_age_s,
                 "fusion_confidence": self._fusion_confidence(),
                 "corridor_width_m": self._latest_corridor_width_m or None,
                 "route_point_count": len(self._route_points_world),
                 "local_path_source": self._last_local_path_source,
+                "continuation_source": self._last_continuation_source,
+                "path_terminal_heading_deg": self._last_path_terminal_heading_deg,
+                "route_suffix_heading_deg": self._last_route_suffix_heading_deg,
+                "path_heading_alignment_deg": self._last_path_heading_alignment_deg,
+                "forward_projection_valid": self._last_forward_projection_valid,
                 "terminal_cause": self._terminal_cause,
             }
             return
@@ -884,17 +1992,38 @@ class RecognitionTourPlannerNode(Node):
             max_gap_bins=self._corridor_gap_fill_bins,
         )
         if centerline is not None:
-            local_path_xy = self._build_local_path_from_centerline(centerline)
+            local_path_xy = self._build_local_path_from_centerline(
+                centerline,
+                rear_xy=rear_xy,
+                yaw_rad=rear_yaw_rad,
+            )
             corridor_width_m = centerline.width_m
             planner_state = "tracking"
         else:
-            fallback = self._build_fallback_curve_window_path()
+            fallback = self._build_fallback_curve_window_path(
+                rear_xy=rear_xy,
+                yaw_rad=rear_yaw_rad,
+            )
             if fallback is not None:
                 local_path_xy, corridor_width_m = fallback
                 planner_state = "fallback_curve_window"
+        candidate_source = planner_state
 
-        if local_path_xy is not None and local_path_xy.shape[0] >= 2:
-            world_path_xy = _transform_local_to_world(local_path_xy, rear_xy, float(self._latest_odom["yaw_rad"]))
+        publish_local_path_xy, publish_source, rejection_reason = self._select_publishable_local_path(
+            candidate_local_path_xy=local_path_xy,
+            candidate_source=candidate_source,
+            rear_xy=rear_xy,
+            yaw_rad=rear_yaw_rad,
+        )
+
+        if publish_local_path_xy is not None and publish_local_path_xy.shape[0] >= 2:
+            publish_local_path_xy = self._stabilize_published_local_path(
+                publish_local_path_xy,
+                publish_source=publish_source,
+                rear_xy=rear_xy,
+                yaw_rad=rear_yaw_rad,
+            )
+            world_path_xy = _transform_local_to_world(publish_local_path_xy, rear_xy, rear_yaw_rad)
             stamp_sec = int(self._latest_odom["stamp_s"])
             stamp_nanosec = int((float(self._latest_odom["stamp_s"]) - stamp_sec) * 1.0e9)
             self._last_local_path_msg = self._build_path_message(
@@ -904,10 +2033,12 @@ class RecognitionTourPlannerNode(Node):
             )
             self._last_local_path_world_xy = world_path_xy
             self._last_local_path_planned_monotonic = now_monotonic
-            self._last_local_path_source = planner_state
+            self._last_local_path_source = publish_source
             self._latest_corridor_width_m = float(corridor_width_m or 0.0)
             self._append_local_path_prefix(world_path_xy)
+            self._local_path_pub.publish(self._last_local_path_msg)
             ready = True
+            planner_state = publish_source
         else:
             local_path_age_s = (
                 max(0.0, now_monotonic - self._last_local_path_planned_monotonic)
@@ -918,16 +2049,25 @@ class RecognitionTourPlannerNode(Node):
                 planner_state = "holding_last_path"
                 ready = True
             else:
-                planner_state = "waiting_local_path"
+                planner_state = (
+                    "holding_last_path" if rejection_reason is not None else "waiting_local_path"
+                )
                 ready = False
 
         if len(self._route_points_world) >= 2:
             self._last_route_msg = self._build_route_message()
+            if self._last_route_msg is not None:
+                self._route_pub.publish(self._last_route_msg)
 
         local_path_age_s = (
             max(0.0, now_monotonic - self._last_local_path_planned_monotonic)
             if self._last_local_path_planned_monotonic is not None
             else None
+        )
+        path_forward_span_m = (
+            _path_forward_span_m(publish_local_path_xy)
+            if publish_local_path_xy is not None and publish_local_path_xy.shape[0] >= 2
+            else 0.0
         )
         curvature = (
             float(np.max(np.abs(_estimate_path_curvature(self._last_local_path_world_xy))))
@@ -941,6 +2081,7 @@ class RecognitionTourPlannerNode(Node):
             "loop_closed": False,
             "travel_distance_m": self._travel_distance_m,
             "elapsed_s": elapsed_s,
+            "armed": self._armed,
             "start_pose": self._start_pose,
             "start_axis": {
                 "normal_xy": self._start_axis_normal_xy.tolist() if self._start_axis_normal_xy is not None else None,
@@ -949,12 +2090,19 @@ class RecognitionTourPlannerNode(Node):
                 "lateral_offset_m": current_axis_lateral_m,
             },
             "local_path_age_s": local_path_age_s,
+            "odom_age_s": odom_age_s,
             "fusion_confidence": self._fusion_confidence(),
             "corridor_width_m": corridor_width_m if corridor_width_m is not None else (self._latest_corridor_width_m or None),
             "route_point_count": len(self._route_points_world),
             "local_path_source": self._last_local_path_source,
+            "continuation_source": self._last_continuation_source,
             "rolling_scan_count": len(self._scan_buffer),
             "rolling_point_count": int(rolling_points_xy.shape[0]),
+            "candidate_path_source": candidate_source,
+            "candidate_path_rejected": self._last_path_rejected,
+            "candidate_path_rejection_reason": self._last_path_rejection_reason,
+            "path_rejection_count": self._path_rejection_count,
+            "path_rescue_count": self._path_rescue_count,
             "path_point_count": (
                 int(self._last_local_path_world_xy.shape[0]) if self._last_local_path_world_xy is not None else 0
             ),
@@ -963,7 +2111,15 @@ class RecognitionTourPlannerNode(Node):
                 if self._last_local_path_world_xy is not None
                 else 0.0
             ),
+            "path_forward_span_m": path_forward_span_m,
             "path_max_curvature_m_inv": curvature,
+            "candidate_path_forward_span_m": self._last_candidate_path_forward_span_m,
+            "candidate_path_length_m": self._last_candidate_path_length_m,
+            "candidate_path_max_curvature_m_inv": self._last_candidate_path_max_curvature_m_inv,
+            "path_terminal_heading_deg": self._last_path_terminal_heading_deg,
+            "route_suffix_heading_deg": self._last_route_suffix_heading_deg,
+            "path_heading_alignment_deg": self._last_path_heading_alignment_deg,
+            "forward_projection_valid": self._last_forward_projection_valid,
         }
 
     def _publish_outputs(self) -> None:

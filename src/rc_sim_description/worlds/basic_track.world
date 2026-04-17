@@ -70,7 +70,8 @@
       <real_time_update_rate>1000.0</real_time_update_rate>
     </physics>
 
-    <!-- Enable Gazebo Sim sensors (required for LiDAR publishing) -->
+    <!-- Enable Gazebo Sim IMU and sensors -->
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors"/>
     <!-- Enable spawn/create service used by ros_gz_sim create -->
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>

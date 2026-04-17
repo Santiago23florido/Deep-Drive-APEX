@@ -1,0 +1,19 @@
+{
+  "run_dir": "/home/santiago/AiAtonomousRc/src/rc_sim_description/data/runs/lap_manual_01",
+  "scan_topic": "/apex/sim/scan",
+  "imu_topic": "/apex/sim/imu",
+  "odom_topic": "/apex/odometry/imu_lidar_fused",
+  "ground_truth_odom_topic": "/apex/sim/ground_truth/odom",
+  "ground_truth_path_topic": "/apex/sim/ground_truth/path",
+  "perfect_map_topic": "/apex/sim/ground_truth/perfect_map_points",
+  "ground_truth_status_topic": "/apex/sim/ground_truth/status",
+  "online_status_topic": "/apex/estimation/status",
+  "scenario": "baseline",
+  "control_mode": "manual_windows_bridge",
+  "mapping_mode": "ideal",
+  "estimation_mode": "ideal",
+  "distortion_profile": "ideal",
+  "refinement_mode": "offline_submaps",
+  "offline_replay_mode": "live_buffer",
+  "world_path": "/home/santiago/AiAtonomousRc/install/rc_sim_description/share/rc_sim_description/worlds/basic_track.world"
+}

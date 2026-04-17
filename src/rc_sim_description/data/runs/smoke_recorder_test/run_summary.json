@@ -1,0 +1,24 @@
+{
+  "run_dir": "/home/santiago/AiAtonomousRc/src/rc_sim_description/data/runs/smoke_recorder_test",
+  "imu_sample_count": 353,
+  "scan_count": 34,
+  "lidar_point_count": 12240,
+  "odom_count": 8,
+  "ground_truth_odom_count": 85,
+  "ground_truth_status_count": 85,
+  "online_status_count": 8,
+  "track_geometry_point_count": 2944,
+  "files": {
+    "imu_raw_csv": "imu_raw.csv",
+    "lidar_points_csv": "lidar_points.csv",
+    "scan_index_csv": "scan_index.csv",
+    "odom_fused_csv": "odom_fused.csv",
+    "ground_truth_odom_csv": "ground_truth_odom.csv",
+    "track_geometry_csv": "track_geometry.csv",
+    "ground_truth_path_csv": "ground_truth_path.csv",
+    "ground_truth_status_jsonl": "ground_truth_status.jsonl",
+    "online_status_jsonl": "online_status.jsonl",
+    "run_metadata_json": "run_metadata.json",
+    "run_summary_json": "run_summary.json"
+  }
+}

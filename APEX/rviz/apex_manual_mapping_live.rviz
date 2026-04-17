@@ -1,0 +1,192 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /Mapping Preview Grid1
+        - /Mapping Preview Points1
+        - /Mapping Preview Path1
+        - /Fused Odometry1
+        - /Fused Path1
+      Splitter Ratio: 0.5
+    Tree Height: 620
+  - Class: rviz_common/Selection
+    Name: Selection
+  - Class: rviz_common/Tool Properties
+    Name: Tool Properties
+    Splitter Ratio: 0.58
+  - Class: rviz_common/Views
+    Name: Views
+    Splitter Ratio: 0.5
+  - Class: rviz_common/Time
+    Name: Time
+    SyncMode: 0
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.35
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 160; 160; 164
+      Enabled: true
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 40
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Alpha: 0.7
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: false
+      Enabled: true
+      Name: Mapping Preview Grid
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /apex/sim/mapping_preview/grid
+      Value: true
+    - Alpha: 0.85
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/PointCloud2
+      Color: 220; 236; 250
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Max Color: 255; 255; 255
+      Max Intensity: 1
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: Mapping Preview Points
+      Position Transformer: XYZ
+      Queue Size: 2
+      Selectable: true
+      Size (Pixels): 2
+      Size (m): 0.025
+      Style: Flat Squares
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /apex/sim/mapping_preview/visual_points
+      Use Fixed Frame: true
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 0; 190; 120
+      Enabled: true
+      Head Diameter: 0.05
+      Head Length: 0.05
+      Length: 0.05
+      Line Style: Lines
+      Line Width: 0.05
+      Name: Mapping Preview Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 255; 255
+      Pose Style: None
+      Radius: 0.03
+      Shaft Diameter: 0.02
+      Shaft Length: 0.04
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /apex/sim/mapping_preview/path
+      Value: true
+    - Angle Tolerance: 0.05
+      Class: rviz_default_plugins/Odometry
+      Color: 255; 120; 0
+      Enabled: true
+      Keep: 200
+      Length: 0.25
+      Name: Fused Odometry
+      Position Tolerance: 0.03
+      Shape:
+        Alpha: 1
+        Axes Length: 0.4
+        Axes Radius: 0.03
+        Color: 255; 120; 0
+        Head Length: 0.12
+        Head Radius: 0.04
+        Shaft Length: 0.2
+        Shaft Radius: 0.02
+        Value: Arrow
+      Topic: /apex/odometry/imu_lidar_fused
+      Unreliable: false
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 30; 30; 30
+      Enabled: true
+      Head Diameter: 0.05
+      Head Length: 0.05
+      Length: 0.05
+      Line Style: Lines
+      Line Width: 0.04
+      Name: Fused Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 255; 255
+      Pose Style: None
+      Radius: 0.03
+      Shaft Diameter: 0.02
+      Shaft Length: 0.04
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /apex/estimation/path
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 36; 36; 40
+    Fixed Frame: odom_imu_lidar_fused
+    Frame Rate: 20
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 8
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Pitch: 1.1
+      Target Frame: odom_imu_lidar_fused
+      Yaw: 1.0

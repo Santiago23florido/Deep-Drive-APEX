@@ -1,0 +1,45 @@
+{
+  "primary_cause": "controller",
+  "scores": {
+    "timing": 0.9,
+    "planner": 0.0,
+    "controller": 3.8
+  },
+  "timing": {
+    "tracker_odom_age_p95_s": null,
+    "planner_odom_age_p95_s": null,
+    "path_age_p95_s": 0.5034191379999982,
+    "fusion_prediction_age_p95_s": null,
+    "stale_odom_fraction": 0.0,
+    "stale_path_fraction": 0.06382978723404255,
+    "tracker_problem_segments": 1
+  },
+  "planner": {
+    "path_forward_span_p10_m": null,
+    "path_length_mean_m": null,
+    "path_curvature_p95_1pm": null,
+    "short_path_fraction": 0.0,
+    "fallback_fraction": 0.0,
+    "local_path_count": 25
+  },
+  "controller": {
+    "path_deviation_p95_m": 0.30722872325044615,
+    "steering_error_p95_deg": 7.131800941944579,
+    "speed_error_p95_pct": 6.114770180831227,
+    "sharp_turn_low_speed_fraction": 0.0,
+    "max_desired_steering_deg": 36.54819887284909,
+    "max_applied_steering_deg": 36.54819887284909
+  },
+  "evidence": {
+    "timing": [
+      "path age p95=0.503s"
+    ],
+    "planner": [],
+    "controller": [
+      "steering mismatch p95=7.1deg",
+      "speed mismatch p95=6.1%",
+      "path deviation p95=0.307m",
+      "path-loss not explained by stale odom or short path alone"
+    ]
+  }
+}

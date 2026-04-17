@@ -1,0 +1,15 @@
+{
+  "baseline_mean_forward_span_m": 1.4222014318365903,
+  "baseline_mean_path_length_m": 1.7150899154413617,
+  "baseline_p95_path_max_curvature_m_inv": 3.670651924931412,
+  "baseline_path_count": 137,
+  "baseline_short_path_count": 0,
+  "candidate_mean_forward_span_m": 1.177671294866528,
+  "candidate_mean_path_length_m": 1.4826710250446395,
+  "candidate_p95_path_max_curvature_m_inv": 0.974482842998007,
+  "candidate_path_count": 110,
+  "candidate_short_path_count": 1,
+  "missing_candidate_count": 27,
+  "run": "recognition_tour_04_20260403T013713Z",
+  "subsystem": "planner"
+}

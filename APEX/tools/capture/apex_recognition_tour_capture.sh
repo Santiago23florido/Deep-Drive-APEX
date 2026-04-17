@@ -10,8 +10,11 @@ CONTAINER_OUTPUT_ROOT="${APEX_RECOGNITION_TOUR_CONTAINER_ROOT:-/work/ros2_ws/ape
 RUN_ID="${APEX_RECOGNITION_TOUR_RUN_ID:-recognition_tour}"
 RUN_TIMEOUT_S="${APEX_RECOGNITION_TOUR_TIMEOUT_S:-60.0}"
 ARM_TOPIC="${APEX_RECOGNITION_TOUR_ARM_TOPIC:-/apex/tracking/arm}"
-BRIDGE_MIN_SPEED_PCT="${APEX_RECOGNITION_TOUR_MIN_SPEED_PCT:-14.0}"
-BRIDGE_MAX_SPEED_PCT="${APEX_RECOGNITION_TOUR_MAX_SPEED_PCT:-20.0}"
+BRIDGE_MIN_SPEED_PCT="${APEX_RECOGNITION_TOUR_MIN_SPEED_PCT:-17.0}"
+BRIDGE_MAX_SPEED_PCT="${APEX_RECOGNITION_TOUR_MAX_SPEED_PCT:-25.0}"
+BRIDGE_LAUNCH_BOOST_SPEED_PCT_RAW="${APEX_RECOGNITION_TOUR_LAUNCH_BOOST_SPEED_PCT:-20.0}"
+BRIDGE_LAUNCH_BOOST_HOLD_S="${APEX_RECOGNITION_TOUR_LAUNCH_BOOST_HOLD_S:-0.35}"
+PRINT_CONFIG_ONLY=0
 
 usage() {
   cat <<'EOF'
@@ -20,6 +23,7 @@ Usage: apex_recognition_tour_capture.sh [options]
 Options:
   --run-id <id>
   --timeout-s <seconds>
+  --print-config
 EOF
 }
 
@@ -33,6 +37,10 @@ while [[ $# -gt 0 ]]; do
       RUN_TIMEOUT_S="${2:-}"
       shift 2
       ;;
+    --print-config)
+      PRINT_CONFIG_ONLY=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -44,6 +52,26 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+BRIDGE_LAUNCH_BOOST_SPEED_PCT="$(python3 - "${BRIDGE_LAUNCH_BOOST_SPEED_PCT_RAW}" <<'PY'
+import sys
+
+value = float(sys.argv[1])
+print(max(0.0, min(25.0, value)))
+PY
+)"
+
+if python3 - "${BRIDGE_LAUNCH_BOOST_SPEED_PCT_RAW}" "${BRIDGE_LAUNCH_BOOST_SPEED_PCT}" <<'PY'
+import math
+import sys
+
+raw = float(sys.argv[1])
+clamped = float(sys.argv[2])
+raise SystemExit(0 if not math.isclose(raw, clamped, rel_tol=0.0, abs_tol=1.0e-9) else 1)
+PY
+then
+  echo "[APEX][WARN] recognition_tour launch_boost capped to ${BRIDGE_LAUNCH_BOOST_SPEED_PCT}% (requested ${BRIDGE_LAUNCH_BOOST_SPEED_PCT_RAW}%)"
+fi
 
 CAPTURE_NAME="${RUN_ID}_$(date -u +%Y%m%dT%H%M%SZ)"
 HOST_RUN_DIR="${HOST_OUTPUT_ROOT}/${CAPTURE_NAME}"
@@ -60,12 +88,20 @@ cat > "${HOST_RUN_DIR}/capture_meta.json" <<EOF
   "enable_recognition_tour_tracker": 1,
   "enable_cmdvel_actuation_bridge": 1,
   "bridge_min_effective_speed_pct": ${BRIDGE_MIN_SPEED_PCT},
-  "bridge_max_speed_pct": ${BRIDGE_MAX_SPEED_PCT}
+  "bridge_max_speed_pct": ${BRIDGE_MAX_SPEED_PCT},
+  "bridge_launch_boost_speed_pct": ${BRIDGE_LAUNCH_BOOST_SPEED_PCT},
+  "bridge_launch_boost_hold_s": ${BRIDGE_LAUNCH_BOOST_HOLD_S}
 }
 EOF
 
 cd "${APEX_ROOT}"
 export PATH="${HOME}/local/bin:${PATH}"
+echo "[APEX] recognition_tour bridge config: min=${BRIDGE_MIN_SPEED_PCT}% max=${BRIDGE_MAX_SPEED_PCT}% launch_boost=${BRIDGE_LAUNCH_BOOST_SPEED_PCT}% hold=${BRIDGE_LAUNCH_BOOST_HOLD_S}s startup_compat=${APEX_STARTUP_COMPAT:-safe}"
+echo "[APEX] recognition_tour startup config: serial_warmup=${APEX_SERIAL_WARMUP_S:-2.0}s lidar_settle=${APEX_LIDAR_STARTUP_SETTLE_S:-6.0}s node_stagger=${APEX_NODE_STARTUP_STAGGER_S:-0.8}s postcheck_ready=${APEX_RAW_POSTCHECK_READY_DELAY_S:-8}s"
+echo "[APEX] recognition_tour capture config: run_id=${CAPTURE_NAME} timeout=${RUN_TIMEOUT_S}s output=${HOST_RUN_DIR}"
+if [[ "${PRINT_CONFIG_ONLY}" == "1" ]]; then
+  exit 0
+fi
 ./tools/core/apex_core_down.sh
 APEX_ENABLE_IMU_LIDAR_FUSION=1 \
 APEX_ENABLE_CURVE_ENTRY_PLANNER=0 \
@@ -74,9 +110,19 @@ APEX_ENABLE_RECOGNITION_TOUR_PLANNER=1 \
 APEX_ENABLE_RECOGNITION_TOUR_TRACKER=1 \
 APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE=1 \
 APEX_ENABLE_KINEMATICS=0 \
+APEX_STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-safe}" \
+APEX_STAGGERED_STARTUP=1 \
+APEX_SERIAL_WARMUP_S="${APEX_SERIAL_WARMUP_S:-2.0}" \
+APEX_LIDAR_STARTUP_SETTLE_S="${APEX_LIDAR_STARTUP_SETTLE_S:-6.0}" \
+APEX_NODE_STARTUP_STAGGER_S="${APEX_NODE_STARTUP_STAGGER_S:-0.8}" \
+APEX_RAW_POSTCHECK_READY_DELAY_S="${APEX_RAW_POSTCHECK_READY_DELAY_S:-8}" \
+APEX_RAW_POSTCHECK_RETRIES="${APEX_RAW_POSTCHECK_RETRIES:-2}" \
+APEX_RAW_POSTCHECK_TOPIC_GAP_S="${APEX_RAW_POSTCHECK_TOPIC_GAP_S:-1.0}" \
 APEX_BRIDGE_MIN_EFFECTIVE_SPEED_PCT="${BRIDGE_MIN_SPEED_PCT}" \
 APEX_BRIDGE_MAX_SPEED_PCT="${BRIDGE_MAX_SPEED_PCT}" \
-APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO=1 \
+APEX_BRIDGE_LAUNCH_BOOST_SPEED_PCT="${BRIDGE_LAUNCH_BOOST_SPEED_PCT}" \
+APEX_BRIDGE_LAUNCH_BOOST_HOLD_S="${BRIDGE_LAUNCH_BOOST_HOLD_S}" \
+APEX_BRIDGE_ACTIVE_BRAKE_ON_ZERO=true \
 APEX_SKIP_BUILD="${APEX_SKIP_BUILD:-1}" \
 APEX_NANO_PREFLIGHT="${APEX_NANO_PREFLIGHT:-1}" \
 ./tools/capture/apex_raw_capture_up.sh
@@ -90,6 +136,7 @@ docker exec "${CONTAINER_NAME}" /bin/bash -lc \
   "source '${ROS_SETUP_SCRIPT}' && python3 /work/ros2_ws/scripts/capture/record_recognition_tour.py \
     --path-topic /apex/planning/recognition_tour_local_path \
     --route-topic /apex/planning/recognition_tour_route \
+    --fusion-status-topic /apex/estimation/status \
     --planner-status-topic /apex/planning/recognition_tour_status \
     --tracker-status-topic /apex/tracking/recognition_tour_status \
     --bridge-status-topic /apex/vehicle/drive_bridge_status \
@@ -97,6 +144,8 @@ docker exec "${CONTAINER_NAME}" /bin/bash -lc \
     --scan-topic /lidar/scan_localization \
     --lidar-offset-x-m 0.18 \
     --lidar-offset-y-m 0.0 \
+    --rear-axle-offset-x-m -0.15 \
+    --rear-axle-offset-y-m 0.0 \
     --output-dir '${CONTAINER_RUN_DIR}' \
     --timeout-s '${RUN_TIMEOUT_S}'" \
   > "${HOST_RUN_DIR}/recognition_tour_record.log" 2>&1 &
@@ -139,4 +188,6 @@ echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_route.csv"
 echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_route.json"
 echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_trajectory.csv"
 echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_overview.png"
+echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_diagnostics.png"
+echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/recognition_tour_diagnostics.json"
 echo "  ${HOST_RUN_DIR}/analysis_recognition_tour/drive_bridge_status.log"

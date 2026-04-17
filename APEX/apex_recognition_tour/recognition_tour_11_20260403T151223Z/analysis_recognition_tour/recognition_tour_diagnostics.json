@@ -1,0 +1,45 @@
+{
+  "primary_cause": "timing",
+  "scores": {
+    "timing": 1.8,
+    "planner": 0.0,
+    "controller": 1.0
+  },
+  "timing": {
+    "tracker_odom_age_p95_s": 0.04513287544250488,
+    "planner_odom_age_p95_s": 0.5084453821182251,
+    "path_age_p95_s": 0.0,
+    "fusion_prediction_age_p95_s": 0.016919374465942383,
+    "stale_odom_fraction": 0.003129890453834116,
+    "stale_path_fraction": 0.01564945226917058,
+    "tracker_problem_segments": 1
+  },
+  "planner": {
+    "path_forward_span_p10_m": 1.063927760703714,
+    "path_length_mean_m": 1.2206117597145627,
+    "path_curvature_p95_1pm": 0.9742302148848067,
+    "short_path_fraction": 0.0,
+    "fallback_fraction": 0.0,
+    "local_path_count": 128
+  },
+  "controller": {
+    "path_deviation_p95_m": 0.043815661337922474,
+    "steering_error_p95_deg": 1.7433365046867824,
+    "speed_error_p95_pct": 0.4875090558351935,
+    "sharp_turn_low_speed_fraction": 0.504434011476265,
+    "max_desired_steering_deg": 45.79101717224609,
+    "max_applied_steering_deg": 45.79101717224609,
+    "steering_saturation_fraction": 0.0,
+    "waiting_path_refresh_fraction": 0.0
+  },
+  "evidence": {
+    "timing": [
+      "planner odom age p95=0.508s",
+      "timing-related tracker interruptions=1"
+    ],
+    "planner": [],
+    "controller": [
+      "sharp-turn low-speed fraction=50.4%"
+    ]
+  }
+}
