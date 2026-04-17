@@ -2,7 +2,7 @@
 
 Deep Drive APEX is a ROS 2 and Gazebo-based autonomous RC car project. It includes a current APEX workflow for Gazebo simulation and the real blue vehicle ("voiture blue"), plus alternate and legacy stacks that are documented separately.
 
-This root README is the main navigation hub. The detailed technical documentation lives in [`docs/`](docs/), while supplementary report material is grouped under [`docs/Reportes/`](docs/Reportes/).
+This root README is the main navigation hub. The detailed technical documentation lives in [`docs/`](docs/), while supplementary report material is grouped under [`docs/reports/`](docs/reports/).
 
 ## Documentation at a Glance
 
@@ -64,9 +64,9 @@ The documentation explains the project from both user and developer perspectives
 
 Supplementary French report materials are stored separately from the main documentation set:
 
-- [📄 Simulation Status Report](docs/Reportes/simulation-status/SimulationStatus.pdf) - PDF report and LaTeX sources for the simulator status.
-- [📄 Software Selection Report](docs/Reportes/software-selection/SoftwareSelection.pdf) - PDF report and LaTeX sources for simulation software selection.
-- [📁 Report Folder](docs/Reportes/) - grouped report sources, PDFs, build artifacts, and related assets.
+- [📄 Simulation Status Report](docs/reports/simulation-status/SimulationStatus.pdf) - PDF report and LaTeX sources for the simulator status.
+- [📄 Software Selection Report](docs/reports/software-selection/SoftwareSelection.pdf) - PDF report and LaTeX sources for simulation software selection.
+- [📁 Report Folder](docs/reports/) - grouped report sources, PDFs, build artifacts, and related assets.
 
 ## Current Workflow Summary
 
