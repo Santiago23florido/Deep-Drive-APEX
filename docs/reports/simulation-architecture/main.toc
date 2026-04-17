@@ -1,0 +1,20 @@
+\babel@toc {french}{}\relax 
+\contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
+\contentsline {section}{\numberline {2}Objectif de la simulation}{2}{section.2}%
+\contentsline {section}{\numberline {3}Organisation structurelle}{2}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Paquet principal}{2}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Modele robot}{3}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Mondes et scenarios}{3}{subsection.3.3}%
+\contentsline {section}{\numberline {4}Flux d'execution}{3}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Lancement principal}{3}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Sequence runtime}{3}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Role de \texttt {ros\_gz\_bridge}}{3}{subsection.4.3}%
+\contentsline {section}{\numberline {5}Modules et responsabilites}{4}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Bridges et controle}{4}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Integration APEX}{4}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Workflows complementaires}{4}{subsection.5.3}%
+\contentsline {section}{\numberline {6}Bilan de la simulation}{4}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Points forts}{4}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Limites observees}{5}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Interpretation}{5}{subsection.6.3}%
+\contentsline {section}{\numberline {7}Conclusion}{5}{section.7}%

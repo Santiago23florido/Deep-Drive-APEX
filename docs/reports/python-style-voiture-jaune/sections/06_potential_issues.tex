@@ -1,0 +1,26 @@
+\section{Liste de problemes potentiels}
+
+\subsection{Problemes confirmes dans le depot}
+
+\begin{itemize}
+  \item Deux points d'entree principaux coexistent: \path{main.py} et \path{main_refactored.py}.
+  \item Des commentaires indiquent des corrections ou bugs connus, par exemple autour des factories de simulation et de certains appels d'interface.
+  \item Plusieurs \path{TODO} signalent des zones non finalisees: seuils, logique de strategie, detection camera, collision ou recul.
+  \item Les fichiers contiennent un melange linguistique et quelques signes d'encodage degrade, ce qui complique la maintenance.
+  \item La configuration depend de fichiers locaux comme \path{config.json} ou \path{new-config.json}, sans source unique clairement privilegiee.
+\end{itemize}
+
+\subsection{Risques deduits de l'architecture}
+
+\begin{itemize}
+  \item La pile ne publie pas nativement de topics ROS, ce qui limite l'observabilite et l'integration avec RViz, rosbag, SLAM ou Nav2.
+  \item La divergence entre simulation Python, simulation Gazebo et vehicule reel peut rendre les resultats difficiles a comparer.
+  \item Les interfaces hardware directes peuvent etre fragiles face aux changements de ports, permissions, timing ou calibration.
+  \item La duplication avec APEX peut induire des corrections dans une pile sans propagation dans l'autre.
+  \item L'absence d'un workflow unique recommande peut favoriser des lancements manuels differents selon les utilisateurs.
+\end{itemize}
+
+\subsection{Points a completer}
+
+Les problemes terrain reels doivent etre completes par l'equipe: conditions d'essai, symptomes, logs disponibles, version de configuration et decision prise. Le depot permet d'identifier des risques techniques, mais il ne fournit pas un historique exhaustif d'incidents valides pour cette pile.
+

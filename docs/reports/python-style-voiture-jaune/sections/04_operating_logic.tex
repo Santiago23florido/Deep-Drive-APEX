@@ -1,0 +1,41 @@
+\section{Logique de fonctionnement}
+
+\subsection{Boucle principale}
+
+La boucle de controle observee dans \path{main.py} et \path{main_refactored.py} fonctionne typiquement a environ 20 Hz, avec une pause de \path{0.05} seconde entre deux iterations. A chaque iteration, l'algorithme lit les capteurs, calcule la navigation, puis applique les commandes.
+
+Le schema fonctionnel est le suivant:
+
+\begin{enumerate}
+  \item chargement d'une configuration JSON;
+  \item initialisation des interfaces capteurs et actionneurs;
+  \item demarrage du LiDAR;
+  \item lecture LiDAR, camera, vitesse, batterie et ultrason;
+  \item filtrage ou reduction de l'espace LiDAR;
+  \item calcul d'un angle cible et d'une vitesse cible;
+  \item application de la commande moteur et direction;
+  \item mise a jour eventuelle des visualisations et logs.
+\end{enumerate}
+
+\subsection{Traitement LiDAR et direction}
+
+Les modules de \path{algorithm/control_direction.py} et \path{algorithm/LidarFiltering.py} sont utilises pour transformer les donnees LiDAR en information exploitable pour la direction. Le code fait apparaitre des notions de hitbox, de filtrage par convolution et de recherche d'une direction cible.
+
+D'apres les fichiers audites, le LiDAR est represente comme un tableau angulaire de distances. La logique applique ensuite un filtrage, reduit l'espace disponible en tenant compte de l'encombrement du vehicule, puis calcule une consigne de direction.
+
+\subsection{Strategies de conduite}
+
+La version refactorisee introduit un \path{StrategyManager} avec plusieurs profils:
+
+\begin{itemize}
+  \item \path{conservative};
+  \item \path{normal};
+  \item \path{aggressive}.
+\end{itemize}
+
+Ces strategies ajustent la vitesse et la direction selon la distance frontale, l'angle cible et le profil de conduite. Cette organisation est plus maintenable qu'une logique monolithique, mais elle reste interne a la pile Python.
+
+\subsection{Securite et manoeuvres}
+
+Les algorithmes contiennent des mecanismes d'arret d'urgence, de detection de collision potentielle par roue arretee, de controle de proximite murale et de manoeuvres de recul. Ces mecanismes sont importants pour un vehicule reel, mais plusieurs commentaires \path{TODO} indiquent que certains seuils ou comportements restent a valider.
+

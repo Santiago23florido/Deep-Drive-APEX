@@ -1,0 +1,31 @@
+\section{Fonctionnement et logique d'execution}
+
+\subsection{Lancement de la pile APEX}
+
+Le launch \path{apex_pipeline.launch.py} compose la pile APEX de maniere modulaire. Chaque grande fonction peut etre activee ou desactivee par argument de lancement: source IMU, source LiDAR, estimation cinematique, fusion, planification, tracking et bridge d'actionnement.
+
+Sur la Voiture Blue, les scripts de reference se trouvent dans \path{APEX/tools/core} et \path{APEX/tools/capture}. Le script \path{apex_real_ready_up.sh} configure une pile prete pour le vehicule reel, tandis que \path{apex_recognition_tour_capture.sh} organise une session de capture orientee tour de reconnaissance.
+
+\subsection{Topics structurants}
+
+Les topics suivants apparaissent comme structurants pour le fonctionnement APEX:
+
+\begin{itemize}
+  \item \path{/apex/imu/data_raw}: donnees IMU brutes;
+  \item \path{/lidar/scan_localization}: scan LiDAR utilise par la localisation;
+  \item \path{/apex/odometry/imu_lidar_fused}: odometrie fusionnee;
+  \item \path{/apex/planning/recognition_tour_local_path}: trajectoire locale;
+  \item \path{/apex/tracking/recognition_tour_status}: etat du tracker;
+  \item \path{/apex/cmd_vel_track}: commande de vitesse produite par le tracker;
+  \item \path{/apex/vehicle/drive_bridge_status}: etat du bridge d'actionnement.
+\end{itemize}
+
+\subsection{Actionnement}
+
+Le noeud \path{cmd_vel_to_apex_actuation_node} constitue la frontiere entre la commande ROS et l'actionnement. En mode reel, il utilise un backend \path{sysfs_pwm}. En mode simulation, il publie des topics PWM tels que \path{/apex/sim/pwm/motor_dc} et \path{/apex/sim/pwm/steering_dc}.
+
+D'apres les parametres audites, le moteur et la direction sont associes a deux canaux PWM distincts, avec un neutre moteur et des limites de direction. Cette couche est critique car elle concentre les conversions, les saturations et la securisation minimale de la commande envoyee au vehicule.
+
+\subsection{Relation avec \texttt{voiture\_system}}
+
+La pile \path{voiture_system} fournit une logique alternative autour de \path{/cmd_vel}, \path{/odom}, \path{/map}, du SLAM et de Nav2. Elle ne doit pas etre confondue avec la chaine APEX principale, qui utilise une nomenclature de topics \path{/apex/...}. Cette coexistence peut etre utile pour comparer les approches, mais elle augmente le risque de confusion si le workflow courant n'est pas precise.

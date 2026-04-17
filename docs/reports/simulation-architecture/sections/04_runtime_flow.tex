@@ -1,0 +1,33 @@
+\section{Flux d'execution}
+
+\subsection{Lancement principal}
+
+Le flux de lancement courant passe par:
+
+\begin{itemize}
+  \item le script \path{APEX/tools/sim/apex_sim_up.sh}, qui construit et lance l'environnement;
+  \item ou directement par \path{ros2 launch rc_sim_description apex_sim.launch.py}.
+\end{itemize}
+
+Le launch \path{apex_sim.launch.py} charge le scenario, prepare les parametres, lance Gazebo, publie l'etat robot, spawne le vehicule et demarre les ponts necessaires.
+
+\subsection{Sequence runtime}
+
+La sequence typique est la suivante:
+
+\begin{enumerate}
+  \item selection du scenario et lecture de \path{apex_sim_scenarios.json};
+  \item lancement de Gazebo Sim avec le monde choisi;
+  \item generation du robot a partir du Xacro;
+  \item publication des transforms par \path{robot_state_publisher};
+  \item spawn du modele dans Gazebo;
+  \item bridge de \path{/clock}, \path{/apex/sim/scan} et \path{/apex/sim/imu};
+  \item inclusion de \path{apex_pipeline.launch.py} en mode simulation;
+  \item publication de la commande \path{/apex/cmd_vel_track};
+  \item conversion vers \path{/apex/sim/pwm/motor_dc} et \path{/apex/sim/pwm/steering_dc};
+  \item conversion finale vers les commandes de joints Gazebo par \path{apex_gz_vehicle_bridge.py}.
+\end{enumerate}
+
+\subsection{Role de \texttt{ros\_gz\_bridge}}
+
+Gazebo et ROS 2 utilisent des systemes de communication differents. Le pont \path{ros_gz_bridge} convertit les messages Gazebo en messages ROS 2. Dans cette simulation, il est essentiel pour exposer l'horloge de simulation, les scans LiDAR et l'IMU a la pile APEX.

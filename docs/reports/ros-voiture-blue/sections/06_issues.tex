@@ -1,0 +1,23 @@
+\section{Points a resoudre et problemes identifies}
+
+\subsection{Points confirmes par le depot}
+
+\begin{itemize}
+  \item Plusieurs architectures coexistent: APEX, \path{voiture_system}, anciens chemins de simulation et code Python historique. Cette coexistence peut compliquer l'onboarding.
+  \item Certaines documentations historiques ne decrivent plus exactement la pile APEX actuelle.
+  \item Le fonctionnement reel depend de ports serie et de l'acces a \path{/sys/class/pwm}, donc d'une configuration materielle precise.
+  \item Le debit LiDAR doit etre verifie selon le capteur utilise; des documents anciens mentionnent des valeurs differentes selon les voitures.
+\end{itemize}
+
+\subsection{Points deduits ou potentiels}
+
+\begin{itemize}
+  \item Le diagnostic \path{recognition_tour_diagnostic_report.md} decrit un run particulier avec un abandon de type perte de trajectoire et une possible saturation de direction. Ce constat est utile, mais ne suffit pas a conclure a un defaut general de la pile.
+  \item La complexite de la pile de lancement peut rendre difficile l'identification rapide du noeud responsable lors d'un probleme terrain.
+  \item Les differences entre simulation et vehicule reel peuvent provoquer des ecarts importants si les parametres capteurs et actionneurs ne sont pas recales regulierement.
+\end{itemize}
+
+\subsection{Element a completer par retour terrain}
+
+Cette section reste a completer avec les problemes observes en pratique sur la Voiture Blue: symptomes exacts, conditions de test, version du code, parametres utilises, logs ROS, et decision prise apres analyse. Aucun inventaire terrain exhaustif et valide n'a ete trouve dans le depot.
+

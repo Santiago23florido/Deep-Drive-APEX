@@ -1,0 +1,24 @@
+\section{Bilan du fonctionnement}
+
+\subsection{Points forts}
+
+Le code ROS de la Voiture Blue presente plusieurs points positifs:
+
+\begin{itemize}
+  \item une decomposition claire en noeuds specialises;
+  \item une distinction explicite entre backends reels et simules;
+  \item une integration de la capture et du diagnostic via des scripts dedies;
+  \item une reutilisation de la logique APEX entre simulation et vehicule reel;
+  \item une configuration centralisee dans un fichier YAML principal.
+\end{itemize}
+
+\subsection{Maturite observee}
+
+La pile APEX semble etre la plus active et la plus complete pour l'usage courant. Elle couvre l'acquisition capteur, l'estimation, la planification, le tracking et l'actionnement. Le depot contient egalement des artefacts de runs, des scripts de capture et des rapports de diagnostic, ce qui montre une demarche d'essai et d'analyse.
+
+Le niveau de maturite reste cependant heterogene. Certaines parties sont tres structurees, tandis que d'autres conservent des traces d'experimentation, de compatibilite ou d'anciennes architectures. Le bilan global est donc positif du point de vue de la couverture fonctionnelle, mais prudent du point de vue de la stabilite operationnelle.
+
+\subsection{Interpretation}
+
+D'apres l'organisation du depot, la Voiture Blue est en phase d'integration avancee plutot qu'en phase de produit stabilise. Les mecanismes essentiels existent, mais leur fiabilite depend fortement des parametres, des branchements materiels, de la calibration LiDAR/IMU et de la qualite de la trajectoire produite en temps reel.
+

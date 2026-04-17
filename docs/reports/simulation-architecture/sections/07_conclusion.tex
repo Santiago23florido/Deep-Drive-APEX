@@ -1,0 +1,6 @@
+\section{Conclusion}
+
+La simulation du depot est principalement organisee autour de Gazebo Sim, du paquet \path{rc_sim_description} et de l'integration APEX. Elle fournit un environnement coherent pour tester les capteurs simules, la planification, le tracking, l'actionnement simule et les workflows de recording.
+
+Son principal interet est de rapprocher les essais simulation de la pile reelle de la Voiture Blue. Son principal risque est la complexite: plusieurs chemins coexistent et certains sont historiques. Pour la suite, il est recommande de conserver \path{apex_sim.launch.py} comme point d'entree principal, de documenter explicitement les chemins legacy et de maintenir les scenarios comme references reproductibles.
+

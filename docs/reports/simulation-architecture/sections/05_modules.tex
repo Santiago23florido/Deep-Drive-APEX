@@ -1,0 +1,35 @@
+\section{Modules et responsabilites}
+
+\subsection{Bridges et controle}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.34\linewidth} >{\raggedright\arraybackslash}p{0.56\linewidth}}
+\textbf{Module} & \textbf{Responsabilite} \\
+\hline
+\path{apex_gz_vehicle_bridge.py} & Convertit les PWM simules en commandes de roues et de direction Gazebo. \\
+\path{apex_cmd_vel_to_sim_pwm_node.py} & Aide historique ou specifique a la conversion commande vers PWM simule. \\
+\path{apex_ground_truth_node.py} & Publie odometrie, trajectoire, carte parfaite et statut de verite terrain. \\
+\path{apex_ground_truth_tf_bridge.py} & Publie ou relie la verite terrain dans TF selon les modes. \\
+\path{apex_sim_run_recorder.py} & Enregistre les donnees de simulation pour analyse. \\
+\path{offline_submap_refiner.py} & Raffinement offline de sous-cartes. \\
+\path{offline_similarity_monitor.py} & Evaluation de similarite entre cartes ou trajectoires. \\
+\end{longtable}
+
+\subsection{Integration APEX}
+
+La simulation inclut la pile APEX avec des parametres adaptes:
+
+\begin{itemize}
+  \item backend IMU simule sur \path{/apex/sim/imu};
+  \item backend LiDAR simule sur \path{/apex/sim/scan};
+  \item backend actionnement \path{sim_pwm_topic};
+  \item reutilisation des planificateurs et trackers APEX.
+\end{itemize}
+
+Cette integration est importante: elle fait de la simulation un banc d'essai de la pile reelle, et pas seulement une animation independante.
+
+\subsection{Workflows complementaires}
+
+Le depot contient aussi des workflows de mapping manuel, de capture de tour de reconnaissance simule, de SLAM optionnel et de raffinement offline. Ces workflows confirment que la simulation sert a la fois au developpement algorithmique, au diagnostic et a la generation de donnees.
+
+Le launch \path{spawn_rc_car.launch.py} reste present comme chemin plus simple et plus ancien. Il ne doit pas etre confondu avec le launch APEX principal.
+

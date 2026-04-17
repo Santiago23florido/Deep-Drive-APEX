@@ -1,0 +1,17 @@
+\section{Objectif de la simulation}
+
+La simulation a pour objectif de valider les algorithmes de perception, d'estimation, de planification et de controle sans exposer le vehicule reel a des risques materiels. Elle permet aussi de comparer des estimations avec une verite terrain disponible dans Gazebo.
+
+Les objectifs techniques principaux sont:
+
+\begin{itemize}
+  \item fournir un modele de vehicule RC avec LiDAR, IMU et geometrie de base;
+  \item simuler des pistes et scenarios reproductibles;
+  \item connecter Gazebo a ROS 2 via des ponts de messages;
+  \item reutiliser la pile APEX en mode simulation;
+  \item enregistrer des runs et produire des donnees de diagnostic;
+  \item tester differents modes d'estimation, de mapping et de raffinement offline.
+\end{itemize}
+
+La simulation n'est pas une preuve de fonctionnement reel. Elle sert surtout a accelerer le developpement, identifier des regressions et experimenter des scenarios difficiles a reproduire physiquement.
+

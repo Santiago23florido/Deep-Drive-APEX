@@ -1,0 +1,44 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+
+\geometry{margin=2.4cm}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  pdftitle={Architecture de simulation Gazebo et APEX},
+  pdfauthor={Equipe projet}
+}
+\setlist[itemize]{topsep=0.3em,itemsep=0.2em}
+\setlist[enumerate]{topsep=0.3em,itemsep=0.2em}
+
+\title{Architecture de simulation Gazebo et APEX}
+\author{Equipe projet}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\input{sections/01_introduction}
+\input{sections/02_objective}
+\input{sections/03_structure}
+\input{sections/04_runtime_flow}
+\input{sections/05_modules}
+\input{sections/06_bilan}
+\input{sections/07_conclusion}
+
+\end{document}
+

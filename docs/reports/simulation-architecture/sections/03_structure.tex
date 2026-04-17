@@ -1,0 +1,33 @@
+\section{Organisation structurelle}
+
+\subsection{Paquet principal}
+
+Le paquet \path{rc_sim_description} contient les elements centraux de la simulation:
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.30\linewidth} >{\raggedright\arraybackslash}p{0.60\linewidth}}
+\textbf{Emplacement} & \textbf{Role} \\
+\hline
+\path{launch/apex_sim.launch.py} & Launch principal de simulation APEX. \\
+\path{launch/spawn_rc_car.launch.py} & Ancien launch de spawn simple. \\
+\path{urdf/rc_car.urdf.xacro} & Description robot du vehicule simule. \\
+\path{worlds/} & Mondes Gazebo et pistes de test. \\
+\path{config/apex_sim_scenarios.json} & Scenarios, poses initiales et surcharges de parametres. \\
+\path{scripts/} & Bridges, verite terrain, recording, teleoperation, mapping et raffinement offline. \\
+\end{longtable}
+
+\subsection{Modele robot}
+
+Le fichier \path{rc_car.urdf.xacro} decrit le chassis, les roues, les articulations, le LiDAR, l'IMU et d'autres frames. Il configure aussi des capteurs simules qui publient notamment:
+
+\begin{itemize}
+  \item \path{/apex/sim/scan} pour le LiDAR;
+  \item \path{/apex/sim/imu} pour l'IMU;
+  \item certains topics camera dans les chemins plus anciens.
+\end{itemize}
+
+\subsection{Mondes et scenarios}
+
+Les mondes Gazebo se trouvent dans \path{src/rc_sim_description/worlds}. Les scenarios sont decrits dans \path{apex_sim_scenarios.json}, avec des noms tels que \path{baseline}, \path{precision_fusion}, \path{tight_right_saturation}, \path{outer_long_inner_short} ou \path{narrowing_false_corridor}.
+
+Cette organisation permet de separer la geometrie du monde, la pose initiale et les parametres experimentaux.
+

@@ -1,0 +1,8 @@
+\section{Conclusion}
+
+La pile ROS de la Voiture Blue repose aujourd'hui principalement sur APEX. Elle propose une architecture coherente, modulaire et compatible avec la simulation. Les composants essentiels sont presents: acquisition IMU et LiDAR, estimation, fusion, planification, tracking, bridge d'actionnement et outillage de capture.
+
+Le principal enjeu n'est pas l'absence d'architecture, mais la consolidation. Il faut maintenir une separation claire entre la pile APEX actuelle, la pile alternative \path{voiture_system} et les anciens chemins Python ou simulation. Il faut aussi documenter les problemes terrain avec des donnees reproductibles afin de distinguer les defauts de configuration, les limites algorithmiques et les problemes materiels.
+
+En l'etat du depot, APEX constitue la base technique la plus pertinente pour poursuivre l'exploitation ROS de la Voiture Blue.
+

@@ -1,0 +1,8 @@
+\section{Introduction}
+
+Ce rapport presente le fonctionnement et l'organisation de la simulation dans le depot. La simulation actuelle repose principalement sur Gazebo Sim, le paquet ROS 2 \path{rc_sim_description} et l'integration de la pile APEX via \path{apex_telemetry}.
+
+Le depot contient plusieurs chemins de simulation. Le plus complet et le plus actuel est \path{src/rc_sim_description/launch/apex_sim.launch.py}. Des chemins plus anciens existent aussi, notamment \path{spawn_rc_car.launch.py} et la simulation \path{voiture_system} basee sur Gazebo Classic et \path{ros2_control}. Ce rapport distingue ces chemins afin d'eviter de confondre l'architecture principale avec les experiences historiques.
+
+Les informations ci-dessous sont issues de l'audit des launch files, du modele URDF/Xacro, des mondes Gazebo, des scripts installes par \path{CMakeLists.txt}, des fichiers de scenarios, des scripts APEX et des artefacts de runs.
+

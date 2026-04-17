@@ -1,0 +1,26 @@
+\section{Contexte et objectif}
+
+\subsection{Position dans le depot}
+
+Le dossier \path{full_soft/} contient une pile logicielle autonome plus ancienne que la pile APEX. Elle ne repose pas sur ROS 2. Elle utilise des modules Python pour lire les capteurs, calculer une direction et une vitesse, commander les actionneurs et afficher des visualisations.
+
+Cette architecture semble avoir ete pensee pour une exploitation directe sur Raspberry Pi, avec une logique de developpement pedagogique: installation, connexion au Raspberry Pi, configuration reseau, VNC, VSCode, scripts de dependances et documentation hardware.
+
+\subsection{Lien avec la Voiture Blue}
+
+La documentation materielle historique mentionne plusieurs voitures et composants, dont la Voiture Blue. Le code \path{full_soft/} peut donc servir de reference pour comprendre l'ancien controle materiel: LiDAR, camera, moteur, direction, ultrason, batterie et vitesse.
+
+En revanche, d'apres l'etat actuel du depot, l'usage recommande pour la Voiture Blue semble etre APEX/ROS 2. L'utilisation de \path{full_soft/} avec la Voiture Blue doit donc etre consideree comme une approche historique, de transition ou de reference, plutot que comme le chemin principal actuel.
+
+\subsection{Objectif du rapport}
+
+Ce rapport vise a:
+
+\begin{itemize}
+  \item decrire l'organisation Python de \path{full_soft/};
+  \item expliquer la logique d'execution et les interfaces;
+  \item faire un bilan d'utilisation pour la Voiture Blue;
+  \item identifier les problemes confirmes et les risques potentiels;
+  \item distinguer clairement cette pile de la pile ROS 2 APEX.
+\end{itemize}
+

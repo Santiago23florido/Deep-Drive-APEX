@@ -1,0 +1,44 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+
+\geometry{margin=2.4cm}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  urlcolor=blue!50!black,
+  pdftitle={Synthese du code ROS pour la Voiture Blue},
+  pdfauthor={Equipe projet}
+}
+\setlist[itemize]{topsep=0.3em,itemsep=0.2em}
+\setlist[enumerate]{topsep=0.3em,itemsep=0.2em}
+
+\title{Synthese du code ROS pour la Voiture Blue}
+\author{Equipe projet}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\input{sections/01_introduction}
+\input{sections/02_architecture}
+\input{sections/03_ros_code_structure}
+\input{sections/04_functioning}
+\input{sections/05_bilan}
+\input{sections/06_issues}
+\input{sections/07_conclusion}
+
+\end{document}
+

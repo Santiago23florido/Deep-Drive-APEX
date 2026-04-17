@@ -1,0 +1,37 @@
+\section{Architecture generale}
+
+\subsection{Vue d'ensemble}
+
+L'architecture ROS de la Voiture Blue s'organise autour d'une chaine capteurs, estimation, planification, suivi et actionnement. Le principe central est de conserver une logique logicielle proche entre simulation et vehicule reel, puis de remplacer les backends d'entree-sortie selon le contexte.
+
+\begin{center}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.26\linewidth} >{\raggedright\arraybackslash}p{0.62\linewidth}}
+\textbf{Couche} & \textbf{Responsabilite principale} \\
+\hline
+Capteurs & Lecture de l'IMU Nano et du RPLIDAR, ou reception des capteurs simules Gazebo. \\
+Estimation & Integration cinematique et fusion planaire IMU + LiDAR. \\
+Planification & Generation d'une trajectoire locale ou d'une route de reconnaissance. \\
+Suivi & Conversion de la trajectoire en commande de vitesse et de direction. \\
+Actionnement & Conversion de \path{/apex/cmd_vel_track} en PWM reel ou PWM simule. \\
+\end{tabular}
+\end{center}
+
+\subsection{Flux fonctionnel principal}
+
+Le flux APEX attendu pour la Voiture Blue peut etre resume ainsi:
+
+\begin{enumerate}
+  \item l'IMU Nano publie les donnees inertielles brutes;
+  \item le RPLIDAR publie les scans utilises pour la localisation;
+  \item les noeuds d'estimation produisent une odometrie brute et une odometrie fusionnee;
+  \item le planificateur \path{recognition_tour} construit une trajectoire locale;
+  \item le tracker suit cette trajectoire et publie \path{/apex/cmd_vel_track};
+  \item le bridge d'actionnement applique les limites de securite et genere les commandes PWM.
+\end{enumerate}
+
+\subsection{Separation simulation / reel}
+
+La separation entre simulation et vehicule reel repose principalement sur des parametres de backend. En simulation, les donnees capteurs proviennent de Gazebo via \path{ros_gz_bridge}, et la commande est publiee sur des topics PWM simules. Sur le vehicule, les donnees proviennent des ports serie et la commande est appliquee via l'interface Linux \path{/sys/class/pwm}.
+
+Cette conception indique une volonte de tester le comportement de haut niveau dans Gazebo tout en conservant une interface similaire pour le vehicule physique. Elle ne garantit pas une equivalence parfaite entre simulation et reel, mais elle facilite la validation progressive.
+

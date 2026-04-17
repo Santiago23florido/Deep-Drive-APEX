@@ -1,0 +1,36 @@
+\section{Structure du code ROS}
+
+\subsection{Paquets confirmes}
+
+Trois paquets ROS 2 sont identifies dans le depot:
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.25\linewidth} >{\raggedright\arraybackslash}p{0.20\linewidth} >{\raggedright\arraybackslash}p{0.45\linewidth}}
+\textbf{Paquet} & \textbf{Emplacement} & \textbf{Role observe} \\
+\hline
+\path{apex_telemetry} & \path{APEX/ros2_ws/src/apex_telemetry} & Paquet principal APEX pour l'IMU, le LiDAR, la cinematique, la fusion, la planification, le suivi et l'actionnement. \\
+\path{rc_sim_description} & \path{src/rc_sim_description} & Description du vehicule simule, mondes Gazebo, launch de simulation, ponts Gazebo et outils de recording. \\
+\path{voiture_system} & \path{src/voiture_system} & Pile ROS 2 alternative avec RPLIDAR, etat serie, drive Ackermann, odometrie, SLAM et Nav2 optionnels. \\
+\end{longtable}
+
+\subsection{Noeuds APEX principaux}
+
+Le fichier \path{APEX/ros2_ws/src/apex_telemetry/setup.py} confirme les executables ROS suivants:
+
+\begin{itemize}
+  \item \path{nano_accel_serial_node}: ingestion des donnees IMU;
+  \item \path{rplidar_publisher_node}: ingestion du RPLIDAR ou d'un scan simule;
+  \item \path{kinematics_estimator_node} et \path{kinematics_odometry_node}: estimation cinematique et odometrie;
+  \item \path{imu_lidar_planar_fusion_node}: fusion planaire IMU + LiDAR;
+  \item \path{curve_entry_path_planner_node} et \path{curve_path_tracker_node}: logique de courbe;
+  \item \path{recognition_tour_planner_node} et \path{recognition_tour_tracker_node}: logique de tour de reconnaissance;
+  \item \path{recognition_session_manager_node}: gestion de session;
+  \item \path{cmd_vel_to_apex_actuation_node}: conversion de la commande en actionnement;
+  \item \path{apex_windows_gamepad_bridge_node}: interface de controle manuel ou passerelle PC.
+\end{itemize}
+
+\subsection{Configuration}
+
+Le fichier central de parametres APEX est \path{APEX/ros2_ws/src/apex_telemetry/config/apex_params.yaml}. Il regroupe notamment les ports serie, les topics, les frames, les backends simulation/reel et les limites de l'actionnement.
+
+La presence de \path{APEX/docker/docker-compose.yml} et de \path{APEX/ros2_ws/scripts/start_apex_pipeline.sh} confirme que l'execution reelle est prevue dans un conteneur Docker privilegie, avec acces aux ports serie et a \path{/sys/class/pwm}.
+

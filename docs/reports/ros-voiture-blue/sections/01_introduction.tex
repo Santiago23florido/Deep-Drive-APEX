@@ -1,0 +1,10 @@
+\section{Introduction}
+
+Ce rapport presente une synthese technique du code ROS associe a la Voiture Blue dans le depot. L'objectif n'est pas de produire un manuel utilisateur complet, mais de dresser un bilan structure de l'architecture logicielle, des modules principaux, du fonctionnement attendu et des points encore a clarifier.
+
+D'apres l'analyse du depot, la pile la plus actuelle pour la Voiture Blue est la pile APEX. Elle repose sur ROS 2, des noeuds Python regroupes dans le paquet \path{apex_telemetry}, des scripts de deploiement sous \path{APEX/tools}, et un deploiement Docker pour l'execution sur Raspberry Pi. La simulation Gazebo est fournie par le paquet \path{rc_sim_description}; elle reutilise une partie de la logique APEX en changeant les backends capteurs et actionneurs.
+
+Le depot contient aussi une pile ROS 2 alternative, \path{voiture_system}, qui met en place une approche plus classique de type SLAM/Nav2 autour de \path{/cmd_vel}, \path{/odom} et \path{/map}. Cette pile est utile comme reference, mais elle ne semble pas etre le chemin principal actuel pour le fonctionnement APEX de la Voiture Blue.
+
+Dans ce rapport, les faits directement visibles dans les fichiers de code, de configuration et de lancement sont presentes comme confirmes. Les interpretations qui relient ces elements a un usage terrain sont formulees comme hypotheses ou deductions issues de l'organisation du depot.
+

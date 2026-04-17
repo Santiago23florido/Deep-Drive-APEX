@@ -1,0 +1,24 @@
+\babel@toc {french}{}\relax 
+\contentsline {section}{\numberline {1}Introduction}{2}{section.1}%
+\contentsline {section}{\numberline {2}Architecture generale}{2}{section.2}%
+\contentsline {subsection}{\numberline {2.1}Vue d'ensemble}{2}{subsection.2.1}%
+\contentsline {subsection}{\numberline {2.2}Flux fonctionnel principal}{2}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}Separation simulation / reel}{3}{subsection.2.3}%
+\contentsline {section}{\numberline {3}Structure du code ROS}{3}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Paquets confirmes}{3}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Noeuds APEX principaux}{3}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Configuration}{3}{subsection.3.3}%
+\contentsline {section}{\numberline {4}Fonctionnement et logique d'execution}{4}{section.4}%
+\contentsline {subsection}{\numberline {4.1}Lancement de la pile APEX}{4}{subsection.4.1}%
+\contentsline {subsection}{\numberline {4.2}Topics structurants}{4}{subsection.4.2}%
+\contentsline {subsection}{\numberline {4.3}Actionnement}{4}{subsection.4.3}%
+\contentsline {subsection}{\numberline {4.4}Relation avec \texttt {voiture\_system}}{4}{subsection.4.4}%
+\contentsline {section}{\numberline {5}Bilan du fonctionnement}{4}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Points forts}{4}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}Maturite observee}{5}{subsection.5.2}%
+\contentsline {subsection}{\numberline {5.3}Interpretation}{5}{subsection.5.3}%
+\contentsline {section}{\numberline {6}Points a resoudre et problemes identifies}{5}{section.6}%
+\contentsline {subsection}{\numberline {6.1}Points confirmes par le depot}{5}{subsection.6.1}%
+\contentsline {subsection}{\numberline {6.2}Points deduits ou potentiels}{5}{subsection.6.2}%
+\contentsline {subsection}{\numberline {6.3}Element a completer par retour terrain}{5}{subsection.6.3}%
+\contentsline {section}{\numberline {7}Conclusion}{5}{section.7}%
