@@ -63,7 +63,6 @@ The documentation explains the project from both user and developer perspectives
 Supplementary French report materials are stored separately from the main documentation set:
 
 - [📄 ROS Voiture Blue Synthesis](docs/reports/ros-voiture-blue/main.tex) - LaTeX synthesis of the ROS/APEX stack for the blue vehicle.
-- [📄 Python-Style Voiture Jaune Bilan](docs/reports/python-style-voiture-jaune/main.tex) - LaTeX historical report on the external legacy Python approach formerly mirrored as `full_soft/`.
 - [📄 Simulation Architecture Report](docs/reports/simulation-architecture/main.tex) - LaTeX report on the Gazebo/APEX simulation architecture.
 - [📄 Simulation Status Report](docs/reports/simulation-status/SimulationStatus.pdf) - PDF report and LaTeX sources for the simulator status.
 - [📄 Software Selection Report](docs/reports/software-selection/SoftwareSelection.pdf) - PDF report and LaTeX sources for simulation software selection.

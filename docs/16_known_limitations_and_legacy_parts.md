@@ -15,7 +15,7 @@ The repository contains several overlapping generations of autonomous RC car sof
 | `src/voiture_system` | Alternate | ROS 2 SLAM/Nav2 path using standard `/cmd_vel`, `/odom`, and `/map`. |
 | `src/rc_sim_description/launch/spawn_rc_car.launch.py` | Legacy/overlapping | Older simple Gazebo Sim path. |
 | `src/voiture_system/launch/bringup_sim.launch.py` | Legacy/alternate | Classic Gazebo and `ros2_control` path. |
-| Former `full_soft/` reference | Historical external | Older non-ROS Python vehicle stack removed from `main`; only the synthesis report remains. |
+| Former `full_soft/` reference | Historical external | Older non-ROS Python vehicle stack removed from `main`; no dedicated source mirror or report remains in this repository. |
 | `Lidar` | Auxiliary | Useful LiDAR networking notes, not a complete APEX stack. |
 
 ## Outdated or Conflicting Documentation

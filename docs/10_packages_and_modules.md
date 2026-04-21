@@ -163,7 +163,7 @@ Some top-level wrapper scripts exist for compatibility. Prefer the organized `to
 
 The older non-ROS Python stack formerly mirrored as `full_soft/` has been removed from `main` because it belongs to another repository and is not part of the maintained APEX codebase.
 
-The remaining project documentation preserves a historical synthesis of that approach in `docs/reports/python-style-voiture-jaune/`. Use that report for context only; new development should target APEX or the alternate `voiture_system` ROS 2 stack.
+No dedicated report or source mirror for that external stack is kept in `main`. New development should target APEX or the alternate `voiture_system` ROS 2 stack.
 
 ## `Lidar`
 

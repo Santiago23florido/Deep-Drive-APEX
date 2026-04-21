@@ -113,7 +113,7 @@ These support networking, PC-side control, Windows gamepad bridging, service ins
 - `src/rc_sim_description/launch/spawn_rc_car.launch.py`
 - Parts of the root `README.md`
 - Some older APEX README statements that describe a reduced APEX scope
-- The former external `full_soft/` Python stack, now documented only in the historical report under `docs/reports/python-style-voiture-jaune/`
+- The former external `full_soft/` Python stack, removed from `main` and no longer carried as a dedicated report in this repository
 
 These areas and references remain useful for hardware history and previous approaches, but they should not be treated as the current recommended architecture.
 
