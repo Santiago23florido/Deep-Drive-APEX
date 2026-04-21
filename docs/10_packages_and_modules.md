@@ -9,7 +9,6 @@
 | `voiture_system` | Alternate ROS 2 stack | RPLIDAR, serial state, Ackermann drive, odometry, adaptive control, SLAM/Nav2. |
 | `APEX/tools` | Core tooling | Real startup, capture, simulation wrappers, PC tools, compatibility wrappers. |
 | `APEX/docker` | Core deployment | Docker image and Compose service for real blue-car operation. |
-| `full_soft` | Legacy | Older non-ROS Python vehicle stack and simulator. |
 | `Lidar` | Auxiliary | Distributed LiDAR networking utilities and documentation. |
 
 ## `rc_sim_description`
@@ -160,11 +159,11 @@ Some top-level wrapper scripts exist for compatibility. Prefer the organized `to
 | `Dockerfile` | Builds a ROS 2 Jazzy-based runtime image with Python scientific and serial dependencies. |
 | `docker-compose.yml` | Starts the privileged `apex_pipeline` real-car container. |
 
-## `full_soft`
+## Historical Python Reference
 
-`full_soft` is an older non-ROS Python stack. It includes previous Raspberry Pi setup notes, hardware inventory, hardware overview, Python vehicle control code, older simulator assets, and configuration files such as `config.json` and `sample-config.json`.
+The older non-ROS Python stack formerly mirrored as `full_soft/` has been removed from `main` because it belongs to another repository and is not part of the maintained APEX codebase.
 
-Use it as historical reference, not as the current APEX architecture.
+The remaining project documentation preserves a historical synthesis of that approach in `docs/reports/python-style-voiture-jaune/`. Use that report for context only; new development should target APEX or the alternate `voiture_system` ROS 2 stack.
 
 ## `Lidar`
 
@@ -177,4 +176,3 @@ It is not the current full APEX autonomy stack.
 - [Repository Structure](02_repository_structure.md)
 - [Launch Files and Execution Flows](11_launch_files_and_execution_flows.md)
 - [Known Limitations and Legacy Parts](16_known_limitations_and_legacy_parts.md)
-

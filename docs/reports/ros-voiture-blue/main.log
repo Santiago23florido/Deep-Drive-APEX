@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (MiKTeX 24.1) (preloaded format=pdflatex 2025.11.11)  17 APR 2026 11:28
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (MiKTeX 24.1) (preloaded format=pdflatex 2025.11.11)  21 APR 2026 15:44
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -461,7 +461,7 @@ Here is how much of TeX's memory you used:
  33773 multiletter control sequences out of 15000+600000
  567751 words of font info for 57 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,9n,79p,535b,452s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,9n,79p,546b,452s stack positions out of 10000i,1000n,20000p,200000b,200000s
  <C:\Users\jdani\AppData\Local\MiKTeX\fonts/pk/ljfour/jknappen/ec/dpi600\ectt
 1200.pk> <C:\Users\jdani\AppData\Local\MiKTeX\fonts/pk/ljfour/jknappen/ec/dpi60
 0\ecbx1200.pk> <C:\Users\jdani\AppData\Local\MiKTeX\fonts/pk/ljfour/jknappen/ec
@@ -471,9 +471,9 @@ pen/ec/dpi600\ecrm1095.pk> <C:\Users\jdani\AppData\Local\MiKTeX\fonts/pk/ljfour
 ljfour/jknappen/ec/dpi600\ecbx1440.pk> <C:\Users\jdani\AppData\Local\MiKTeX\fon
 ts/pk/ljfour/jknappen/ec/dpi600\ecrm1200.pk> <C:\Users\jdani\AppData\Local\MiKT
 eX\fonts/pk/ljfour/jknappen/ec/dpi600\ecrm1728.pk>
-Output written on main.pdf (6 pages, 128155 bytes).
+Output written on main.pdf (6 pages, 127929 bytes).
 PDF statistics:
- 468 PDF objects out of 1000 (max. 8388607)
+ 467 PDF objects out of 1000 (max. 8388607)
  38 named destinations out of 1000 (max. 500000)
  185 words of extra memory for PDF output out of 10000 (max. 10000000)
 

@@ -50,7 +50,7 @@ The main hardware outputs are:
 | APEX telemetry and autonomy | IMU, LiDAR, kinematics, fusion, planning, tracking, actuation bridge | `APEX/ros2_ws/src/apex_telemetry` |
 | APEX deployment tooling | Docker, real-ready scripts, capture scripts, PC helper scripts, systemd service | `APEX/docker`, `APEX/tools`, `APEX/systemd` |
 | Alternate ROS 2 car stack | RPLIDAR publisher, serial state, Ackermann drive, odometry, adaptive controller, SLAM/Nav2 launch | `src/voiture_system` |
-| Older vehicle software | Earlier non-ROS Python vehicle stack and simulator | `full_soft` |
+| Historical vehicle software | Earlier non-ROS Python vehicle stack and simulator, formerly mirrored as `full_soft/` | External historical context |
 | LiDAR networking utilities | Split Raspberry/PC LiDAR workflow and DDS networking notes | `Lidar` |
 
 ## Technology Stack
@@ -69,7 +69,7 @@ The main hardware outputs are:
 
 ## Current Vehicle Focus
 
-The current intended real platform is the blue car. Existing hardware documentation in the older `full_soft` tree lists the blue car with an RPLIDAR A2, Raspberry Pi 5, ESC, steering components, motor, and related chassis hardware. The APEX stack is the modern real-car software path for this vehicle.
+The current intended real platform is the blue car. Earlier hardware documentation from the former external `full_soft` reference listed the blue car with an RPLIDAR A2, Raspberry Pi 5, ESC, steering components, motor, and related chassis hardware. That code tree is no longer versioned in `main`; the APEX stack is the modern real-car software path for this vehicle.
 
 Some details are inferred from the codebase because the repository contains multiple historical documentation sets. When older documentation conflicts with the APEX scripts, this documentation treats the executable APEX scripts and ROS 2 package code as the more current source of truth.
 
@@ -80,4 +80,3 @@ Some details are inferred from the codebase because the repository contains mult
 - [Simulation with Gazebo](08_simulation_gazebo.md)
 - [Blue Vehicle Real System](09_blue_vehicle_real_system.md)
 - [Known Limitations and Legacy Parts](16_known_limitations_and_legacy_parts.md)
-

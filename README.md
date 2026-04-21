@@ -1,8 +1,6 @@
 # Deep Drive APEX
 
-Deep Drive APEX is a ROS 2 and Gazebo-based autonomous RC car project. It includes a current APEX workflow for Gazebo simulation and the real blue vehicle ("voiture blue"), plus alternate and legacy stacks that are documented separately.
-
-This root README is the main navigation hub. The detailed technical documentation lives in [`docs/`](docs/), while supplementary report material is grouped under [`docs/reports/`](docs/reports/).
+Deep Drive APEX is a ROS 2 and Gazebo-based autonomous RC car project. It includes a current APEX workflow for Gazebo simulation and the real blue vehicle ("voiture blue"), plus an alternate ROS 2 stack and historical references documented separately.
 
 ## Documentation at a Glance
 
@@ -65,7 +63,7 @@ The documentation explains the project from both user and developer perspectives
 Supplementary French report materials are stored separately from the main documentation set:
 
 - [📄 ROS Voiture Blue Synthesis](docs/reports/ros-voiture-blue/main.tex) - LaTeX synthesis of the ROS/APEX stack for the blue vehicle.
-- [📄 Python-Style Voiture Jaune Bilan](docs/reports/python-style-voiture-jaune/main.tex) - LaTeX report on the legacy Python approach in `full_soft/`.
+- [📄 Python-Style Voiture Jaune Bilan](docs/reports/python-style-voiture-jaune/main.tex) - LaTeX historical report on the external legacy Python approach formerly mirrored as `full_soft/`.
 - [📄 Simulation Architecture Report](docs/reports/simulation-architecture/main.tex) - LaTeX report on the Gazebo/APEX simulation architecture.
 - [📄 Simulation Status Report](docs/reports/simulation-status/SimulationStatus.pdf) - PDF report and LaTeX sources for the simulator status.
 - [📄 Software Selection Report](docs/reports/software-selection/SoftwareSelection.pdf) - PDF report and LaTeX sources for simulation software selection.
@@ -78,6 +76,6 @@ Supplementary French report materials are stored separately from the main docume
 | APEX Gazebo simulation | Recommended | [🕹 Gazebo Simulation](docs/08_simulation_gazebo.md) |
 | APEX real blue-car stack | Recommended | [🚗 Blue Vehicle Real System](docs/09_blue_vehicle_real_system.md) |
 | `voiture_system` SLAM/Nav2 stack | Alternate | [📦 Packages and Modules](docs/10_packages_and_modules.md) |
-| `full_soft` and older utilities | Legacy or auxiliary | [⚠️ Known Limitations and Legacy Parts](docs/16_known_limitations_and_legacy_parts.md) |
+| External historical Python reference and older utilities | Historical or auxiliary | [⚠️ Known Limitations and Legacy Parts](docs/16_known_limitations_and_legacy_parts.md) |
 
-For new work, start with the APEX documentation and use the alternate or legacy sections only when maintaining those specific paths.
+For new work, start with the APEX documentation and use alternate sections only when maintaining those specific paths. The former `full_soft/` tree is no longer versioned in `main`.

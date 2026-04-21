@@ -13,7 +13,6 @@
 |   `-- tools/
 |-- Lidar/
 |-- docs/
-|-- full_soft/
 |-- src/
 |   |-- rc_sim_description/
 |   `-- voiture_system/
@@ -33,9 +32,8 @@ The exact working tree may also contain generated Python dependencies, run artif
 | `src/rc_sim_description/` | Gazebo Sim vehicle model, worlds, launch files, simulation bridge, mapping and run-recorder scripts. | Central |
 | `src/voiture_system/` | Alternate ROS 2 car stack with real SLAM/Nav2 launch and older simulation bridge. | Alternate |
 | `Lidar/` | Distributed LiDAR utility stack and networking notes for Raspberry Pi plus PC/WSL setups. | Auxiliary |
-| `full_soft/` | Older non-ROS Python vehicle stack, simulator, and hardware notes. | Legacy |
 | `docs/` | Repository-level documentation. This new Markdown set lives here alongside existing LaTeX/PDF/image artifacts. | Documentation |
-| `README.md` | Older root quick-start for the `rc_sim_description` package and earlier simulation path. | Historical reference |
+| `README.md` | Root documentation gateway and workflow summary. | Documentation |
 | `run_basic_track.sh` | Direct Gazebo world startup helper. | Utility |
 | `recognition_tour_diagnostic_report.md` | Local diagnostic report for a recognition-tour run. Useful context, but not treated as committed source of truth. | Diagnostic artifact |
 
@@ -78,7 +76,8 @@ colcon build --symlink-install --base-paths src APEX/ros2_ws/src --packages-sele
 | `src/voiture_system/voiture_system/ackermann_drive_node.py` | Alternate sysfs PWM motor and steering control. |
 | `src/voiture_system/voiture_system/serial_state_node.py` | Alternate Arduino serial state ingestion. |
 | `src/voiture_system/voiture_system/rplidar_publisher_node.py` | Alternate RPLIDAR publisher. |
-| `full_soft/` | Older hardware drivers and non-ROS control code. |
+
+Earlier non-ROS hardware drivers and Python control code were previously mirrored under `full_soft/`. That tree has been removed from `main`; use the current APEX and `voiture_system` code for maintained hardware behavior.
 
 ## Central, Auxiliary, and Legacy Areas
 
@@ -111,16 +110,15 @@ These support networking, PC-side control, Windows gamepad bridging, service ins
 
 ### Legacy or Historical
 
-- `full_soft`
 - `src/rc_sim_description/launch/spawn_rc_car.launch.py`
 - Parts of the root `README.md`
 - Some older APEX README statements that describe a reduced APEX scope
+- The former external `full_soft/` Python stack, now documented only in the historical report under `docs/reports/python-style-voiture-jaune/`
 
-These files remain useful for hardware history and previous approaches, but they should not be treated as the current recommended architecture.
+These areas and references remain useful for hardware history and previous approaches, but they should not be treated as the current recommended architecture.
 
 ## Related Documentation
 
 - [Packages and Modules](10_packages_and_modules.md)
 - [Launch Files and Execution Flows](11_launch_files_and_execution_flows.md)
 - [Known Limitations and Legacy Parts](16_known_limitations_and_legacy_parts.md)
-

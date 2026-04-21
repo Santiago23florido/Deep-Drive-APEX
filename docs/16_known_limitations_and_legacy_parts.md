@@ -2,7 +2,7 @@
 
 ## Summary
 
-The repository contains several overlapping generations of autonomous RC car software. The current recommended workflow is APEX, but older ROS and non-ROS paths remain in the tree. This file documents known limitations so developers can avoid confusing current code with historical or experimental code.
+The repository contains several overlapping generations of autonomous RC car software. The current recommended workflow is APEX, while alternate ROS paths remain in the tree and older non-ROS material is kept only as historical documentation. This file documents known limitations so developers can avoid confusing current code with historical or experimental code.
 
 ## Current Recommended vs Alternate vs Legacy
 
@@ -15,16 +15,16 @@ The repository contains several overlapping generations of autonomous RC car sof
 | `src/voiture_system` | Alternate | ROS 2 SLAM/Nav2 path using standard `/cmd_vel`, `/odom`, and `/map`. |
 | `src/rc_sim_description/launch/spawn_rc_car.launch.py` | Legacy/overlapping | Older simple Gazebo Sim path. |
 | `src/voiture_system/launch/bringup_sim.launch.py` | Legacy/alternate | Classic Gazebo and `ros2_control` path. |
-| `full_soft` | Legacy | Older non-ROS Python vehicle stack. |
+| Former `full_soft/` reference | Historical external | Older non-ROS Python vehicle stack removed from `main`; only the synthesis report remains. |
 | `Lidar` | Auxiliary | Useful LiDAR networking notes, not a complete APEX stack. |
 
 ## Outdated or Conflicting Documentation
 
 Some existing README files describe earlier project states:
 
-- The root `README.md` focuses on an older `rc_sim_description` workflow and simple Gazebo launch path.
+- Older root README revisions focused on an earlier `rc_sim_description` workflow and simple Gazebo launch path; the current root README is a documentation gateway.
 - `APEX/README.md` describes a reduced APEX scope that conflicts with current scripts using fusion, planning, tracking, and actuation.
-- `full_soft` documentation describes the older non-ROS stack.
+- The former `full_soft/` material described an older non-ROS stack and is no longer versioned in `main`.
 - Some older documents contain non-English text or encoding artifacts.
 
 For current workflows, prefer:
@@ -154,4 +154,3 @@ Recommended future cleanup:
 - [Packages and Modules](10_packages_and_modules.md)
 - [Troubleshooting](15_troubleshooting.md)
 - [Developer Guide](14_developer_guide.md)
-

@@ -6,7 +6,7 @@ The repository contains several generations of code. The current documentation t
 
 - **Recommended current stack:** `APEX/`, `APEX/ros2_ws/src/apex_telemetry`, and the `rc_sim_description` simulation package.
 - **Alternate ROS 2 stack:** `src/voiture_system`, which provides a SLAM/Nav2-oriented real-car and Classic Gazebo path.
-- **Older or auxiliary code:** `full_soft/` and `Lidar/`, which contain previous non-ROS vehicle software and split LiDAR networking utilities.
+- **Historical and auxiliary references:** `Lidar/` remains as split LiDAR networking utilities; the former `full_soft/` non-ROS vehicle code has been removed from `main` and is documented only as historical external context.
 
 ## Who Should Read This
 
@@ -73,4 +73,3 @@ The repository contains several generations of code. The current documentation t
 ## Documentation Scope
 
 This set is based on an audit of package manifests, setup files, launch files, shell scripts, Docker files, configuration files, source files, existing README files, and run artifacts in the repository. Where a behavior is not explicitly documented by the code or existing files, it is labeled as **inferred from the codebase**.
-

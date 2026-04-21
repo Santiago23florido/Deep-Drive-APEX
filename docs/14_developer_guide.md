@@ -8,7 +8,7 @@ When extending the repository, prefer the current architecture:
 - Use `rc_sim_description` for Gazebo Sim assets and simulation-only tools.
 - Use `apex_telemetry` for real/sim shared autonomy nodes.
 - Use `voiture_system` only when working on the alternate SLAM/Nav2 path.
-- Treat `full_soft` as historical reference unless explicitly reviving older non-ROS code.
+- Treat the former `full_soft/` code as external historical context. It is no longer versioned in `main`.
 
 Do not add new behavior to multiple stacks unless the duplication is intentional and documented.
 
@@ -146,7 +146,7 @@ ros2 topic echo /apex/vehicle/drive_bridge_status --once
 
 ## Working With Legacy Code
 
-If you must modify `full_soft` or older launch paths:
+If you must modify older launch paths or reintroduce ideas from the former external `full_soft/` reference:
 
 - State in commit messages or documentation that the work targets a legacy path.
 - Do not make the legacy path appear to be the current recommended workflow.
@@ -168,4 +168,3 @@ When adding or changing runtime behavior, update:
 - [ROS Architecture](07_ros_architecture.md)
 - [Packages and Modules](10_packages_and_modules.md)
 - [Known Limitations and Legacy Parts](16_known_limitations_and_legacy_parts.md)
-

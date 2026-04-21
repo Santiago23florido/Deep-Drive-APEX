@@ -2,9 +2,9 @@
 
 ## Scope
 
-This file documents the real-car side of the repository with the blue car ("voiture blue") as the current intended target vehicle. The current recommended real-car workflow is the APEX stack under `APEX/`, not the older `full_soft` stack.
+This file documents the real-car side of the repository with the blue car ("voiture blue") as the current intended target vehicle. The current recommended real-car workflow is the APEX stack under `APEX/`. The former `full_soft/` Python stack is no longer versioned in `main` and is treated only as historical external context.
 
-Some hardware details come from older repository documentation, while the runtime behavior comes from the current APEX Docker, launch, configuration, and capture scripts. Where the connection is inferred from the codebase, it is labeled.
+Some hardware details come from older historical documentation, while the runtime behavior comes from the current APEX Docker, launch, configuration, and capture scripts. Where the connection is inferred from the codebase, it is labeled.
 
 ## Recommended Real-Car Stack
 
@@ -37,7 +37,7 @@ The current APEX runtime uses:
 - Linux sysfs PWM for ESC and steering.
 - Optional PC/manual gamepad bridge.
 
-Inferred from the codebase: the current APEX real-blue-car workflow does not use every older `full_soft` hardware feature directly. It focuses on IMU, LiDAR, PWM actuation, and run capture.
+Inferred from the codebase: the current APEX real-blue-car workflow does not use every older historical hardware feature directly. It focuses on IMU, LiDAR, PWM actuation, and run capture.
 
 ## Docker Runtime
 
@@ -243,4 +243,3 @@ This is documented as an alternate path, not the current recommended blue-car AP
 - [Topics, Services, Actions, and Parameters](12_topics_services_actions_parameters.md)
 - [Mapping and Recording Pipeline](18_mapping_and_recording_pipeline.md)
 - [Troubleshooting](15_troubleshooting.md)
-

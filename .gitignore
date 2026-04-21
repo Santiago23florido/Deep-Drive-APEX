@@ -34,6 +34,4 @@ APEX/ros2_ws/logs/
 src/rc_sim_description/data/runs/
 
 # Legacy generated artifacts
-full_soft/docs/.old_images/
-full_soft/Simulateur/logs_simulation/
-full_soft/Simulateur/*.zip
+full_soft/

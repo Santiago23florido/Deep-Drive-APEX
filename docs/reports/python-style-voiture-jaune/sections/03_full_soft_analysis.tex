@@ -2,7 +2,7 @@
 
 \subsection{Organisation generale}
 
-Le dossier \path{full_soft/} est organise en plusieurs sous-ensembles:
+Lors de l'audit initial, le miroir historique \path{full_soft/} etait organise en plusieurs sous-ensembles. Ces chemins sont conserves ici comme references documentaires, mais ils ne correspondent plus a des fichiers presents dans \path{main}.
 
 \begin{longtable}{>{\raggedright\arraybackslash}p{0.28\linewidth} >{\raggedright\arraybackslash}p{0.62\linewidth}}
 \textbf{Emplacement} & \textbf{Role observe} \\
@@ -25,7 +25,7 @@ Deux points d'entree principaux coexistent:
   \item \path{full_soft/code/main_refactored.py}, qui charge \path{config.json}, initialise le logging, les interfaces, \path{VehicleAlgorithm_v1} et propose aussi un mode de simulation.
 \end{itemize}
 
-Cette coexistence est un fait confirme par le depot. Elle indique une transition entre une version initiale et une version refactorisee, mais aucun fichier ne designe explicitement l'un des deux comme unique point d'entree officiel.
+Cette coexistence etait un fait confirme lors de l'audit du miroir historique. Elle indique une transition entre une version initiale et une version refactorisee, mais aucun fichier ne designait explicitement l'un des deux comme unique point d'entree officiel.
 
 \subsection{Interfaces}
 

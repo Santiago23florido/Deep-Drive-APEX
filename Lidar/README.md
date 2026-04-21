@@ -230,7 +230,7 @@ Publisher tuning parameters:
 - `--range-min`
 - `--range-max`
 
-Defaults are aligned with the original `full_soft` LiDAR behavior:
+Defaults are aligned with the historical external Python stack that was formerly mirrored as `full_soft/`:
 - `--heading-offset-deg -89`
 - `--fov-filter-deg 180`
 - `--point-timeout-ms 1000`
@@ -238,7 +238,7 @@ Defaults are aligned with the original `full_soft` LiDAR behavior:
 ## 6) Raspberry real stack (Jazzy): LiDAR + ESC + Servo + Ackermann odom + SLAM + Nav2
 
 This repository now includes a real ROS2 stack in `src/voiture_system` that keeps the same
-hardware structure used in `full_soft`:
+hardware structure documented by the historical external Python reference formerly mirrored as `full_soft/`:
 
 - PWM overlay: `dtoverlay=pwm-2chan,pin=12,func=4,pin2=13,func2=4`
 - ESC (motor) on PWM channel `0` (GPIO12)
