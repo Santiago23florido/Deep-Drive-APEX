@@ -90,7 +90,7 @@ cd /home/santiago/AiAtonomousRc
   ensta@raspberrypi \
   latest \
   /home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_curve_track \
-  "$(pwd)/APEX/apex_curve_track"
+  "$(pwd)/APEX/data/apex_curve_track"
 ```
 
 ## Terminal 2 on the PC
@@ -99,10 +99,10 @@ Plot and inspect the run:
 
 ```bash
 cd /home/santiago/AiAtonomousRc
-RUN_ID=$(ls -1dt ./APEX/apex_curve_track/curve_track_hard_stop_01_* | head -n 1 | xargs -r basename)
-python3 ./APEX/tools/analysis/plot_curve_tracking_run.py --run-dir "./APEX/apex_curve_track/$RUN_ID"
-xdg-open "./APEX/apex_curve_track/$RUN_ID/analysis_curve_tracking/curve_tracking_overview.png"
-cat "./APEX/apex_curve_track/$RUN_ID/analysis_curve_tracking/tracking_summary.json"
+RUN_ID=$(ls -1dt ./APEX/data/apex_curve_track/curve_track_hard_stop_01_* | head -n 1 | xargs -r basename)
+python3 ./APEX/tools/analysis/plot_curve_tracking_run.py --run-dir "./APEX/data/apex_curve_track/$RUN_ID"
+xdg-open "./APEX/data/apex_curve_track/$RUN_ID/analysis_curve_tracking/curve_tracking_overview.png"
+cat "./APEX/data/apex_curve_track/$RUN_ID/analysis_curve_tracking/tracking_summary.json"
 ```
 
 ## If Plotting Fails

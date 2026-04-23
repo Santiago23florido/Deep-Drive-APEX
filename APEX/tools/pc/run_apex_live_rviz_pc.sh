@@ -3,7 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APEX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 RVIZ_CONFIG="${1:-${APEX_ROOT}/rviz/apex_recognition_live.rviz}"
 
@@ -14,8 +13,8 @@ fi
 
 set +u
 source /opt/ros/jazzy/setup.bash
-if [[ -f "${REPO_ROOT}/install/setup.bash" ]]; then
-  source "${REPO_ROOT}/install/setup.bash"
+if [[ -f "${APEX_ROOT}/ros2_ws/install/setup.bash" ]]; then
+  source "${APEX_ROOT}/ros2_ws/install/setup.bash"
 fi
 set -u
 

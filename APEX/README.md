@@ -1,6 +1,8 @@
-# APEX Minimal
+# APEX
 
-Esta rama queda reducida a lo que hoy sirve:
+Raiz operativa del carro real: Raspberry, Docker, firmware, hardware, herramientas PC, workspace ROS 2 y datos reales.
+
+El flujo minimo actual cubre:
 - Nano IMU raw por serial
 - reflasheo del Nano si no hay stream
 - LiDAR estático
@@ -149,7 +151,7 @@ cd /home/santiago/AiAtonomousRc
   ensta@raspberrypi \
   latest \
   /home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_rect_sensorfus \
-  $(pwd)/APEX/apex_rect_sensorfus
+  $(pwd)/APEX/data/apex_rect_sensorfus
 ```
 
 ## Curvas en estático
@@ -159,7 +161,7 @@ Construir el snapshot desde `lidar_points.csv`:
 ```bash
 cd /home/santiago/AiAtonomousRc/APEX
 python3 ./tools/analysis/build_lidar_snapshot.py \
-  --run-dir ./apex_rect_sensorfus/curva_estatica_01_YYYYMMDDTHHMMSSZ
+  --run-dir ./data/apex_rect_sensorfus/curva_estatica_01_YYYYMMDDTHHMMSSZ
 ```
 
 Construir el snapshot y generar directamente la imagen/json:
@@ -167,7 +169,7 @@ Construir el snapshot y generar directamente la imagen/json:
 ```bash
 cd /home/santiago/AiAtonomousRc/APEX
 python3 ./tools/analysis/run_static_curve_analysis.py \
-  --run-dir ./apex_static_curve/curva_estatica_01_YYYYMMDDTHHMMSSZ
+  --run-dir ./data/apex_static_curve/curva_estatica_01_YYYYMMDDTHHMMSSZ
 ```
 
 Archivos generados:

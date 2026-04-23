@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APEX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+cd "${APEX_ROOT}"
+
+# Manual-ready mode: keep the same sensor bring-up and postchecks as the
+# real/fixed pipelines, but do not start autonomous planners or trackers.
+export APEX_ENABLE_KINEMATICS="${APEX_ENABLE_KINEMATICS:-1}"
+export APEX_ENABLE_IMU_LIDAR_FUSION="${APEX_ENABLE_IMU_LIDAR_FUSION:-1}"
+export APEX_ESTIMATION_BACKEND="${APEX_ESTIMATION_BACKEND:-online_submap}"
+export APEX_ENABLE_CURVE_ENTRY_PLANNER="${APEX_ENABLE_CURVE_ENTRY_PLANNER:-0}"
+export APEX_ENABLE_PATH_TRACKER="${APEX_ENABLE_PATH_TRACKER:-0}"
+export APEX_ENABLE_RECOGNITION_TOUR_PLANNER="${APEX_ENABLE_RECOGNITION_TOUR_PLANNER:-0}"
+export APEX_ENABLE_RECOGNITION_TOUR_TRACKER="${APEX_ENABLE_RECOGNITION_TOUR_TRACKER:-0}"
+export APEX_ENABLE_FIXED_MAP_ROUTE_PLANNER="${APEX_ENABLE_FIXED_MAP_ROUTE_PLANNER:-0}"
+export APEX_ENABLE_FIXED_MAP_PUBLISHER="${APEX_ENABLE_FIXED_MAP_PUBLISHER:-0}"
+export APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE="${APEX_ENABLE_CMDVEL_ACTUATION_BRIDGE:-1}"
+
+# Default manual flow is PC ROS bridge -> /apex/manual_control/status ->
+# recognition_session_manager -> /apex/cmd_vel_track. Set this to 1 only when
+# a Windows TCP client should connect directly to the Raspberry.
+export APEX_ENABLE_MANUAL_CONTROL_BRIDGE="${APEX_ENABLE_MANUAL_CONTROL_BRIDGE:-0}"
+export APEX_ENABLE_RECOGNITION_SESSION_MANAGER="${APEX_ENABLE_RECOGNITION_SESSION_MANAGER:-1}"
+export APEX_ENABLE_OFFLINE_SUBMAP_REFINER="${APEX_ENABLE_OFFLINE_SUBMAP_REFINER:-0}"
+
+# Match the Nano initialization used by apex_fixed_map_follow_up.sh: the actual
+# preflight/autoflash logic and logs stay centralized in apex_raw_capture_up.sh
+# -> ensure_nano33_stream.sh.
+export APEX_NANO_PREFLIGHT="${APEX_NANO_PREFLIGHT:-1}"
+export APEX_NANO_AUTOFLASH="${APEX_NANO_AUTOFLASH:-1}"
+export APEX_STARTUP_COMPAT="${APEX_STARTUP_COMPAT:-safe}"
+export APEX_STAGGERED_STARTUP="${APEX_STAGGERED_STARTUP:-1}"
+export APEX_SERIAL_WARMUP_S="${APEX_SERIAL_WARMUP_S:-2.0}"
+export APEX_LIDAR_STARTUP_SETTLE_S="${APEX_LIDAR_STARTUP_SETTLE_S:-6.0}"
+export APEX_NODE_STARTUP_STAGGER_S="${APEX_NODE_STARTUP_STAGGER_S:-0.8}"
+export APEX_RAW_POSTCHECK_READY_DELAY_S="${APEX_RAW_POSTCHECK_READY_DELAY_S:-10}"
+export APEX_RAW_POSTCHECK_TIMEOUT_S="${APEX_RAW_POSTCHECK_TIMEOUT_S:-8}"
+export APEX_RAW_POSTCHECK_RETRIES="${APEX_RAW_POSTCHECK_RETRIES:-4}"
+export APEX_RAW_POSTCHECK_TOPIC_GAP_S="${APEX_RAW_POSTCHECK_TOPIC_GAP_S:-1.0}"
+export APEX_RAW_POSTCHECK_SOFT_FAIL="${APEX_RAW_POSTCHECK_SOFT_FAIL:-1}"
+export APEX_SKIP_BUILD="${APEX_SKIP_BUILD:-1}"
+
+# Conservative manual default. Override these env vars when you intentionally
+# want a wider throttle range.
+export APEX_BRIDGE_MIN_EFFECTIVE_SPEED_PCT="${APEX_BRIDGE_MIN_EFFECTIVE_SPEED_PCT:-22}"
+export APEX_BRIDGE_MAX_SPEED_PCT="${APEX_BRIDGE_MAX_SPEED_PCT:-25}"
+export APEX_BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT="${APEX_BRIDGE_MIN_EFFECTIVE_REVERSE_SPEED_PCT:-35}"
+export APEX_BRIDGE_MAX_REVERSE_SPEED_PCT="${APEX_BRIDGE_MAX_REVERSE_SPEED_PCT:-35}"
+export APEX_BRIDGE_LAUNCH_BOOST_SPEED_PCT="${APEX_BRIDGE_LAUNCH_BOOST_SPEED_PCT:-22}"
+export APEX_BRIDGE_LAUNCH_BOOST_HOLD_S="${APEX_BRIDGE_LAUNCH_BOOST_HOLD_S:-0.15}"
+
+echo "[APEX] Manual-control ready mode"
+echo "[APEX] Serial port: ${APEX_SERIAL_PORT:-/dev/ttyACM0}"
+echo "[APEX] Manual bridge in container: ${APEX_ENABLE_MANUAL_CONTROL_BRIDGE}"
+echo "[APEX] Session manager relay: ${APEX_ENABLE_RECOGNITION_SESSION_MANAGER}"
+
+exec ./tools/capture/apex_raw_capture_up.sh

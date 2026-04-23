@@ -3,7 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APEX_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 PORT="${APEX_PC_GAMEPAD_BRIDGE_PORT:-8765}"
 LISTEN_HOST="${APEX_PC_GAMEPAD_BRIDGE_HOST:-0.0.0.0}"
@@ -27,8 +26,8 @@ normalize_bool_override() {
 
 set +u
 source /opt/ros/jazzy/setup.bash
-if [[ -f "${REPO_ROOT}/install/setup.bash" ]]; then
-  source "${REPO_ROOT}/install/setup.bash"
+if [[ -f "${APEX_ROOT}/ros2_ws/install/setup.bash" ]]; then
+  source "${APEX_ROOT}/ros2_ws/install/setup.bash"
 fi
 set -u
 
@@ -54,7 +53,7 @@ echo "[APEX][pc-bridge] enable_session_toggle_input=${APEX_PC_ENABLE_SESSION_TOG
 echo "[APEX][pc-bridge] require_session_toggle_to_drive=${APEX_PC_REQUIRE_SESSION_TOGGLE_TO_DRIVE}"
 echo "[APEX][pc-bridge] publish_cmd_vel=${APEX_PC_PUBLISH_CMD_VEL}"
 
-exec ros2 run rc_sim_description apex_windows_gamepad_bridge_node.py --ros-args \
+exec ros2 run apex_telemetry apex_windows_gamepad_bridge_node --ros-args \
   -p cmd_vel_topic:=/apex/cmd_vel_track \
   -p status_topic:=/apex/sim/manual_control/status \
   -p manual_status_topic:=/apex/manual_control/status \

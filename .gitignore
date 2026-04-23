@@ -29,4 +29,13 @@ __pycache__/
 # APEX debug artifacts
 APEX/debug_runs/
 APEX/.apex_runtime/
-src/rc_sim_description/data/runs/
+APEX/ros2_ws/build/
+APEX/ros2_ws/install/
+APEX/ros2_ws/log/
+APEXsim/.apex_runtime/
+APEXsim/ros2_ws/build/
+APEXsim/ros2_ws/install/
+APEXsim/ros2_ws/log/
+APEXsim/data/rc_sim_description/runs/
+APEX_external/venv_lidar/
+APEX_external/generated/

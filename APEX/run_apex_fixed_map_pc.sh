@@ -2,10 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_ROOT="${APEX_LOCAL_RECOGNITION_ROOT:-${SCRIPT_DIR}/apex_recognition_tour}"
+APEX_SIM_ROOT="${APEX_SIM_ROOT:-$(cd "${SCRIPT_DIR}/../APEXsim" && pwd)}"
+LOCAL_ROOT="${APEX_LOCAL_RECOGNITION_ROOT:-${SCRIPT_DIR}/data/apex_recognition_tour}"
 RUN_ID="${1:-latest}"
 RVIZ_CONFIG="${SCRIPT_DIR}/rviz/apex_manual_mapping_offline.rviz"
-PUBLISHER_SCRIPT="${SCRIPT_DIR}/tools/sim/apex_general_map_publisher_up.sh"
+PUBLISHER_SCRIPT="${APEX_SIM_ROOT}/tools/sim/apex_general_map_publisher_up.sh"
 
 if [[ "${RUN_ID}" == "latest" ]]; then
   RUN_ID="$(ls -1dt "${LOCAL_ROOT}"/* 2>/dev/null | head -n 1 | xargs -r basename)"
@@ -33,8 +34,8 @@ fi
 export AMENT_TRACE_SETUP_FILES="${AMENT_TRACE_SETUP_FILES:-}"
 set +u
 source /opt/ros/jazzy/setup.bash
-if [[ -f "${SCRIPT_DIR}/install/setup.bash" ]]; then
-  source "${SCRIPT_DIR}/install/setup.bash"
+if [[ -f "${APEX_SIM_ROOT}/ros2_ws/install/setup.bash" ]]; then
+  source "${APEX_SIM_ROOT}/ros2_ws/install/setup.bash"
 fi
 set -u
 

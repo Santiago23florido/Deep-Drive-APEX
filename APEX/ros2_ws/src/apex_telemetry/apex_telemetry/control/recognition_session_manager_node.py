@@ -91,11 +91,11 @@ class RecognitionSessionManagerNode(Node):
         )
         self.declare_parameter(
             "mapper_script_path",
-            "/work/repo/src/rc_sim_description/scripts/apex_general_track_mapper.py",
+            "/work/repo/APEXsim/ros2_ws/src/rc_sim_description/scripts/apex_general_track_mapper.py",
         )
         self.declare_parameter(
             "evaluation_world",
-            "/work/repo/src/rc_sim_description/worlds/basic_track.world",
+            "/work/repo/APEXsim/ros2_ws/src/rc_sim_description/worlds/basic_track.world",
         )
         self.declare_parameter("record_timeout_s", 60.0)
         self.declare_parameter("publish_tracker_arm", False)

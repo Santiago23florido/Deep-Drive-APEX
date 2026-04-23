@@ -487,7 +487,7 @@ else
 fi
 
 if [[ "${ENABLE_OFFLINE_SUBMAP_REFINER}" == "1" ]]; then
-  OFFLINE_REFINER_SCRIPT="${APEX_OFFLINE_REFINER_SCRIPT:-/work/repo/src/rc_sim_description/scripts/offline_submap_refiner.py}"
+  OFFLINE_REFINER_SCRIPT="${APEX_OFFLINE_REFINER_SCRIPT:-/work/repo/APEXsim/ros2_ws/src/rc_sim_description/scripts/offline_submap_refiner.py}"
   if [[ -f "${OFFLINE_REFINER_SCRIPT}" ]]; then
     echo "[APEX] Offline submap refiner enabled (script=${OFFLINE_REFINER_SCRIPT})"
     python3 "${OFFLINE_REFINER_SCRIPT}" \
@@ -506,6 +506,7 @@ if [[ "${ENABLE_OFFLINE_SUBMAP_REFINER}" == "1" ]]; then
       -p "submap_topic:=${APEX_OFFLINE_REFINER_SUBMAP_TOPIC:-/apex/real/offline_current_submap}" \
       -p "status_topic:=${APEX_OFFLINE_REFINER_STATUS_TOPIC:-/apex/real/offline_refined_status}" \
       -p "odom_topic:=${APEX_OFFLINE_REFINER_ODOM_TOPIC:-/apex/real/offline_refined_odom}" \
+      -p "map_persistence_filter:=$(normalize_bool_override "${APEX_OFFLINE_REFINER_MAP_PERSISTENCE_FILTER:-true}")" \
       -p "publish_global_correction:=$(normalize_bool_override "${APEX_OFFLINE_REFINER_PUBLISH_GLOBAL_CORRECTION:-true}")" \
       -p "global_correction_topic:=${APEX_OFFLINE_REFINER_GLOBAL_CORRECTION_TOPIC:-/apex/real/offline_global_correction}" \
       -p "anchor_pose_topic:=${APEX_OFFLINE_REFINER_ANCHOR_POSE_TOPIC:-/apex/real/offline_anchor_pose}" \

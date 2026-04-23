@@ -10,12 +10,12 @@ from pathlib import Path
 import numpy as np
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+def _apex_root() -> Path:
+    return Path(__file__).resolve().parents[2]
 
 
 def _default_runs_root() -> Path:
-    return _repo_root() / "APEX" / ".apex_runtime" / "offline_refined_maps"
+    return _apex_root() / ".apex_runtime" / "offline_refined_maps"
 
 
 def _latest_run_dir(runs_root: Path) -> Path:
