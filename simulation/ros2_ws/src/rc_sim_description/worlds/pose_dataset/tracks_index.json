@@ -1,0 +1,202 @@
+{
+  "oval_asym": {
+    "world": "pose_dataset/oval_asym.world",
+    "scenario": "pose_oval_asym",
+    "role": "train",
+    "held_out_zero_shot": false,
+    "family": "asymmetric_oval",
+    "description": "Asymmetric oval. 13.5 m main straight, a long 180 deg curve of radius 3.2 m, a gentle kink on the back straight and two tighter corners of different radius (1.6 m and 2.0 m) on the other end.",
+    "spawn": {
+      "x": 8.1999,
+      "y": 0.0,
+      "z": 0.02,
+      "yaw_deg": 0.0
+    },
+    "reference_length_m": 45.305,
+    "min_reference_radius_m": 1.6,
+    "width_m": [
+      1.6,
+      2.0
+    ]
+  },
+  "technical_s": {
+    "world": "pose_dataset/technical_s.world",
+    "scenario": "pose_technical_s",
+    "role": "train",
+    "held_out_zero_shot": false,
+    "family": "technical_s_curves",
+    "description": "Technical track: two hairpins (a tight one of two 1.4 m arcs and a mixed one of 2.6 m + 1.4 m arcs), chains of S-bends made of alternating left/right 90 deg arcs of 1.5 m and a long main straight.",
+    "spawn": {
+      "x": 5.1,
+      "y": 0.0,
+      "z": 0.02,
+      "yaw_deg": 0.0
+    },
+    "reference_length_m": 60.759,
+    "min_reference_radius_m": 1.4,
+    "width_m": [
+      1.6,
+      1.9
+    ]
+  },
+  "urban_grid": {
+    "world": "pose_dataset/urban_grid.world",
+    "scenario": "pose_urban_grid",
+    "role": "train",
+    "held_out_zero_shot": false,
+    "family": "urban_circuit",
+    "description": "Urban circuit: eight corners close to 90 deg (radius 1.3-1.5 m) with a Z-shaped jog, streets of 1.8-2.1 m between tall building walls, dead-end side streets (alcoves) and a plaza with low curbs where the LiDAR sees open space.",
+    "spawn": {
+      "x": 6.15,
+      "y": 0.0,
+      "z": 0.02,
+      "yaw_deg": 0.0
+    },
+    "reference_length_m": 49.15,
+    "min_reference_radius_m": 1.3,
+    "width_m": [
+      1.8,
+      2.1
+    ]
+  },
+  "slalom_cones": {
+    "world": "pose_dataset/slalom_cones.world",
+    "scenario": "pose_slalom_cones",
+    "role": "train",
+    "held_out_zero_shot": false,
+    "family": "slalom",
+    "description": "Stadium loop with a kinked back straight and two slalom sections of alternating cones with variable spacing (2.5-3.6 m), wide lanes and lateral oscillations of +-0.42 m.",
+    "spawn": {
+      "x": 11.638,
+      "y": 0.1893,
+      "z": 0.02,
+      "yaw_deg": -23.066
+    },
+    "reference_length_m": 55.522,
+    "min_reference_radius_m": 1.488,
+    "width_m": [
+      2.2,
+      2.4
+    ]
+  },
+  "boot_lshape": {
+    "world": "pose_dataset/boot_lshape.world",
+    "scenario": "pose_boot_lshape",
+    "role": "train",
+    "held_out_zero_shot": false,
+    "family": "l_boot_real_like",
+    "description": "L-shaped \"boot\" circuit inspired by the real APEX track (docs/reports/ Piste.jpeg), mirrored and scaled x1.5 to respect the turning radius: narrow 1.3 m corridor between continuous walls, a U-turn at the tip of the extension, a diagonal S-neck joining both parts and 90 deg corners.",
+    "spawn": {
+      "x": -4.5,
+      "y": 0.0,
+      "z": 0.02,
+      "yaw_deg": 0.0
+    },
+    "reference_length_m": 31.275,
+    "min_reference_radius_m": 1.3,
+    "width_m": [
+      1.3,
+      1.3
+    ]
+  },
+  "val_mixed": {
+    "world": "pose_dataset/val_mixed.world",
+    "scenario": "pose_val_mixed",
+    "role": "validation",
+    "held_out_zero_shot": false,
+    "family": "mixed_width_bean",
+    "description": "Validation track (never in train): bean-shaped loop with a concave section, a chicane, and lane width changing from 1.5 m to 2.6 m, mixing straights, open and tight curves.",
+    "spawn": {
+      "x": 5.1059,
+      "y": -0.851,
+      "z": 0.02,
+      "yaw_deg": -9.462
+    },
+    "reference_length_m": 51.542,
+    "min_reference_radius_m": 1.6,
+    "width_m": [
+      1.5,
+      2.6
+    ]
+  },
+  "test_unseen": {
+    "world": "pose_dataset/test_unseen.world",
+    "scenario": "pose_test_unseen",
+    "role": "test",
+    "held_out_zero_shot": false,
+    "family": "spiral_pillar_chicane",
+    "description": "Test track (never in train or validation): decreasing-radius spiral corner, double-apex curve, a wide section with pillars in the lane that force a pillar chicane, a hairpin and a long diagonal straight.",
+    "spawn": {
+      "x": 7.8111,
+      "y": -1.4646,
+      "z": 0.02,
+      "yaw_deg": -10.62
+    },
+    "reference_length_m": 59.528,
+    "min_reference_radius_m": 1.4,
+    "width_m": [
+      1.6,
+      2.4
+    ]
+  },
+  "zs_warehouse_aisles": {
+    "world": "pose_dataset/zs_warehouse_aisles.world",
+    "scenario": "pose_zs_warehouse_aisles",
+    "role": "zero_shot",
+    "held_out_zero_shot": true,
+    "family": "warehouse_aisles",
+    "description": "ZERO-SHOT (not in any database): warehouse loop through long aisles of repetitive shelving; nearly parallel, feature-poor walls make LiDAR translation weakly observable along the aisle.",
+    "spawn": {
+      "x": 12.15,
+      "y": 0.0,
+      "z": 0.02,
+      "yaw_deg": 0.0
+    },
+    "reference_length_m": 54.253,
+    "min_reference_radius_m": 1.6,
+    "width_m": [
+      1.6,
+      1.6
+    ]
+  },
+  "zs_roundabout_city": {
+    "world": "pose_dataset/zs_roundabout_city.world",
+    "scenario": "pose_zs_roundabout_city",
+    "role": "zero_shot",
+    "held_out_zero_shot": true,
+    "family": "roundabout_city",
+    "description": "ZERO-SHOT (not in any database): city loop with a roundabout-like right-left-right sequence and junctions at non-90 deg angles.",
+    "spawn": {
+      "x": 5.6658,
+      "y": 0.0,
+      "z": 0.02,
+      "yaw_deg": 0.0
+    },
+    "reference_length_m": 48.642,
+    "min_reference_radius_m": 1.6,
+    "width_m": [
+      1.8,
+      2.0
+    ]
+  },
+  "zs_real_track_replica": {
+    "world": "pose_dataset/zs_real_track_replica.world",
+    "scenario": "pose_zs_real_track_replica",
+    "role": "zero_shot",
+    "held_out_zero_shot": true,
+    "family": "l_boot_real_like",
+    "description": "ZERO-SHOT (not in any database): estimated real-scale replica of the APEX track in docs/reports/Piste.jpeg (about 8 x 5.5 m, 1.1 m corridor, 1.0 m corners close to the steering limit, diagonal S-neck, U-turn tip), surrounded by tables and people as in the photo. Dimensions are estimated from the photo (car used as scale), not measured.",
+    "spawn": {
+      "x": 3.3,
+      "y": 0.0,
+      "z": 0.02,
+      "yaw_deg": 0.0
+    },
+    "reference_length_m": 20.748,
+    "min_reference_radius_m": 1.0,
+    "width_m": [
+      1.1,
+      1.1
+    ]
+  }
+}

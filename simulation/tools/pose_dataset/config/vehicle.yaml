@@ -1,0 +1,90 @@
+# Vehicle, actuator and controller assumptions of the pose dataset.
+#
+# Provenance of every value (keep in sync when the model changes):
+#   [urdf]   ros2_ws/src/rc_sim_description/urdf/rc_car.urdf.xacro
+#   [bridge] ros2_ws/src/rc_sim_description/config/apex_sim_scenarios.json
+#            (vehicle_bridge defaults) and scripts/apex_gz_vehicle_bridge.py
+#   [manual] launch/apex_sim.launch.py: manual control modes raise the ESC
+#            limits to 1.5 m/s, 1.8 m/s^2 and 2.4 m/s^2
+#   [assump] assumption of this generator, documented in README.md
+#   [calib]  measured by `generate_pose_dataset.py --calibrate-speed`
+#            (results in config/speed_calibration.json)
+
+model:
+  xacro: ros2_ws/src/rc_sim_description/urdf/rc_car.urdf.xacro   # [urdf]
+  chassis_length_m: 0.46        # [urdf]
+  chassis_width_m: 0.28         # [urdf]
+  footprint_width_m: 0.32       # [urdf] outer faces of the wheels
+  wheelbase_m: 0.30             # [urdf]
+  track_width_m: 0.29           # [bridge]
+  wheel_radius_m: 0.06          # [urdf]
+  mass_kg: 4.1                  # [urdf] chassis 3.0 + 4 wheels 0.25 + 2 knuckles 0.05
+  steering_limit_deg: 18.0      # [urdf] joint limit 0.314 rad, [bridge] steering_limit_deg
+  spawn_z_m: 0.003              # base_link origin is at wheel-contact height
+  settle_s: 0.5                 # physics settling after spawn, not recorded
+
+esc:                            # rear-wheel speed actuator
+  response_tau_s: 0.22          # [bridge] motor_response_tau_s
+  accel_limit_mps2: 1.8         # [manual]
+  decel_limit_mps2: 2.4         # [manual]
+  top_speed_mps: 6.0            # [assump] throttle cap of the ESC profile (21.6 km/h, below a 1/10 car's top speed)
+  min_effective_speed_mps: 0.07 # [bridge] below this the ESC does not move the car
+  command_rate_hz: 50.0         # [assump] ECU command rate; the actuator filters run at the physics rate
+
+servo:                          # steering actuator
+  response_tau_s: 0.085         # [bridge]
+  rate_limit_deg_per_s: 70.0    # [bridge]
+  left_ratio: 1.0               # [bridge] asymmetric linkage (right turns reach 96 %)
+  right_ratio: 0.96             # [bridge]
+  # Knuckle position loop, identical to the JointPositionController plugin of the URDF.
+  pid_p: 28.0                   # [urdf]
+  pid_i: 0.2                    # [urdf]
+  pid_d: 0.7                    # [urdf]
+  pid_i_limit: 1.0              # gz::math::PID default used by JointPositionController
+  torque_limit_nm: 0.3141592654 # [urdf] cmd_max / cmd_min
+
+controller:                     # pure-pursuit driver on the reference path
+  lookahead_min_m: 0.55
+  lookahead_time_s: 0.32        # lookahead = max(min, time * speed + base)
+  lookahead_base_m: 0.35
+  reference_point: rear_axle    # x = -0.15 m in base_link
+  seed_gain_jitter: 0.10        # +-10 % lookahead variation drawn per seed
+
+safety:                         # a run fails when any of these is violated
+  max_lateral_error_m: 0.60
+  max_roll_pitch_deg: 25.0
+  stuck_timeout_s: 4.0
+  collision_check_period_s: 0.02
+  timeout_factor: 2.5           # timeout = factor * planned duration + 15 s
+
+run:
+  static_start_s: 1.5           # recorded standstill before moving (IMU at rest)
+  static_end_s: 1.0             # recorded standstill after the final stop
+  physics_step_s: 0.001         # identical to the rc_sim_description worlds
+
+calibration:                    # experimental maximum stable speed (per track)
+  speeds_mps: [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75, 4.0, 4.25, 4.5, 4.75, 5.0, 5.25, 5.5, 5.75, 6.0]
+  directions: [1, -1]           # counter-clockwise (as designed) and reversed
+  max_lateral_error_m: 0.25     # tracking error that still keeps 0.3 m to the walls
+  max_rear_slip_deg: 5.0        # rear-axle slip angle: loss of grip beyond this
+  max_roll_pitch_deg: 10.0
+
+body_dynamics:                  # sprung mass and vibration (the Gazebo model is rigid)
+  # The Gazebo car has no suspension: roll, pitch and vertical vibration are
+  # exactly zero. Real RC cars roll outwards in curves, squat/dive under
+  # acceleration/braking and vibrate. The sensors ride on the sprung body, so
+  # the synthesis applies a second-order roll/pitch response to the exact
+  # body-frame acceleration and a speed-dependent vibration. The planar pose
+  # labels (x, y, yaw) are unaffected; the body roll/pitch is stored as truth.
+  roll_gain_deg_per_g: 3.0      # steady roll per g of lateral acceleration [assump]
+  pitch_gain_deg_per_g: 2.0     # steady pitch per g of longitudinal acceleration [assump]
+  natural_freq_hz: 3.5          # sprung-mass mode [assump, typical 1/10 RC car]
+  damping_ratio: 0.45           # [assump]
+  gain_jitter: 0.2              # +-20 % per run (setup / load variation)
+  vibration:
+    accel_rms_per_mps: 0.35     # broadband chassis vibration [m/s^2 RMS per m/s]
+    gyro_rms_per_mps: 0.02      # [rad/s RMS per m/s]
+    band_hz: [12.0, 160.0]      # motor / drivetrain / surface band
+    z_scale: 1.8                # vertical axis vibrates more
+    wheel_harmonic_mps2: 0.08   # tyre non-uniformity at the wheel rotation frequency [per m/s]
+    gravity_mps2: 9.8           # Gazebo world gravity used by the physics

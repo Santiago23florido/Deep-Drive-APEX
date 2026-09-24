@@ -24,6 +24,7 @@ cd ~/AiAtonomousRc
 | `ros2_ws/src/apex_fusion_research/` | LiDAR/IMU error models, strapdown INS and evaluation for sensor-fusion research ([README](ros2_ws/src/apex_fusion_research/README.md)). |
 | `tools/sim/` | Startup, mapping, recording, and controller wrappers. |
 | `tools/analysis/` | Offline analysis. |
+| `tools/generate_pose_dataset.py`, `tools/pose_dataset/` | Headless multi-scenario LiDAR–IMU pose dataset generator (SQLite + PyTorch loader) ([README](tools/pose_dataset/README.md)). |
 | `data/` | Simulation runs and generated results. |
 | `legacy/Simulateur/` | Earlier simulator; not the recommended workflow. |
 

@@ -1,0 +1,79 @@
+# Motion profiles. Speeds are fractions of `v_ref`, the maximum stable speed
+# measured for each track with `generate_pose_dataset.py --calibrate-speed`
+# (config/speed_calibration.json), never absolute values.
+#
+# The planner builds a target speed v(s) along the lap with a forward/backward
+# pass under acceleration `a_acc` and braking `a_dec` limits, then the ESC
+# model (config/vehicle.yaml) turns the target into wheel speeds. Random draws
+# (U(a, b)) come from the run seed.
+#
+# Profiles with `held_out: true` are zero-shot variants (ZERO_SHOT.md).
+
+profiles:
+  low:
+    kind: constant
+    description: Constant cruise at 45 % of the maximum stable speed.
+    fraction: 0.45
+
+  medium:
+    kind: constant
+    description: Constant cruise at 70 % of the maximum stable speed.
+    fraction: 0.70
+
+  high:
+    kind: constant
+    description: Constant cruise at 87.5 % of the maximum stable speed.
+    fraction: 0.875
+
+  variable:
+    kind: variable
+    description: >-
+      Progressive acceleration, held speed, braking and re-acceleration.
+      Straights at 80-92 % of v_ref, curves limited by a lateral acceleration
+      of 2.5-5 m/s^2, random speed segments of 4-10 m scaled by 0.5-1.0.
+    straight_fraction: [0.80, 0.92]
+    lateral_accel_mps2: [2.5, 5.0]
+    min_fraction: 0.30
+    segment_length_m: [4.0, 10.0]
+    segment_scales: [0.5, 0.65, 0.8, 1.0, 1.0]
+    a_acc_mps2: [0.8, 1.5]
+    a_dec_mps2: [1.2, 2.2]
+
+  stop_and_go:
+    kind: stop_and_go
+    description: >-
+      Cruise at 60-75 % of v_ref (curvature limited) with 3-5 full stops per
+      lap of 0.8-2.0 s, restarting from zero with near-maximum acceleration
+      (1.7 m/s^2) and braking (2.3 m/s^2).
+    cruise_fraction: [0.60, 0.75]
+    lateral_accel_mps2: 4.0
+    stops_per_lap: [3, 5]
+    dwell_s: [0.8, 2.0]
+    min_stop_spacing_m: 5.0
+    a_acc_mps2: 1.7
+    a_dec_mps2: 2.3
+
+  # ------------------------------------------------------------- zero-shot
+  zs_creep:
+    kind: variable
+    held_out: true
+    description: >-
+      ZERO-SHOT: creeping at 12-22 % of v_ref with frequent gentle speed
+      changes, far below every speed seen in training.
+    straight_fraction: [0.15, 0.22]
+    lateral_accel_mps2: [5.0, 5.0]
+    min_fraction: 0.10
+    segment_length_m: [2.0, 4.0]
+    segment_scales: [0.6, 0.8, 1.0]
+    a_acc_mps2: [0.3, 0.5]
+    a_dec_mps2: [0.3, 0.6]
+
+  zs_weave:
+    kind: weave
+    held_out: true
+    description: >-
+      ZERO-SHOT: sinusoidal weaving inside the lane (+-0.25 m, 4-6 m period)
+      at 65 % of v_ref, a lateral excitation absent from training laps.
+    fraction: 0.65
+    weave_amplitude_m: 0.25
+    weave_period_m: [4.0, 6.0]

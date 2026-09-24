@@ -25,6 +25,16 @@ simulation/data/rc_sim_description/runs/lap_manual_01/
     └── reconstruction_overview.png
 ```
 
+## Multi-Scenario Pose Dataset
+
+`simulation/tools/generate_pose_dataset.py` runs Gazebo headless and in-process on generated tracks and stores noisy LiDAR/IMU streams with the exact simulator pose in one SQLite file (`simulation/data/multiscenario_pose/`, ignored by Git). Splits are made per trajectory and per whole track; zero-shot variants are kept out of the database. See [the generator README](../simulation/tools/pose_dataset/README.md) and [ZERO_SHOT.md](../simulation/tools/pose_dataset/ZERO_SHOT.md).
+
+```bash
+cd simulation
+python3 tools/generate_pose_dataset.py --preset full --headless \
+  --database data/multiscenario_pose/pose_dataset.sqlite3 --resume
+```
+
 ## Real-Vehicle Data
 
 `real_vehicle/data/` contains LiDAR, IMU, PWM, curve, and recognition-tour captures. The real vehicle has no native ground truth; comparisons require an external reference or a matched simulation.
