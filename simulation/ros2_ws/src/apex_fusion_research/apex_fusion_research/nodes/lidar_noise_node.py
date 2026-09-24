@@ -28,7 +28,11 @@ class LidarNoiseNode(Node):
         self.declare_parameter("status_topic", "/apex/fusion/lidar/status")
         self.declare_parameter("realization_topic", "/apex/fusion/lidar/realization")
         self.declare_parameter("status_period_s", 2.0)
+        # Re-label the output scan (e.g. "noisy/laser" for the damaged-sensor
+        # SLAM TF tree). Empty keeps the input frame.
+        self.declare_parameter("output_frame_id", "")
         gp = self.get_parameter
+        self._output_frame_id = str(gp("output_frame_id").value)
 
         self._params = ConfigParameters(self, LidarNoiseConfig, on_change=self._rebuild)
         self._scan_pub = self.create_publisher(LaserScan, str(gp("output_topic").value), qos_profile_sensor_data)
@@ -63,7 +67,8 @@ class LidarNoiseNode(Node):
             msg.range_max,
         )
         out = LaserScan()
-        out.header = msg.header
+        out.header.stamp = msg.header.stamp
+        out.header.frame_id = self._output_frame_id or msg.header.frame_id
         out.angle_min = msg.angle_min
         out.angle_max = msg.angle_max
         out.angle_increment = msg.angle_increment
