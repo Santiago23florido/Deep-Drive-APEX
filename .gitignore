@@ -45,3 +45,6 @@ archive/generated/
 
 # Sensor-fusion research runs (regenerable, can be large)
 simulation/data/fusion_research/
+
+# LiDAR-IMU training artifacts (checkpoints, caches, metrics and plots)
+simulation/learning/outputs/
