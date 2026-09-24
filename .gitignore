@@ -48,3 +48,6 @@ simulation/data/fusion_research/
 
 # LiDAR-IMU training artifacts (checkpoints, caches, metrics and plots)
 simulation/learning/outputs/
+
+# Multi-scenario LiDAR-IMU pose datasets (SQLite, trajectory cache, reports)
+simulation/data/multiscenario_pose/
