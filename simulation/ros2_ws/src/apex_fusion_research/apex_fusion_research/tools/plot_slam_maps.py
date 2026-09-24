@@ -147,8 +147,8 @@ def plot(result: dict, out_base: Path, title: str, show: bool = False) -> None:
     arr = result["_arrays"]
     track, reference, truth = arr["track"], arr["reference"], arr["truth"]
     slams = result["slams"]
-    fig = plt.figure(figsize=(16, 10))
-    gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 1.0])
+    fig = plt.figure(figsize=(16, 9), constrained_layout=True)
+    gs = fig.add_gridspec(2, 3, height_ratios=[0.8, 1.2])
     axes = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 0:2])]
     table_ax = fig.add_subplot(gs[1, 2])
 
@@ -216,7 +216,6 @@ def plot(result: dict, out_base: Path, title: str, show: bool = False) -> None:
                        f"distance driven {dist:.1f} m", fontsize=10)
 
     fig.suptitle(title, fontsize=13)
-    fig.tight_layout()
     for ext in ("png", "pdf"):
         fig.savefig(out_base.with_suffix(f".{ext}"), dpi=150)
     if show:
