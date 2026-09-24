@@ -18,6 +18,7 @@
 | `rc_sim_description` | Gazebo, URDF, worlds, bridges, and ground truth. |
 | `apex_telemetry` | Perception, estimation, planner, tracker, and APEX actuation bridge. |
 | `voiture_system` | Controller compatibility and alternate experiments. |
+| `apex_fusion_research` | LiDAR noise model, realistic MEMS IMU model, strapdown INS and evaluation tools for LiDAR–IMU fusion research. |
 
 ## Build
 
@@ -112,6 +113,22 @@ Use these topics to measure error and regressions.
 ```
 
 Results are stored under `simulation/data/`.
+
+## Sensor-Fusion Research Stack
+
+`apex_fusion_research` runs the simulation with ideal Gazebo sensors and adds
+explicit, seeded error models: a stochastic LiDAR model and a raw MEMS IMU. It
+also adds a pure strapdown INS that shows how inertial errors accumulate, along
+with ground-truth evaluation and recording.
+
+```bash
+./simulation/tools/sim/apex_fusion_research_up.sh          # Gazebo GUI + RViz, car idle
+./simulation/tools/sim/apex_fusion_research_up.sh --arm    # the car drives the recognition tour
+ros2 run apex_fusion_research plot_ins_drift simulation/data/fusion_research/<run>
+```
+
+See the [package README](../simulation/ros2_ws/src/apex_fusion_research/README.md)
+for the models, parameters and tools.
 
 ## Older Paths
 
