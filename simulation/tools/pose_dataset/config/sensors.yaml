@@ -1,0 +1,293 @@
+# Sensor profiles of the multi-scenario pose dataset.
+#
+# Every profile is synthesized from the exact 1 kHz simulator state of a
+# trajectory (see README.md, "Sensor synthesis"). All random draws come from
+# a seed derived from (run seed, sensor profile), so each run is reproducible.
+#
+# LiDAR (2D spinning scanner)
+#   rate_hz, rate_jitter_rel   revolution rate and per-revolution std (motor speed)
+#   beams, fov_deg, angle_min_deg
+#   range_min_m, range_max_m
+#   rolling_scan               true: beams are fired sequentially during the
+#                              revolution with the pose at their own instant
+#                              (motion distortion, as in a real scanner)
+#   timestamp.offset_ms        constant stamp latency (reported - true)
+#   timestamp.jitter_std_ms    stamp jitter std
+#   scan_dropout_prob          probability that a whole scan is lost
+#   noise                      apex_fusion_research LidarNoiseConfig fields:
+#       range_sigma_const_m    distance noise std (constant part)
+#       range_sigma_prop       distance-dependent noise (fraction of range)
+#       incidence_sigma_gain   growth with the incidence angle
+#       range_bias_std_m, range_scale_std   calibration errors per power-up
+#       angle_jitter_std_rad   encoder jitter
+#       dropout_prob_base      probability of a missing return (+ range and
+#       dropout_prob_range_coeff, dropout_prob_grazing   grazing-angle terms)
+#       short_prob, random_prob   outlier probabilities (close / uniform)
+#       range_resolution_m     quantization
+# IMU (6-axis MEMS)
+#   rate_hz, clock_ppm_std     output data rate and sample-clock error; the
+#                              period must be a whole number of 1 ms physics
+#                              steps (50, 100, 125, 200, 250, 500, 1000 Hz)
+#   dlpf_hz                    on-chip anti-alias low-pass (2nd order)
+#   timestamp.offset_ms / jitter_std_ms
+#   dropout_prob               isolated missing samples
+#   dropout_burst_prob, dropout_burst_len   bus hiccups (consecutive samples)
+#   vibration_gain             mount transmissibility of the chassis vibration
+#   error                      apex_fusion_research ImuErrorConfig (white noise
+#                              density, turn-on bias std, Gauss-Markov bias
+#                              instability, bias random walk, scale factor,
+#                              axis misalignment, g-sensitivity, full-scale
+#                              saturation, ADC bits) for gyro and accel
+#   initial_bias               per-axis bias added to the drawn turn-on bias
+#                              (gyro rad/s, accel m/s^2)
+# Extrinsics (both sensors)
+#   extrinsic.xyz, extrinsic.rpy_deg        nominal mount in base_link
+#   extrinsic_error.xyz_std_m, rpy_std_deg  true mount = nominal + error, drawn
+#                                           per run (miscalibration)
+#
+# Profiles with `held_out: true` are zero-shot variants (ZERO_SHOT.md).
+
+profiles:
+  A_nominal:
+    description: Commercial RPLIDAR-class scanner at 12 Hz and an MPU-6050-class IMU at 125 Hz.
+    lidar:
+      rate_hz: 12.0
+      rate_jitter_rel: 0.01
+      beams: 360
+      fov_deg: 360.0
+      angle_min_deg: -180.0
+      range_min_m: 0.15
+      range_max_m: 12.0
+      rolling_scan: true
+      timestamp: {offset_ms: 0.0, jitter_std_ms: 0.5}
+      scan_dropout_prob: 0.002
+      noise:
+        range_sigma_const_m: 0.003
+        range_sigma_prop: 0.005
+        incidence_sigma_gain: 0.5
+        range_bias_std_m: 0.005
+        range_scale_std: 0.002
+        angle_jitter_std_rad: 0.0035
+        dropout_prob_base: 0.005
+        dropout_prob_range_coeff: 0.05
+        grazing_angle_deg: 75.0
+        dropout_prob_grazing: 0.3
+        short_prob: 0.002
+        short_rate_per_m: 1.0
+        random_prob: 0.001
+        range_resolution_m: 0.00025
+      extrinsic: {xyz: [0.18, 0.0, 0.12], rpy_deg: [0.0, 0.0, 0.0]}
+      extrinsic_error: {xyz_std_m: 0.003, rpy_std_deg: 0.3}
+    imu:
+      rate_hz: 125.0
+      clock_ppm_std: 30.0
+      dlpf_hz: 44.0
+      timestamp: {offset_ms: 0.0, jitter_std_ms: 0.1}
+      dropout_prob: 0.001
+      dropout_burst_prob: 0.0002
+      dropout_burst_len: [2, 6]
+      vibration_gain: 1.0
+      error:
+        gyro: {noise_density: 8.727e-5, turn_on_bias_std: 8.727e-3, bias_instability_std: 8.727e-5, bias_correlation_time_s: 100.0, bias_random_walk: 1.0e-6, scale_factor_std: 0.01, misalignment_std_rad: 0.007, g_sensitivity_std: 1.0e-4, full_scale: 8.727, adc_bits: 16}
+        accel: {noise_density: 3.923e-3, turn_on_bias_std: 0.05, bias_instability_std: 5.0e-4, bias_correlation_time_s: 100.0, bias_random_walk: 1.0e-4, scale_factor_std: 0.01, misalignment_std_rad: 0.007, full_scale: 39.227, adc_bits: 16}
+      initial_bias: {gyro_rps: [0.0, 0.0, 0.0], accel_mps2: [0.0, 0.0, 0.0]}
+      extrinsic: {xyz: [0.02, 0.0, 0.08], rpy_deg: [0.0, 0.0, 0.0]}
+      extrinsic_error: {xyz_std_m: 0.002, rpy_std_deg: 0.5}
+
+  B_economic:
+    description: >-
+      Low-cost 10 Hz scanner with 8 m range, noisier ranges, more dropouts and
+      outliers, and a 100 Hz IMU with large biases, 12-bit ADC, +-250 deg/s and
+      +-2 g ranges (saturates in hard braking), hard mount (more vibration).
+    lidar:
+      rate_hz: 10.0
+      rate_jitter_rel: 0.02
+      beams: 360
+      fov_deg: 360.0
+      angle_min_deg: -180.0
+      range_min_m: 0.15
+      range_max_m: 8.0
+      rolling_scan: true
+      timestamp: {offset_ms: 2.0, jitter_std_ms: 2.0}
+      scan_dropout_prob: 0.01
+      noise:
+        range_sigma_const_m: 0.008
+        range_sigma_prop: 0.012
+        incidence_sigma_gain: 0.8
+        range_bias_std_m: 0.015
+        range_scale_std: 0.005
+        angle_jitter_std_rad: 0.007
+        dropout_prob_base: 0.03
+        dropout_prob_range_coeff: 0.15
+        grazing_angle_deg: 70.0
+        dropout_prob_grazing: 0.5
+        short_prob: 0.01
+        short_rate_per_m: 1.0
+        random_prob: 0.006
+        range_resolution_m: 0.001
+      extrinsic: {xyz: [0.16, 0.0, 0.14], rpy_deg: [0.0, 0.0, 0.0]}
+      extrinsic_error: {xyz_std_m: 0.006, rpy_std_deg: 0.8}
+    imu:
+      rate_hz: 100.0
+      clock_ppm_std: 100.0
+      dlpf_hz: 20.0
+      timestamp: {offset_ms: 1.0, jitter_std_ms: 1.0}
+      dropout_prob: 0.01
+      dropout_burst_prob: 0.002
+      dropout_burst_len: [2, 10]
+      vibration_gain: 1.6
+      error:
+        gyro: {noise_density: 2.2e-4, turn_on_bias_std: 2.6e-2, bias_instability_std: 3.0e-4, bias_correlation_time_s: 60.0, bias_random_walk: 5.0e-6, scale_factor_std: 0.02, misalignment_std_rad: 0.015, g_sensitivity_std: 3.0e-4, full_scale: 4.363, adc_bits: 12}
+        accel: {noise_density: 1.0e-2, turn_on_bias_std: 0.15, bias_instability_std: 2.0e-3, bias_correlation_time_s: 60.0, bias_random_walk: 4.0e-4, scale_factor_std: 0.02, misalignment_std_rad: 0.015, full_scale: 19.613, adc_bits: 12}
+      initial_bias: {gyro_rps: [0.0, 0.0, 0.005], accel_mps2: [0.05, -0.03, 0.0]}
+      extrinsic: {xyz: [-0.05, 0.03, 0.07], rpy_deg: [0.0, 0.0, 0.0]}
+      extrinsic_error: {xyz_std_m: 0.004, rpy_std_deg: 1.0}
+
+  C_fast:
+    description: >-
+      Fast 20 Hz scanner with 16 m range and low noise, and a 200 Hz
+      ICM-42688-class IMU with small (non-zero) noise and biases.
+    lidar:
+      rate_hz: 20.0
+      rate_jitter_rel: 0.005
+      beams: 360
+      fov_deg: 360.0
+      angle_min_deg: -180.0
+      range_min_m: 0.10
+      range_max_m: 16.0
+      rolling_scan: true
+      timestamp: {offset_ms: 0.0, jitter_std_ms: 0.2}
+      scan_dropout_prob: 0.001
+      noise:
+        range_sigma_const_m: 0.002
+        range_sigma_prop: 0.003
+        incidence_sigma_gain: 0.4
+        range_bias_std_m: 0.003
+        range_scale_std: 0.001
+        angle_jitter_std_rad: 0.0017
+        dropout_prob_base: 0.002
+        dropout_prob_range_coeff: 0.03
+        grazing_angle_deg: 78.0
+        dropout_prob_grazing: 0.2
+        short_prob: 0.001
+        short_rate_per_m: 1.0
+        random_prob: 0.0005
+        range_resolution_m: 0.00025
+      extrinsic: {xyz: [0.12, 0.0, 0.15], rpy_deg: [0.0, 0.0, 0.0]}
+      extrinsic_error: {xyz_std_m: 0.002, rpy_std_deg: 0.2}
+    imu:
+      rate_hz: 200.0
+      clock_ppm_std: 20.0
+      dlpf_hz: 98.0
+      timestamp: {offset_ms: 0.0, jitter_std_ms: 0.05}
+      dropout_prob: 0.0005
+      dropout_burst_prob: 0.0001
+      dropout_burst_len: [2, 4]
+      vibration_gain: 0.8
+      error:
+        gyro: {noise_density: 4.9e-5, turn_on_bias_std: 3.5e-3, bias_instability_std: 4.0e-5, bias_correlation_time_s: 150.0, bias_random_walk: 5.0e-7, scale_factor_std: 0.005, misalignment_std_rad: 0.004, g_sensitivity_std: 5.0e-5, full_scale: 34.907, adc_bits: 16}
+        accel: {noise_density: 6.9e-4, turn_on_bias_std: 0.02, bias_instability_std: 2.0e-4, bias_correlation_time_s: 150.0, bias_random_walk: 4.0e-5, scale_factor_std: 0.005, misalignment_std_rad: 0.004, full_scale: 156.9, adc_bits: 16}
+      initial_bias: {gyro_rps: [0.0, 0.0, 0.0], accel_mps2: [0.0, 0.0, 0.0]}
+      extrinsic: {xyz: [0.0, 0.0, 0.09], rpy_deg: [0.0, 0.0, 0.0]}
+      extrinsic_error: {xyz_std_m: 0.001, rpy_std_deg: 0.2}
+
+  # ------------------------------------------------------------- zero-shot
+  ZS_D_dense_270:
+    held_out: true
+    description: >-
+      ZERO-SHOT: 15 Hz scanner with 720 beams over a 270 deg field of view
+      (rear blind sector), 25 m range, and a 500 Hz IMU mounted rotated 90 deg
+      in yaw (sensor x axis pointing to the left of the car).
+    lidar:
+      rate_hz: 15.0
+      rate_jitter_rel: 0.01
+      beams: 720
+      fov_deg: 270.0
+      angle_min_deg: -135.0
+      range_min_m: 0.10
+      range_max_m: 25.0
+      rolling_scan: true
+      timestamp: {offset_ms: 0.0, jitter_std_ms: 0.3}
+      scan_dropout_prob: 0.002
+      noise:
+        range_sigma_const_m: 0.004
+        range_sigma_prop: 0.004
+        incidence_sigma_gain: 0.5
+        range_bias_std_m: 0.006
+        range_scale_std: 0.002
+        angle_jitter_std_rad: 0.002
+        dropout_prob_base: 0.004
+        dropout_prob_range_coeff: 0.04
+        grazing_angle_deg: 75.0
+        dropout_prob_grazing: 0.3
+        short_prob: 0.002
+        short_rate_per_m: 1.0
+        random_prob: 0.001
+        range_resolution_m: 0.0005
+      extrinsic: {xyz: [0.20, 0.0, 0.13], rpy_deg: [0.0, 0.0, 0.0]}
+      extrinsic_error: {xyz_std_m: 0.003, rpy_std_deg: 0.3}
+    imu:
+      rate_hz: 500.0
+      clock_ppm_std: 20.0
+      dlpf_hz: 184.0
+      timestamp: {offset_ms: 0.0, jitter_std_ms: 0.05}
+      dropout_prob: 0.0005
+      dropout_burst_prob: 0.0001
+      dropout_burst_len: [2, 6]
+      vibration_gain: 1.0
+      error:
+        gyro: {noise_density: 6.0e-5, turn_on_bias_std: 5.0e-3, bias_instability_std: 6.0e-5, bias_correlation_time_s: 100.0, bias_random_walk: 8.0e-7, scale_factor_std: 0.008, misalignment_std_rad: 0.005, g_sensitivity_std: 8.0e-5, full_scale: 34.907, adc_bits: 16}
+        accel: {noise_density: 1.0e-3, turn_on_bias_std: 0.03, bias_instability_std: 3.0e-4, bias_correlation_time_s: 100.0, bias_random_walk: 6.0e-5, scale_factor_std: 0.008, misalignment_std_rad: 0.005, full_scale: 78.45, adc_bits: 16}
+      initial_bias: {gyro_rps: [0.0, 0.0, 0.0], accel_mps2: [0.0, 0.0, 0.0]}
+      extrinsic: {xyz: [0.05, -0.04, 0.06], rpy_deg: [0.0, 0.0, 90.0]}
+      extrinsic_error: {xyz_std_m: 0.002, rpy_std_deg: 0.5}
+
+  ZS_E_degraded_offset:
+    held_out: true
+    description: >-
+      ZERO-SHOT: degraded 8 Hz scanner with 240 beams, 10 % missing returns and
+      5 % lost scans, a 50 Hz IMU with very large biases, and a 15 ms
+      LiDAR-IMU timestamp offset.
+    lidar:
+      rate_hz: 8.0
+      rate_jitter_rel: 0.03
+      beams: 240
+      fov_deg: 360.0
+      angle_min_deg: -180.0
+      range_min_m: 0.20
+      range_max_m: 6.0
+      rolling_scan: true
+      timestamp: {offset_ms: 15.0, jitter_std_ms: 3.0}
+      scan_dropout_prob: 0.05
+      noise:
+        range_sigma_const_m: 0.012
+        range_sigma_prop: 0.015
+        incidence_sigma_gain: 1.0
+        range_bias_std_m: 0.02
+        range_scale_std: 0.008
+        angle_jitter_std_rad: 0.01
+        dropout_prob_base: 0.10
+        dropout_prob_range_coeff: 0.2
+        grazing_angle_deg: 65.0
+        dropout_prob_grazing: 0.6
+        short_prob: 0.02
+        short_rate_per_m: 1.0
+        random_prob: 0.01
+        range_resolution_m: 0.002
+      extrinsic: {xyz: [0.15, 0.02, 0.12], rpy_deg: [0.0, 0.0, 0.0]}
+      extrinsic_error: {xyz_std_m: 0.01, rpy_std_deg: 1.5}
+    imu:
+      rate_hz: 50.0
+      clock_ppm_std: 200.0
+      dlpf_hz: 10.0
+      timestamp: {offset_ms: 0.0, jitter_std_ms: 2.0}
+      dropout_prob: 0.02
+      dropout_burst_prob: 0.005
+      dropout_burst_len: [2, 8]
+      vibration_gain: 2.0
+      error:
+        gyro: {noise_density: 3.0e-4, turn_on_bias_std: 5.0e-2, bias_instability_std: 5.0e-4, bias_correlation_time_s: 30.0, bias_random_walk: 1.0e-5, scale_factor_std: 0.03, misalignment_std_rad: 0.02, g_sensitivity_std: 5.0e-4, full_scale: 4.363, adc_bits: 12}
+        accel: {noise_density: 1.5e-2, turn_on_bias_std: 0.3, bias_instability_std: 4.0e-3, bias_correlation_time_s: 30.0, bias_random_walk: 8.0e-4, scale_factor_std: 0.03, misalignment_std_rad: 0.02, full_scale: 19.613, adc_bits: 12}
+      initial_bias: {gyro_rps: [0.01, -0.01, 0.02], accel_mps2: [0.2, -0.15, 0.1]}
+      extrinsic: {xyz: [-0.08, 0.05, 0.07], rpy_deg: [0.0, 0.0, 0.0]}
+      extrinsic_error: {xyz_std_m: 0.006, rpy_std_deg: 1.5}
