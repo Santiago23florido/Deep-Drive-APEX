@@ -1,0 +1,5 @@
+# Perfect LiDAR: the ideal Gazebo scan is forwarded unchanged.
+fusion_lidar_noise:
+  ros__parameters:
+    enabled: false
+    seed: 7

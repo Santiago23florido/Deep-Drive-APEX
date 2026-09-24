@@ -1,0 +1,6 @@
+# Perfect IMU: measurements equal Gazebo's ideal values. The remaining INS error
+# is purely numerical (integration scheme, sampling) and simulation artefacts.
+fusion_imu_sensor:
+  ros__parameters:
+    enabled: false
+    seed: 42

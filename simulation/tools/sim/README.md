@@ -21,6 +21,19 @@ ros2 launch rc_sim_description apex_sim.launch.py \
 
 Without `--slam`, the default RViz layout is `simulation/rviz/apex_recognition_live.rviz`. With `--slam`, it is `simulation/rviz/apex_recognition_slam_live.rviz`.
 
+## Sensor-Fusion Research
+
+Gazebo with ideal sensors, plus the LiDAR noise model, the raw IMU model, the
+pure strapdown INS and RViz. The launcher removes Conda from the environment.
+
+```bash
+./simulation/tools/sim/apex_fusion_research_up.sh --arm
+./simulation/tools/sim/apex_fusion_research_up.sh --imu-config white_noise_only --imu-seed 3 --headless
+```
+
+Runs are stored under `simulation/data/fusion_research/`. See
+`simulation/ros2_ws/src/apex_fusion_research/README.md`.
+
 ## Recognition Tour
 
 Arm an already running simulation:
