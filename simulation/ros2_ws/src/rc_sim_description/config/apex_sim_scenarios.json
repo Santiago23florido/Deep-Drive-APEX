@@ -234,6 +234,96 @@
           }
         }
       }
+    },
+    "pose_oval_asym": {
+      "world": "pose_dataset/oval_asym.world",
+      "spawn": {
+        "x": 8.1999,
+        "y": 0.0,
+        "z": 0.02,
+        "yaw_deg": 0.0
+      }
+    },
+    "pose_technical_s": {
+      "world": "pose_dataset/technical_s.world",
+      "spawn": {
+        "x": 5.1,
+        "y": 0.0,
+        "z": 0.02,
+        "yaw_deg": 0.0
+      }
+    },
+    "pose_urban_grid": {
+      "world": "pose_dataset/urban_grid.world",
+      "spawn": {
+        "x": 6.15,
+        "y": 0.0,
+        "z": 0.02,
+        "yaw_deg": 0.0
+      }
+    },
+    "pose_slalom_cones": {
+      "world": "pose_dataset/slalom_cones.world",
+      "spawn": {
+        "x": 11.638,
+        "y": 0.1893,
+        "z": 0.02,
+        "yaw_deg": -23.066
+      }
+    },
+    "pose_boot_lshape": {
+      "world": "pose_dataset/boot_lshape.world",
+      "spawn": {
+        "x": -4.5,
+        "y": 0.0,
+        "z": 0.02,
+        "yaw_deg": 0.0
+      }
+    },
+    "pose_val_mixed": {
+      "world": "pose_dataset/val_mixed.world",
+      "spawn": {
+        "x": 5.1059,
+        "y": -0.851,
+        "z": 0.02,
+        "yaw_deg": -9.462
+      }
+    },
+    "pose_test_unseen": {
+      "world": "pose_dataset/test_unseen.world",
+      "spawn": {
+        "x": 7.8111,
+        "y": -1.4646,
+        "z": 0.02,
+        "yaw_deg": -10.62
+      }
+    },
+    "pose_zs_warehouse_aisles": {
+      "world": "pose_dataset/zs_warehouse_aisles.world",
+      "spawn": {
+        "x": 12.15,
+        "y": 0.0,
+        "z": 0.02,
+        "yaw_deg": 0.0
+      }
+    },
+    "pose_zs_roundabout_city": {
+      "world": "pose_dataset/zs_roundabout_city.world",
+      "spawn": {
+        "x": 5.6658,
+        "y": 0.0,
+        "z": 0.02,
+        "yaw_deg": 0.0
+      }
+    },
+    "pose_zs_real_track_replica": {
+      "world": "pose_dataset/zs_real_track_replica.world",
+      "spawn": {
+        "x": 3.3,
+        "y": 0.0,
+        "z": 0.02,
+        "yaw_deg": 0.0
+      }
     }
   }
 }
