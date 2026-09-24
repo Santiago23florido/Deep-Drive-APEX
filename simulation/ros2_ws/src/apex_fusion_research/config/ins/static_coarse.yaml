@@ -1,0 +1,16 @@
+# Realistic start: 5 s stationary coarse alignment (levelling + gyro bias),
+# then free 3D strapdown integration.
+fusion_strapdown_ins:
+  ros__parameters:
+    strapdown:
+      gravity_mps2: 9.8                 # Gazebo world gravity
+      integration_scheme: trapezoidal   # trapezoidal | euler
+      max_dt_s: 0.5
+      clamp_vertical_channel: false     # true = 2.5D navigation (z, v_z held constant)
+    alignment:
+      mode: static_coarse               # static_coarse | truth
+      duration_s: 5.0
+      max_truth_speed_mps: 0.02
+      max_truth_rate_rps: 0.02
+      estimate_gyro_bias: true
+      estimate_accel_bias_along_gravity: true

@@ -42,3 +42,6 @@ simulation/data/rc_sim_description/runs/
 # Archived/generated material
 archive/venv_lidar/
 archive/generated/
+
+# Sensor-fusion research runs (regenerable, can be large)
+simulation/data/fusion_research/

@@ -1,0 +1,32 @@
+# Low-cost 360 deg 2D LiDAR (RPLIDAR A-series class), SI units.
+#
+# Range accuracy of this class is specified as ~1 % of range (<3 m) with a
+# sub-mm distance resolution. Dropout, spurious-return and jitter values are
+# representative starting points; identify them on the real sensor with static
+# scans of known geometry before drawing quantitative conclusions.
+fusion_lidar_noise:
+  ros__parameters:
+    enabled: true
+    seed: 7
+    # HIT: sigma(r, alpha) = sqrt(s0^2 + (k r)^2) * (1 + g (1/cos(alpha) - 1))
+    range_sigma_const_m: 0.003
+    range_sigma_prop: 0.005
+    incidence_sigma_gain: 0.5
+    max_incidence_angle_deg: 85.0
+    # Systematic errors, drawn once per realization.
+    range_bias_std_m: 0.005
+    range_scale_std: 0.002
+    # Angular encoder jitter (0.2 deg).
+    angle_jitter_std_rad: 0.0035
+    # DROPOUT: p = p0 + p_r (r / r_max)^2 + p_graze [alpha > alpha_graze]
+    dropout_prob_base: 0.005
+    dropout_prob_range_coeff: 0.05
+    grazing_angle_deg: 75.0
+    dropout_prob_grazing: 0.3
+    # SHORT and RANDOM mixture components.
+    short_prob: 0.002
+    short_rate_per_m: 1.0
+    random_prob: 0.001
+    # Output formatting.
+    range_resolution_m: 0.00025
+    discontinuity_abs_m: 0.05

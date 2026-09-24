@@ -1,0 +1,10 @@
+# Only white noise (angle / velocity random walk). Useful to validate the
+# sqrt(t) error growth and the Allan-variance identification in isolation.
+fusion_imu_sensor:
+  ros__parameters:
+    enabled: true
+    seed: 42
+    gyro:
+      noise_density: 8.727e-5   # rad/s/sqrt(Hz)
+    accel:
+      noise_density: 3.923e-3   # m/s^2/sqrt(Hz)

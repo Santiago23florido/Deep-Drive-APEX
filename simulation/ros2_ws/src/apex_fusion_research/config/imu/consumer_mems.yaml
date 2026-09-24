@@ -1,0 +1,34 @@
+# Consumer-grade 6-axis MEMS IMU (MPU-6050 / ICM-20948 class), SI units.
+#
+# White-noise densities are datasheet values (MPU-6050: gyro 0.005 deg/s/sqrt(Hz),
+# accel 400 ug/sqrt(Hz)). Bias, scale-factor and misalignment values are
+# representative of such a sensor after a basic factory/user calibration.
+# They are a starting point only: identify the real sensor with the Allan
+# variance tool (`ros2 run apex_fusion_research allan_analysis --csv ...`) and a
+# multi-position calibration, then update this file.
+fusion_imu_sensor:
+  ros__parameters:
+    enabled: true
+    seed: 42
+    gyro:
+      noise_density: 8.727e-5          # rad/s/sqrt(Hz)   (0.005 deg/s/sqrt(Hz), ARW 0.3 deg/sqrt(h))
+      turn_on_bias_std: 8.727e-3       # rad/s            (0.5 deg/s, removed by static alignment)
+      bias_instability_std: 8.727e-5   # rad/s            (Gauss-Markov, 0.005 deg/s = 18 deg/h)
+      bias_correlation_time_s: 100.0   # s
+      bias_random_walk: 1.0e-6         # rad/s/sqrt(s)    (rate random walk K)
+      scale_factor_std: 0.01           # -                (1 %, datasheet tolerance +/-3 %)
+      misalignment_std_rad: 0.007      # rad              (cross-axis sensitivity ~ +/-2 %)
+      g_sensitivity_std: 1.0e-4        # (rad/s)/(m/s^2)  (~0.1 deg/s/g)
+      full_scale: 8.727                # rad/s            (+/-500 deg/s)
+      adc_bits: 16
+    accel:
+      noise_density: 3.923e-3          # m/s^2/sqrt(Hz)   (400 ug/sqrt(Hz), VRW 0.24 m/s/sqrt(h))
+      turn_on_bias_std: 0.05           # m/s^2            (~5 mg residual after calibration)
+      bias_instability_std: 5.0e-4     # m/s^2            (Gauss-Markov, ~50 ug)
+      bias_correlation_time_s: 100.0   # s
+      bias_random_walk: 1.0e-4         # m/s^2/sqrt(s)    (acceleration random walk K)
+      scale_factor_std: 0.01           # -
+      misalignment_std_rad: 0.007      # rad
+      g_sensitivity_std: 0.0           # unused for the accelerometer
+      full_scale: 39.227               # m/s^2            (+/-4 g)
+      adc_bits: 16
