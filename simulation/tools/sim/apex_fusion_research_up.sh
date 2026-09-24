@@ -87,6 +87,8 @@ cleanup() {
   pkill -f "ros2 launch apex_fusion_research" 2>/dev/null || true
   pkill -f "lib/apex_fusion_research/" 2>/dev/null || true
   pkill -f "rviz2 -d .*fusion_research.rviz" 2>/dev/null || true
+  pkill -f "install/apex_telemetry/lib/apex_telemetry/" 2>/dev/null || true
+  pkill -f "robot_state_publisher .*__node:=rc_car_state_publisher" 2>/dev/null || true
   pkill -f "apex_gz_vehicle_bridge.py" 2>/dev/null || true
   pkill -f "apex_ground_truth_node.py" 2>/dev/null || true
   pkill -f "parameter_bridge .*__node:=apex_sim_bridges" 2>/dev/null || true
