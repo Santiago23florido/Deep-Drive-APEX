@@ -1,0 +1,238 @@
+# Track catalogue of the multi-scenario pose dataset.
+#
+# Centrelines are rounded polygons: `vertices` (counter-clockwise loop, metres),
+# one fillet `radius` per vertex and one corridor `width` per vertex (the width
+# is interpolated between the middles of consecutive arcs). Edge i goes from
+# vertex i to vertex i+1; `edge_styles` sets the barrier on each side of an
+# edge: wall (0.30 m, blocks the LiDAR), curb (0.07 m, below the scan plane so
+# the LiDAR sees the hall behind it) or none.
+#
+# Vehicle limits that constrain the design (see config/vehicle.yaml):
+#   wheelbase 0.30 m, steering limit 18 deg -> minimum turning radius 0.92 m;
+#   the builder rejects reference paths tighter than 1.15 m and lanes narrower
+#   than the car (0.32 m over the wheels) plus 0.30 m of clearance per side.
+#
+# `role` is informative; the split assignment lives in config/campaign.yaml.
+# Tracks with `held_out: true` are the zero-shot variants (ZERO_SHOT.md): the
+# `full` and `smoke` presets refuse to put them in a database.
+
+tracks:
+  oval_asym:
+    family: asymmetric_oval
+    role: train
+    description: >-
+      Asymmetric oval. 13.5 m main straight, a long 180 deg curve of radius
+      3.2 m, a gentle kink on the back straight and two tighter corners of
+      different radius (1.6 m and 2.0 m) on the other end.
+    vertices: [[0, 0], [18, 0], [18, 6.4], [8, 6.4], [-2, 4.5]]
+    radii: [2.0, 3.2, 3.2, 3.0, 1.6]
+    widths: [1.8, 2.0, 2.0, 1.6, 1.7]
+    wall_style: {left: wall, right: curb}
+    edge_styles:
+      1: {left: curb, right: wall}
+      3: {left: wall, right: wall}
+    openings:
+      - {s: [27.0, 28.3], side: right, depth: 1.4}
+    decoration: {count: 42, extent: 3.0}
+    hall: {margin: 3.5}
+    decoration_seed: 11
+
+  technical_s:
+    family: technical_s_curves
+    role: train
+    description: >-
+      Technical track: two hairpins (a tight one of two 1.4 m arcs and a
+      mixed one of 2.6 m + 1.4 m arcs), chains of S-bends made of alternating
+      left/right 90 deg arcs of 1.5 m and a long main straight.
+    vertices: [[-4.5, 0], [15, 0], [15, 4.2], [9.5, 4.2], [9.5, 7.6], [5.2, 7.6], [5.2, 11.0], [-3.0, 11.0], [-3.0, 7.6], [1.0, 7.6], [1.0, 4.4], [-4.5, 4.4]]
+    radii: [2.0, 2.6, 1.4, 1.5, 1.5, 1.5, 1.5, 1.4, 1.4, 1.5, 1.5, 1.4]
+    widths: [1.8, 1.9, 1.7, 1.6, 1.6, 1.7, 1.7, 1.7, 1.7, 1.6, 1.6, 1.7]
+    wall_style: {left: wall, right: wall}
+    edge_styles:
+      0: {left: wall, right: curb}
+      1: {left: wall, right: curb}
+      6: {left: curb, right: curb}
+      10: {left: curb, right: wall}
+    decoration: {count: 45, extent: 3.0}
+    hall: {margin: 3.5}
+    decoration_seed: 23
+
+  urban_grid:
+    family: urban_circuit
+    role: train
+    description: >-
+      Urban circuit: eight corners close to 90 deg (radius 1.3-1.5 m) with a
+      Z-shaped jog, streets of 1.8-2.1 m between tall building walls, dead-end
+      side streets (alcoves) and a plaza with low curbs where the LiDAR sees
+      open space.
+    vertices: [[0, 0], [12, 0], [12, 4.2], [16.5, 4.2], [16.5, 10.5], [6.5, 10.5], [6.5, 6.3], [0, 6.3]]
+    radii: [1.4, 1.4, 1.4, 1.5, 1.4, 1.3, 1.4, 1.5]
+    widths: [1.9, 1.9, 1.8, 2.0, 2.1, 1.8, 1.9, 1.9]
+    wall_style: {left: wall, right: wall}
+    edge_styles:
+      4: {left: curb, right: curb}
+    openings:
+      - {s: [1.5, 2.8], side: right, depth: 1.8}
+      - {s: [15.0, 16.2], side: right, depth: 1.6}
+      - {s: [34.0, 35.2], side: right, depth: 1.6}
+      - {s: [39.8, 41.2], side: right, depth: 2.0}
+    decoration:
+      count: 36
+      extent: 2.5
+      explicit:
+        - {shape: cylinder, xy: [11.3, 7.4], radius: 0.6, height: 0.6}
+        - {shape: box, xy: [9.0, 8.4], size: [1.2, 0.35, 0.45], yaw_deg: 0}
+        - {shape: box, xy: [13.6, 8.4], size: [1.2, 0.35, 0.45], yaw_deg: 0}
+    hall: {margin: 3.0}
+    decoration_seed: 37
+
+  slalom_cones:
+    family: slalom
+    role: train
+    description: >-
+      Stadium loop with a kinked back straight and two slalom sections of
+      alternating cones with variable spacing (2.5-3.6 m), wide lanes and
+      lateral oscillations of +-0.42 m.
+    vertices: [[0, 0], [23, 0], [23, 6.0], [11, 7.2], [0, 6.0]]
+    radii: [2.6, 2.6, 2.6, 4.0, 2.6]
+    widths: [2.4, 2.2, 2.4, 2.4, 2.2]
+    wall_style: {left: curb, right: wall}
+    edge_styles:
+      2: {left: wall, right: curb}
+    lateral_offset_max: 0.0        # the cones dictate the line: no seeded lateral offset
+    slalom:
+      - {s_start: 47.8, spacings: [2.6, 3.0, 2.5, 3.4], amplitude: 0.42, first_side: left}
+      - {s_start: 21.5, spacings: [3.6, 2.7, 3.1, 2.5], amplitude: 0.40, first_side: right}
+    decoration: {count: 45, extent: 3.0}
+    hall: {margin: 3.5}
+    decoration_seed: 41
+
+  boot_lshape:
+    family: l_boot_real_like
+    role: train
+    description: >-
+      L-shaped "boot" circuit inspired by the real APEX track (docs/reports/
+      Piste.jpeg), mirrored and scaled x1.5 to respect the turning radius:
+      narrow 1.3 m corridor between continuous walls, a U-turn at the tip of
+      the extension, a diagonal S-neck joining both parts and 90 deg corners.
+    vertices: [[-9.9, 0], [0.6, 0], [0.6, 7.3], [-2.6, 7.3], [-2.7, 5.1], [-4.95, 3.3], [-9.9, 3.3]]
+    radii: [1.4, 1.4, 1.4, 1.3, 1.8, 2.0, 1.4]
+    widths: [1.3, 1.3, 1.3, 1.3, 1.3, 1.3, 1.3]
+    wall_style: {left: wall, right: wall}
+    edge_styles:
+      1: {left: wall, right: curb}
+    decoration:
+      count: 30
+      extent: 3.0
+      explicit:
+        - {shape: box, xy: [-4.0, 1.7], size: [0.45, 0.35, 0.30], yaw_deg: 10}
+        - {shape: box, xy: [3.4, 2.0], size: [0.7, 2.2, 0.75], yaw_deg: 0}
+        - {shape: box, xy: [3.4, 5.0], size: [0.7, 2.2, 0.75], yaw_deg: 0}
+    hall: {margin: 3.0}
+    decoration_seed: 97
+
+  val_mixed:
+    family: mixed_width_bean
+    role: validation
+    description: >-
+      Validation track (never in train): bean-shaped loop with a concave
+      section, a chicane, and lane width changing from 1.5 m to 2.6 m, mixing
+      straights, open and tight curves.
+    vertices: [[0, 0], [9, -1.5], [17, 0.5], [19, 6.5], [13, 9], [9.5, 6.2], [5.5, 9.2], [-1.5, 7.5]]
+    radii: [2.4, 3.5, 2.2, 2.0, 1.6, 1.7, 1.8, 2.4]
+    widths: [1.6, 2.6, 2.2, 1.5, 1.6, 2.0, 1.6, 1.8]
+    wall_style: {left: wall, right: curb}
+    edge_styles:
+      2: {left: curb, right: wall}
+      5: {left: wall, right: wall}
+    decoration: {count: 40, extent: 3.0}
+    hall: {margin: 3.5}
+    decoration_seed: 53
+
+  test_unseen:
+    family: spiral_pillar_chicane
+    role: test
+    description: >-
+      Test track (never in train or validation): decreasing-radius spiral
+      corner, double-apex curve, a wide section with pillars in the lane that
+      force a pillar chicane, a hairpin and a long diagonal straight.
+    vertices: [[0, 0], [16, -3], [20.5, 0.5], [20, 5.5], [16.5, 8.0], [12.5, 4.8], [9.2, 5.5], [6.8, 10.0], [1.0, 9.0], [-2.5, 3.5]]
+    radii: [3.0, 4.2, 2.6, 1.7, 1.4, 1.5, 1.5, 1.8, 2.2, 3.0]
+    widths: [2.4, 2.0, 1.8, 1.6, 1.6, 1.7, 1.7, 1.8, 2.0, 2.4]
+    wall_style: {left: wall, right: curb}
+    edge_styles:
+      4: {left: curb, right: wall}
+      6: {left: wall, right: wall}
+    obstacles:
+      - {s: 3.0, lateral: 0.55, radius: 0.16, height: 0.7, avoid_offset: -0.45, avoid_half_length: 2.4}
+      - {s: 7.0, lateral: -0.55, radius: 0.16, height: 0.7, avoid_offset: 0.45, avoid_half_length: 2.4}
+    decoration: {count: 42, extent: 3.0}
+    hall: {margin: 3.5}
+    decoration_seed: 67
+
+  # ------------------------------------------------------------- zero-shot
+  zs_warehouse_aisles:
+    family: warehouse_aisles
+    role: zero_shot
+    held_out: true
+    description: >-
+      ZERO-SHOT (not in any database): warehouse loop through long aisles of
+      repetitive shelving; nearly parallel, feature-poor walls make LiDAR
+      translation weakly observable along the aisle.
+    vertices: [[0, 0], [24, 0], [24, 4.5], [0, 4.5]]
+    radii: [1.6, 1.6, 1.6, 1.6]
+    widths: [1.6, 1.6, 1.6, 1.6]
+    wall_style: {left: wall, right: wall}
+    decoration: {count: 10, extent: 2.0}
+    hall: {margin: 2.5}
+    decoration_seed: 71
+
+  zs_roundabout_city:
+    family: roundabout_city
+    role: zero_shot
+    held_out: true
+    description: >-
+      ZERO-SHOT (not in any database): city loop with a roundabout-like
+      right-left-right sequence and junctions at non-90 deg angles.
+    vertices: [[0, 0], [10, 0], [12.8, 2.8], [16.5, 2.0], [18.5, 6.0], [14.5, 9.5], [9.0, 7.5], [4.0, 9.5], [-1.0, 6.0]]
+    radii: [2.0, 1.6, 1.6, 1.6, 2.0, 1.6, 1.6, 2.0, 2.0]
+    widths: [1.9, 1.8, 1.8, 1.9, 2.0, 1.8, 1.8, 1.9, 2.0]
+    wall_style: {left: wall, right: wall}
+    edge_styles:
+      3: {left: curb, right: curb}
+    decoration: {count: 36, extent: 2.5}
+    hall: {margin: 3.0}
+    decoration_seed: 83
+
+  zs_real_track_replica:
+    family: l_boot_real_like
+    role: zero_shot
+    held_out: true
+    description: >-
+      ZERO-SHOT (not in any database): estimated real-scale replica of the
+      APEX track in docs/reports/Piste.jpeg (about 8 x 5.5 m, 1.1 m corridor,
+      1.0 m corners close to the steering limit, diagonal S-neck, U-turn tip),
+      surrounded by tables and people as in the photo. Dimensions are
+      estimated from the photo (car used as scale), not measured.
+    vertices: [[-0.3, 0], [6.6, 0], [6.6, 2.2], [3.3, 2.2], [1.8, 3.4], [1.75, 5.0], [-0.3, 5.0]]
+    radii: [1.0, 1.0, 1.0, 1.4, 1.2, 1.0, 1.0]
+    widths: [1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1]
+    min_path_radius_m: 0.98
+    wall_style: {left: wall, right: wall}
+    decoration:
+      count: 8
+      extent: 2.0
+      explicit:
+        - {shape: box, xy: [-2.8, 2.5], size: [0.7, 5.5, 0.75], yaw_deg: 0}
+        - {shape: box, xy: [2.0, 7.2], size: [4.0, 0.7, 0.75], yaw_deg: 0}
+        - {shape: box, xy: [6.5, 5.0], size: [2.0, 0.7, 0.75], yaw_deg: 0}
+        - {shape: box, xy: [9.0, 2.0], size: [0.7, 2.5, 0.75], yaw_deg: 0}
+        - {shape: cylinder, xy: [-3.6, 0.5], radius: 0.25, height: 1.2}
+        - {shape: cylinder, xy: [-3.6, 2.0], radius: 0.25, height: 1.2}
+        - {shape: cylinder, xy: [-3.6, 3.8], radius: 0.25, height: 1.2}
+        - {shape: cylinder, xy: [1.0, 8.0], radius: 0.25, height: 1.2}
+        - {shape: cylinder, xy: [3.2, 8.0], radius: 0.25, height: 1.2}
+        - {shape: cylinder, xy: [7.0, 5.9], radius: 0.25, height: 1.2}
+        - {shape: box, xy: [3.0, 1.1], size: [0.45, 0.35, 0.30], yaw_deg: 0}
+    hall: {margin: 3.5}
+    decoration_seed: 101
