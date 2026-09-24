@@ -31,6 +31,13 @@ pure strapdown INS and RViz. The launcher removes Conda from the environment.
 ./simulation/tools/sim/apex_fusion_research_up.sh --imu-config white_noise_only --imu-seed 3 --headless
 ```
 
+SLAM baseline, headless: identical `slam_toolbox` instances fed with good and
+damaged sensors, CSV maps and measurements, comparison figure and metrics:
+
+```bash
+./simulation/tools/sim/apex_fusion_slam_capture.sh
+```
+
 Runs are stored under `simulation/data/fusion_research/`. See
 `simulation/ros2_ws/src/apex_fusion_research/README.md`.
 

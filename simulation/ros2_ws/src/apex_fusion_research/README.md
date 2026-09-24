@@ -12,6 +12,7 @@ LiDAR–IMU fusion method for small autonomous vehicles. It provides:
 | **IMU model** | Turns Gazebo's ideal inertial signals into *raw* MEMS measurements (white noise, turn-on bias, Gauss–Markov bias instability, bias random walk, scale factor, misalignment, g-sensitivity, quantization, saturation). No orientation is provided, exactly like a physical 6-axis IMU. |
 | **Strapdown INS** | Integrates the raw IMU (attitude, velocity, position) after a realistic static alignment. No aiding: the error accumulation of a real IMU becomes visible. |
 | **Ground truth + evaluation** | 6-DoF truth from Gazebo, per-sample navigation errors, CSV/metadata recording and publication-quality plots. |
+| **SLAM baseline** | Identical `slam_toolbox` instances fed with good and damaged sensors, run headless. Maps, trajectories, the real track and raw measurements are exported to CSV, then scored against the real track (section 9). |
 | **Validation tools** | Allan-variance identification, LiDAR-model statistical report, unit tests with analytical references. |
 
 Every model lives in a ROS-independent module configured by a dataclass. Every
@@ -43,6 +44,12 @@ After (or during) a run:
 
 ```bash
 ros2 run apex_fusion_research plot_ins_drift simulation/data/fusion_research/<run>
+```
+
+SLAM baseline capture, fully headless (section 9):
+
+```bash
+./simulation/tools/sim/apex_fusion_slam_capture.sh
 ```
 
 Useful options of the launcher (`--help` lists all of them):
@@ -107,6 +114,9 @@ apex_fusion_research/
 │   │   ├── strapdown.py       # StrapdownIntegrator, static_coarse_alignment, InsConfig
 │   │   ├── allan.py           # overlapping Allan deviation + N/B/K fit
 │   │   ├── rotation.py        # quaternion utilities (Hamilton, [w,x,y,z])
+│   │   ├── slam_odometry.py   # planar SLAM motion prior (heading_only / full_pose)
+│   │   ├── occupancy.py       # OccupancyGrid -> points, PGM/YAML export
+│   │   ├── map_metrics.py     # SE(2), map similarity, point-to-line ICP, ATE
 │   │   └── config_io.py       # dataclass <-> flat parameters <-> ROS YAML
 │   ├── nodes/                 # thin ROS 2 wrappers around core/
 │   │   ├── imu_sensor_node.py
@@ -115,12 +125,17 @@ apex_fusion_research/
 │   │   ├── strapdown_ins_node.py
 │   │   ├── ins_error_monitor_node.py
 │   │   ├── scan_projector_node.py
+│   │   ├── slam_odometry_node.py      # <tag>/odom -> <tag>/base_link prior
+│   │   ├── slam_map_recorder_node.py  # SLAM maps + trajectories + real track to CSV
 │   │   └── _common.py         # ConfigParameters: dataclass -> ROS parameters
 │   └── tools/                 # offline analysis (console scripts)
 │       ├── plot_ins_drift.py
 │       ├── allan_analysis.py
-│       └── lidar_noise_report.py
-├── config/{imu,lidar,ins}/*.yaml   # parameter presets
+│       ├── lidar_noise_report.py
+│       ├── plot_slam_maps.py  # SLAM maps vs real track, metrics
+│       └── wait_for.py        # script helper: INS ready / tour finished
+├── config/{imu,lidar,ins,slam}/*.yaml   # parameter presets
+├── doc/images/                # figures used in this README
 ├── launch/fusion_research_sim.launch.py
 ├── rviz/fusion_research.rviz
 └── test/                      # pytest, runs without ROS
@@ -320,6 +335,9 @@ differences and as the rotation vector Log(R_ins R_trueᵀ).
 | `/apex/fusion/ins/error` | `std_msgs/Float64MultiArray` | t, e_xyz, e_h, e_v, e_rpy (labels in layout) |
 | `/apex/fusion/ins/error_summary` | JSON (1 Hz) | INS state and current / maximum errors |
 | `/apex/fusion/viz/scan_on_{truth,ins}_pose` | `sensor_msgs/PointCloud2` | scan projected with each pose |
+| `/apex/slam/<tag>/map` | `nav_msgs/OccupancyGrid` | map of SLAM instance `<tag>` (`good`, `noisy`, `good_imu`) |
+| `/apex/fusion/scan_<tag>` | `sensor_msgs/LaserScan` | scan fed to SLAM `<tag>`, in frame `<tag>/laser` |
+| `/apex/fusion/slam_<tag>/odom` | `nav_msgs/Odometry` | motion prior of SLAM `<tag>` |
 
 ### Recorded run
 
@@ -378,7 +396,8 @@ cd simulation/ros2_ws/src/apex_fusion_research
 /usr/bin/python3 -m pytest -q test
 ```
 
-They cover rotation algebra, the LiDAR outcome probabilities, the σ(r) law,
+They cover rotation algebra, occupancy-grid export, map metrics and ICP,
+the SLAM motion prior and the map evaluation. They also cover the LiDAR outcome probabilities, the σ(r) law,
 incidence estimation on a wall, and reproducibility. For the IMU they cover the
 white-noise level, constant errors, independent streams, quantization and
 saturation, the Gauss–Markov stationary std, and Allan recovery of N and K. For
@@ -387,7 +406,119 @@ static alignment.
 
 ---
 
-## 9. Reproducibility
+## 9. SLAM baseline: good vs damaged sensors
+
+This is the first capture of the errors. It records how a standard 2D SLAM
+(`slam_toolbox`, the default ROS 2 library) responds to the damaged sensors,
+so later fusion results can be compared against it. Every instance uses the
+same slam_toolbox tuning (`config/slam/slam_toolbox_2d.yaml`) and runs in its
+own TF tree `<tag>/map -> <tag>/odom -> <tag>/base_link -> <tag>/laser`. The
+instances differ only in their inputs:
+
+| Tag | LiDAR | Motion prior (`<tag>/odom -> <tag>/base_link`) | Role |
+| --- | --- | --- | --- |
+| `good` | ideal Gazebo scan | ground-truth pose (`full_pose`): ideal odometry, scan matching and loop closing off (as in the APEX ideal mapping mode) | reference map ("good sensors") |
+| `noisy` | noisy scan (`rplidar_like`) | yaw of the INS on the noisy IMU, zero translation (`heading_only`) | damaged sensors |
+| `good_imu` | ideal Gazebo scan | yaw of an INS on the ideal IMU, zero translation | ablation: separates the heading-only method limit from the sensor noise |
+
+With a heading-only prior the translation comes entirely from LiDAR scan
+matching. That is the usual low-cost LiDAR + IMU setup without wheel
+odometry, and it is the gap a LiDAR–IMU fusion method has to close. The car
+itself keeps driving with the APEX recognition-tour controller, unchanged.
+
+### Running it
+
+```bash
+./simulation/tools/sim/apex_fusion_slam_capture.sh [--run-name NAME] [--no-ablation] [-- LAUNCHER OPTIONS]
+# e.g. another noise realization:  apex_fusion_slam_capture.sh -- --imu-seed 3 --lidar-seed 11
+```
+
+The script runs everything headless:
+
+1. It launches Gazebo and the stack with `--slam --record-measurements`.
+2. It arms the tour once both INS alignments are done.
+3. It waits for the end of the tour.
+4. It stops the stack with SIGINT, so every recorder writes its final files.
+5. It writes the figures.
+
+It runs `ros2 run apex_fusion_research plot_slam_maps <run_dir>` itself. The
+same command regenerates the figure and metrics from any earlier run.
+
+### Output
+
+```
+<run_dir>/
+├── slam/
+│   ├── track_truth_points.csv      # real track walls (world): x_m, y_m
+│   ├── truth_trajectory.csv        # true base_link pose: t, x, y, yaw
+│   ├── map_<tag>_points.csv        # occupied cells: x_map, y_map, x_world, y_world, occupancy
+│   ├── map_<tag>.pgm / .yaml       # map_server format
+│   ├── slam_<tag>_trajectory.csv   # t, x_map, y_map, yaw_map, x_world, y_world, yaw_world
+│   ├── snapshots/map_<tag>_t<s>.csv  # map every 10 s (map growth)
+│   ├── alignment.json              # T_world_map of every SLAM (initial-pose anchor)
+│   └── slam_summary.json
+├── measurements_noisy/             # raw damaged-sensor measurements (rc_sim_description recorder)
+│   ├── lidar_points.csv            # one row per beam: stamp, angle, range, x/y in the sensor frame
+│   ├── scan_index.csv, imu_raw.csv, odom_fused.csv (= INS), ground_truth_odom.csv
+│   └── track_geometry.csv          # real track walls
+├── measurements_ideal/             # same files for the ideal sensors
+├── slam_maps.png / .pdf, slam_metrics.json / .csv
+└── ins_error.csv, ins_drift.png, metadata.json, config/ ...
+```
+
+### Evaluation
+
+- **Anchoring.** Each SLAM map frame is anchored to the world with the true
+  pose at its first update only (`alignment.json`). All later drift and
+  distortion count as error.
+- **Reference.** The reference is the observed track: the real wall points
+  within 0.10 m of an ideal LiDAR return projected with the true pose. Walls
+  the car never saw do not penalise coverage.
+- **Anchored metrics** judge the map in the world:
+  - *precision* is the fraction of map cells within 0.10 m of the reference;
+  - *coverage* is the fraction of the reference within 0.10 m of the map;
+  - *chamfer* is the mean of both nearest-neighbour distances.
+- **Shape metrics** repeat the comparison after a rigid point-to-line ICP of
+  the map onto the track.
+- **ATE** is the RMS position error of the SLAM trajectory against the true
+  base_link trajectory.
+
+### Sample result: slam_toolbox baseline response
+
+![slam_toolbox baseline response: good vs damaged sensors](doc/images/slam_baseline_response.png)
+
+Run `slam_run3`: baseline scenario, IMU `consumer_mems` (seed 42), LiDAR `rplidar_like` (seed 7), 7.3 m driven.
+
+| SLAM | precision | coverage | chamfer [m] | shape chamfer [m] | ATE rmse [m] | final error [m] |
+| --- | --- | --- | --- | --- | --- | --- |
+| good sensors (reference) | 0.99 | 0.85 | 0.043 | 0.043 | 0.00 | 0.00 |
+| damaged sensors | 0.44 | 0.53 | 0.470 | 0.248 | 2.61 | 4.35 |
+| ideal LiDAR + ideal-IMU heading | 0.40 | 0.49 | 0.478 | 0.229 | 2.56 | 4.28 |
+
+Observations from this first capture:
+
+- **The reference is sound.** The good-sensor map lies on the real walls (chamfer 4 cm, about one cell).
+- **The damaged-sensor SLAM compresses the track.** Its trajectory is 3.6 m long against 7.3 m driven, about 50 %, and it ends 4.3 m from the true position. The map is squeezed along the corridor, so the curve appears 1–2 m too early.
+- **The method limit dominates the sensor noise.** The ablation, with ideal LiDAR and ideal IMU, is almost as wrong as the damaged sensors. The loss comes from the heading-only prior combined with the degenerate corridor geometry. Sensor noise only adds scatter: the damaged map has more stray cells and a worse shape chamfer, 0.248 m against 0.229 m.
+- **Why the translation is lost.** slam_toolbox's correlative scan matcher favours poses whose points fall on already-mapped cells. In a 1.1 m wide corridor, motion along the track is weakly observable, so this biases the estimate towards too little motion.
+- **Even a perfect prior is affected.** A preliminary run fed the ground-truth prior with scan matching on (`slam_run2`). Its position still fell 2.8 m behind the true one after 7.2 m, with an ATE of 1.56 m. That is why the reference disables scan matching.
+
+Providing observable translation, through IMU-aided velocity or motion
+constraints, is therefore the first target for the LiDAR–IMU fusion work.
+
+### Limitations of this baseline
+
+- **Partial lap.** The recognition tour stops at its 60 s wall-clock timeout
+  (`global_timeout_s` in `apex_params.yaml`). At the simulation's real-time
+  factor that covers about 7–9 m of the 31.7 m lap. Only that part of the
+  track is mapped.
+- **Anchoring.** It uses the true initial pose. The shape metrics after ICP
+  remove only a rigid offset.
+- **Map saving.** `slam_toolbox`'s own `save_map` needs `nav2_map_server`,
+  which is not installed. Maps are exported from the map topic instead.
+- **Run length.** One run takes about 8 minutes of wall time and about 50 MB of data.
+
+## 10. Reproducibility
 
 * Every stochastic element is seeded (`seed` in each YAML, overridable at
   launch). The same seed and configuration reproduce the same sensor errors.
@@ -396,7 +527,7 @@ static alignment.
 * Timing uses message timestamps (simulation time), not wall-clock time, so
   results do not depend on the real-time factor of the machine.
 
-## 10. Assumptions and limitations
+## 11. Assumptions and limitations
 
 * Gazebo samples the IMU instantaneously at the sensor rate (about 120 Hz, with
   timestamps rounded to the 1 ms physics step). A real IMU low-pass filters and
@@ -411,13 +542,16 @@ static alignment.
 * The 2D LiDAR is assumed to stay parallel to the ground. Chassis roll and pitch
   are not propagated into the scan geometry.
 
-## 11. Roadmap
+## 12. Roadmap
 
 1. Identify the real IMU and LiDAR, then create hardware presets.
 2. Model LiDAR motion distortion.
 3. Loosely coupled error-state Kalman filter: INS prediction plus LiDAR scan
    matching updates, with bias estimation checked against `true_*_bias`.
-4. Monte-Carlo campaigns over seeds and parameter sweeps, with NEES/NIS
+   Evaluate it against the SLAM baseline of section 9.
+4. Complete laps: raise the recognition-tour timeout for the baseline
+   captures, so loop closure and full-track coverage enter the comparison.
+5. Monte-Carlo campaigns over seeds and parameter sweeps, with NEES/NIS
    consistency and RMSE statistics.
 
 ## References
