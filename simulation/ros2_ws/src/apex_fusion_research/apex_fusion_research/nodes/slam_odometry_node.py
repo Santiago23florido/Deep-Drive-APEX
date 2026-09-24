@@ -1,10 +1,11 @@
 """Odometry prior (TF ``noisy/odom -> noisy/base_link``) for the damaged-sensor SLAM.
 
-Input : ``/apex/fusion/ins/odom`` (pure INS from the noisy IMU).
+Input : an IMU-frame pose source, ``ins_topic`` (``nav_msgs/Odometry``): the
+        noisy-IMU INS (default), the ideal-IMU INS or the ground truth.
 Output: TF ``<odom_frame_id> -> <base_frame_id>`` and ``nav_msgs/Odometry`` on
-        ``/apex/fusion/slam_noisy/odom``, computed by
+        ``odom_topic``, computed by
         :func:`apex_fusion_research.core.slam_odometry.planar_base_pose`.
-Nothing is published until the INS finishes its alignment.
+With an INS source nothing is published until the INS finishes its alignment.
 """
 
 from __future__ import annotations

@@ -1,17 +1,18 @@
 """Planar odometry prior for a 2D SLAM fed by the damaged sensors.
 
 2D SLAM back-ends such as slam_toolbox need an ``odom -> base`` transform as
-the motion prior of their scan matcher. For the damaged-sensor baseline the
-prior comes from the noisy IMU only:
+the motion prior of their scan matcher. The prior is built from an
+IMU-frame pose source (an INS or the ground truth):
 
-* ``heading_only`` (default): yaw from the strapdown INS (integrated noisy
-  gyros after static alignment), translation fixed at zero. The translation
-  is left entirely to LiDAR scan matching: the typical low-cost LiDAR + IMU
-  configuration without wheel odometry. The published yaw is absolute (world
-  aligned) because the INS heading is initialised from the known start pose.
-* ``ins_full``: full planar pose of the INS (x, y, yaw) transferred from the
-  IMU to the base frame with the lever arm. It diverges quickly with MEMS
-  sensors and is provided for comparison experiments.
+* ``heading_only`` (default): yaw of the source, translation fixed at zero.
+  With the strapdown INS of the noisy IMU this is the damaged-sensor
+  baseline: the translation is left entirely to LiDAR scan matching (typical
+  low-cost LiDAR + IMU setup without wheel odometry). The published yaw is
+  absolute (world aligned) because the INS heading starts from the known pose.
+* ``full_pose``: full planar pose of the source (x, y, yaw) transferred from
+  the IMU to the base frame with the lever arm. Fed with the ground truth it
+  is an ideal odometry (perfect wheel encoders + gyro): the good-sensor
+  reference. Fed with a MEMS INS it diverges within seconds.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import numpy as np
 
 from .rotation import quat_to_euler, quat_to_rotmat
 
-MODES = ("heading_only", "ins_full")
+MODES = ("heading_only", "full_pose")
 
 
 @dataclass
