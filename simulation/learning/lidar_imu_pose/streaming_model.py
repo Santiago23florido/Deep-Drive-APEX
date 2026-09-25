@@ -87,19 +87,33 @@ from train_pose_fusion import ImuEncoder
 TWO_PI = 2.0 * math.pi
 
 
-def rotate_scan(ranges: Tensor, valid: Tensor, shift: Tensor, sweep_rate: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+def rotate_scan(ranges: Tensor, valid: Tensor, shift: Tensor, sweep_rate: Tensor, frac: Tensor | None = None) -> tuple[Tensor, Tensor, Tensor]:
     """Resample a 360-degree scan on its own angular grid after a rotation.
 
-    Beam i (angle theta_i) is re-expressed at theta_i + shift + sweep_rate * i
-    (``sweep_rate`` in radians per beam: rotation during the rolling sweep).
-    Returns ranges, validity and the (fractional) source beam index / N of
-    every output direction. Neighbouring beams are interpolated only when
-    both are valid and lie on one surface; otherwise the nearest one is used.
+    Beam i (angle theta_i) is re-expressed at theta_i + shift + rotation of
+    the car when the beam was fired. ``sweep_rate`` is that rotation per beam
+    period (radians per beam); by default beam i is fired at i beam periods
+    after the stamp. ``frac`` [..., N] gives instead the firing time of every
+    beam as a fraction of the revolution (a clockwise scanner, or one whose
+    revolution starts at another angle), the rotation of beam i being then
+    ``sweep_rate * N * frac[i]``. Returns ranges, validity and the time
+    fraction of the (fractional) source beam of every output direction.
+    Neighbouring beams are interpolated only when both are valid and lie on
+    one surface; otherwise the nearest one is used.
     """
     n = ranges.shape[-1]
     inc = TWO_PI / n
     j = torch.arange(n, device=ranges.device, dtype=ranges.dtype)
-    u = (j * inc - shift[..., None]) / (inc + sweep_rate[..., None])
+    if frac is None:
+        u = (j * inc - shift[..., None]) / (inc + sweep_rate[..., None])
+    else:
+        # theta_u + shift + turn * frac(u) = theta_j, solved by fixed point
+        # (the rotation during one beam is ~1/40 of a beam at 2 rad/s).
+        turn = sweep_rate[..., None] * n
+        u = (j * inc - shift[..., None]) / inc
+        for _ in range(3):
+            fi = frac.gather(-1, torch.remainder(torch.round(u), n).long())
+            u = (j * inc - shift[..., None] - turn * fi) / inc
     u = torch.remainder(u, n)
     i0 = torch.floor(u).long().clamp(max=n - 1)
     w = u - i0
@@ -110,7 +124,8 @@ def rotate_scan(ranges: Tensor, valid: Tensor, shift: Tensor, sweep_rate: Tensor
     near_first = w < 0.5
     r = torch.where(smooth, r0 * (1 - w) + r1 * w, torch.where(near_first, r0, r1))
     v = torch.where(smooth, torch.ones_like(v0), torch.where(near_first, v0, v1))
-    return r * v, v, u / n
+    tau = u / n if frac is None else frac.gather(-1, torch.where(near_first, i0, i1))
+    return r * v, v, tau
 
 
 def pair_channels(batch: dict[str, Tensor]) -> Tensor:
@@ -119,8 +134,9 @@ def pair_channels(batch: dict[str, Tensor]) -> Tensor:
     beams = batch["prev_ranges"].shape[-1]
     inc = TWO_PI / beams
     dt_beam = batch["time_increment"]
-    prev_r, prev_v, _ = rotate_scan(batch["prev_ranges"], batch["prev_valid"], torch.zeros_like(batch["dt"]), batch["w_prev"] * dt_beam)
-    cur_r, cur_v, tau = rotate_scan(batch["cur_ranges"], batch["cur_valid"], batch["gyro_integral"], batch["w_cur"] * dt_beam)
+    frac = batch.get("beam_frac")
+    prev_r, prev_v, _ = rotate_scan(batch["prev_ranges"], batch["prev_valid"], torch.zeros_like(batch["dt"]), batch["w_prev"] * dt_beam, frac)
+    cur_r, cur_v, tau = rotate_scan(batch["cur_ranges"], batch["cur_valid"], batch["gyro_integral"], batch["w_cur"] * dt_beam, frac)
     both = (prev_v & cur_v).float()
     theta = -math.pi + inc * torch.arange(beams, device=prev_r.device, dtype=prev_r.dtype)
     shape = prev_r.shape
@@ -294,3 +310,17 @@ class StreamingPoseNet(nn.Module):
         result = {name: torch.stack(vals, dim=1) for name, vals in out.items()}
         result["lidar_measurement"] = z
         return result, {"h": torch.stack(h), "v": v, "bias": bias, "age": age}
+
+
+def load_checkpoint(path, device: torch.device | str = "cpu") -> tuple["StreamingPoseNet", dict]:
+    """A v2 checkpoint (``train_streaming.py train``) with its architecture
+    read from the file: hidden size, hybrid input, and the unregularised
+    layout of the early runs (no sector bottleneck). The ICP variant a hybrid
+    was trained with is ``ckpt["config"]["icp_variant"]``."""
+    ck = torch.load(path, map_location=device, weights_only=False)
+    cfg = ck.get("config", {})
+    regularize = any(k.startswith("pair_encoder.cnn.13.") for k in ck["model"])
+    model = StreamingPoseNet(int(cfg.get("hidden", 128)), regularize=regularize, hybrid=bool(cfg.get("hybrid", False))).to(device)
+    model.load_state_dict(ck["model"])
+    model.eval()
+    return model, ck

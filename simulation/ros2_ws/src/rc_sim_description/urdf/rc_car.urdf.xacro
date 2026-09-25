@@ -6,6 +6,43 @@
   <xacro:property name="lidar_noise_std" value="$(arg lidar_noise_std)"/>
   <xacro:property name="imu_gyro_noise_stddev_rps" value="$(arg imu_gyro_noise_stddev_rps)"/>
   <xacro:property name="imu_accel_noise_stddev_mps2" value="$(arg imu_accel_noise_stddev_mps2)"/>
+
+  <!-- Real2sim options (tools/pose_dataset/config/sensors.yaml, backend
+       gazebo_native). The defaults keep the historical rigid car and sensors. -->
+  <!-- Sprung body on roll / pitch spring-damper joints; the LiDAR, IMU and
+       camera ride on it, so the scan plane and the IMU tilt physically. -->
+  <xacro:arg name="suspension" default="false"/>
+  <xacro:property name="suspension" value="$(arg suspension)"/>
+  <!-- gpu_lidar used as the geometry source of the rolling-scan model. -->
+  <xacro:arg name="lidar_update_rate" default="12"/>
+  <xacro:arg name="lidar_samples" default="360"/>
+  <xacro:arg name="lidar_range_min" default="0.05"/>
+  <xacro:arg name="lidar_range_max" default="12.0"/>
+  <xacro:arg name="lidar_range_resolution" default="0.01"/>
+  <!-- IMU: rate and Gazebo's native noise model (per-sample white std, turn-on
+       bias, Gauss-Markov bias) on each axis; "x y z" strings. -->
+  <xacro:arg name="imu_update_rate" default="120"/>
+  <xacro:arg name="imu_gyro_white_std" default=""/>
+  <xacro:arg name="imu_gyro_bias_std" default="0 0 0"/>
+  <xacro:arg name="imu_gyro_dynamic_bias_std" default="0 0 0"/>
+  <xacro:arg name="imu_gyro_dynamic_bias_tau" default="100 100 100"/>
+  <xacro:arg name="imu_accel_white_std" default=""/>
+  <xacro:arg name="imu_accel_bias_std" default="0 0 0"/>
+  <xacro:arg name="imu_accel_dynamic_bias_std" default="0 0 0"/>
+  <xacro:arg name="imu_accel_dynamic_bias_tau" default="100 100 100"/>
+  <!-- Second, noise-free IMU on the same mount (topic imu_clean_topic): its
+       difference with the noisy one is the exact noise + bias (dataset labels). -->
+  <xacro:arg name="imu_clean_reference" default="false"/>
+  <xacro:arg name="imu_clean_topic" default="/apex/sim/imu_clean"/>
+  <xacro:arg name="camera" default="true"/>
+  <!-- True sensor mounts in base_link ("x y z" / "roll pitch yaw" [rad]);
+       empty keeps the nominal mounts. The dataset draws them per run
+       (nominal + calibration error), like a real car differs from its
+       nominal calibration. -->
+  <xacro:arg name="lidar_xyz" default=""/>
+  <xacro:arg name="lidar_rpy" default="0 0 0"/>
+  <xacro:arg name="imu_xyz" default=""/>
+  <xacro:arg name="imu_rpy" default="0 0 0"/>
   <!-- Basic dimensions -->
   <xacro:property name="chassis_length" value="0.46"/>
   <xacro:property name="chassis_width" value="0.28"/>
@@ -29,6 +66,32 @@
   <xacro:property name="chassis_mass" value="3.0"/>
   <xacro:property name="wheel_mass" value="0.25"/>
   <xacro:property name="steer_mass" value="0.05"/>
+
+  <!-- Suspension (only with suspension:=true). The chassis mass is split into
+       an unsprung frame (base_link, carries the wheels) and the sprung body
+       (chassis + LiDAR, IMU and camera mounts). Targets from
+       tools/pose_dataset/config/vehicle.yaml (body_dynamics): 3.5 Hz sprung
+       mode, zeta 0.45, 3 deg of roll per g of lateral and 2 deg of pitch per
+       g of longitudinal acceleration. For a pivot at height h below the
+       sprung centre of mass (m, I_cm):
+         gain = m h / (I_p w^2),  k = I_p w^2 + m g h,  c = 2 zeta I_p w,
+         I_p = I_cm + m h^2.
+       With the merged sprung body of this model (m 2.83 kg, CoM at
+       x 0.0078 m, z 0.0829 m, Ixx 0.0209, Iyy 0.0555 kg m^2): roll pivot
+       0.0201 m and pitch pivot 0.0360 m below the CoM, the pitch pivot
+       directly under it (level at rest). Recompute when masses or mounts
+       change; tests/test_suspension.py checks the response. -->
+  <xacro:property name="unsprung_mass" value="0.3"/>
+  <xacro:property name="sprung_mass" value="${chassis_mass - unsprung_mass}"/>
+  <xacro:property name="sprung_com_z" value="${chassis_height / 2.0 + chassis_clearance}"/>
+  <xacro:property name="roll_pivot_z" value="0.0628"/>
+  <xacro:property name="pitch_pivot_x" value="0.0078"/>
+  <xacro:property name="pitch_pivot_z" value="0.0469"/>
+  <xacro:property name="roll_stiffness" value="11.23"/>
+  <xacro:property name="roll_damping" value="0.437"/>
+  <xacro:property name="pitch_stiffness" value="29.59"/>
+  <xacro:property name="pitch_damping" value="1.170"/>
+  <xacro:property name="suspension_limit_rad" value="0.12"/>
 
   <xacro:property name="chassis_ixx" value="${chassis_mass / 12.0 * (chassis_height*chassis_height + chassis_width*chassis_width)}"/>
   <xacro:property name="chassis_iyy" value="${chassis_mass / 12.0 * (chassis_length*chassis_length + chassis_height*chassis_height)}"/>
@@ -112,26 +175,99 @@
     <xacro:wheel name="${name}" parent="${name}_steer" xyz="0 0 0"/>
   </xacro:macro>
 
-  <link name="base_link">
-    <inertial>
-      <origin xyz="0 0 ${chassis_height / 2.0 + chassis_clearance}" rpy="0 0 0"/>
-      <mass value="${chassis_mass}"/>
-      <inertia ixx="${chassis_ixx}" ixy="0.0" ixz="0.0" iyy="${chassis_iyy}" iyz="0.0" izz="${chassis_izz}"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 ${chassis_height / 2.0 + chassis_clearance}" rpy="0 0 0"/>
-      <geometry>
-        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
-      </geometry>
-      <material name="chassis_grey"/>
-    </visual>
-    <collision>
-      <origin xyz="0 0 ${chassis_height / 2.0 + chassis_clearance}" rpy="0 0 0"/>
-      <geometry>
-        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
-      </geometry>
-    </collision>
-  </link>
+  <xacro:if value="${not suspension}">
+    <link name="base_link">
+      <inertial>
+        <origin xyz="0 0 ${chassis_height / 2.0 + chassis_clearance}" rpy="0 0 0"/>
+        <mass value="${chassis_mass}"/>
+        <inertia ixx="${chassis_ixx}" ixy="0.0" ixz="0.0" iyy="${chassis_iyy}" iyz="0.0" izz="${chassis_izz}"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 0 ${chassis_height / 2.0 + chassis_clearance}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+        </geometry>
+        <material name="chassis_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 ${chassis_height / 2.0 + chassis_clearance}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+        </geometry>
+      </collision>
+    </link>
+  </xacro:if>
+
+  <xacro:if value="${suspension}">
+    <link name="base_link">
+      <inertial>
+        <origin xyz="0 0 ${axle_height}" rpy="0 0 0"/>
+        <mass value="${unsprung_mass}"/>
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.003" iyz="0.0" izz="0.004"/>
+      </inertial>
+    </link>
+    <link name="suspension_roll_link">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="0.01"/>
+        <inertia ixx="0.000001" ixy="0.0" ixz="0.0" iyy="0.000001" iyz="0.0" izz="0.000001"/>
+      </inertial>
+    </link>
+    <joint name="suspension_roll_joint" type="revolute">
+      <parent link="base_link"/>
+      <child link="suspension_roll_link"/>
+      <origin xyz="0 0 ${roll_pivot_z}" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-${suspension_limit_rad}" upper="${suspension_limit_rad}" effort="100.0" velocity="10.0"/>
+      <dynamics damping="${roll_damping}" friction="0.0"/>
+    </joint>
+    <link name="sprung_body">
+      <inertial>
+        <origin xyz="${-pitch_pivot_x} 0 ${sprung_com_z - pitch_pivot_z}" rpy="0 0 0"/>
+        <mass value="${sprung_mass}"/>
+        <inertia ixx="${sprung_mass / 12.0 * (chassis_height*chassis_height + chassis_width*chassis_width)}" ixy="0.0" ixz="0.0"
+                 iyy="${sprung_mass / 12.0 * (chassis_length*chassis_length + chassis_height*chassis_height)}" iyz="0.0"
+                 izz="${sprung_mass / 12.0 * (chassis_length*chassis_length + chassis_width*chassis_width)}"/>
+      </inertial>
+      <visual>
+        <origin xyz="${-pitch_pivot_x} 0 ${sprung_com_z - pitch_pivot_z}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+        </geometry>
+        <material name="chassis_grey"/>
+      </visual>
+      <collision>
+        <origin xyz="${-pitch_pivot_x} 0 ${sprung_com_z - pitch_pivot_z}" rpy="0 0 0"/>
+        <geometry>
+          <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="suspension_pitch_joint" type="revolute">
+      <parent link="suspension_roll_link"/>
+      <child link="sprung_body"/>
+      <origin xyz="${pitch_pivot_x} 0 ${pitch_pivot_z - roll_pivot_z}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-${suspension_limit_rad}" upper="${suspension_limit_rad}" effort="100.0" velocity="10.0"/>
+      <dynamics damping="${pitch_damping}" friction="0.0"/>
+    </joint>
+    <gazebo reference="suspension_roll_joint">
+      <springStiffness>${roll_stiffness}</springStiffness>
+      <springReference>0.0</springReference>
+    </gazebo>
+    <gazebo reference="suspension_pitch_joint">
+      <springStiffness>${pitch_stiffness}</springStiffness>
+      <springReference>0.0</springReference>
+    </gazebo>
+  </xacro:if>
+
+  <!-- Sensors ride on the sprung body when there is one; their offsets stay
+       the base_link mount of the real car. -->
+  <xacro:property name="sensor_parent" value="${'sprung_body' if suspension else 'base_link'}"/>
+  <xacro:property name="sensor_dx" value="${pitch_pivot_x if suspension else 0.0}"/>
+  <xacro:property name="sensor_dz" value="${pitch_pivot_z if suspension else 0.0}"/>
+  <xacro:property name="lidar_mount" value="${[float(v) for v in ('$(arg lidar_xyz)'.split() or [lidar_offset_x, 0.0, lidar_offset_z])]}"/>
+  <xacro:property name="imu_mount" value="${[float(v) for v in ('$(arg imu_xyz)'.split() or [0.02, 0.0, chassis_height / 2.0 + 0.03])]}"/>
 
   <link name="rear_axle">
     <inertial>
@@ -193,29 +329,29 @@
   </joint>
 
   <joint name="lidar_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="${sensor_parent}"/>
     <child link="laser"/>
-    <origin xyz="${lidar_offset_x} 0 ${lidar_offset_z}" rpy="0 0 0"/>
+    <origin xyz="${lidar_mount[0] - sensor_dx} ${lidar_mount[1]} ${lidar_mount[2] - sensor_dz}" rpy="$(arg lidar_rpy)"/>
   </joint>
 
   <joint name="imu_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="${sensor_parent}"/>
     <child link="imu_link"/>
     <!-- Match the current real APEX mount: sensor X points forward and sensor
          Y points left, matching the vehicle base_link convention. -->
-    <origin xyz="0.02 0 ${chassis_height / 2.0 + 0.03}" rpy="0 0 0"/>
+    <origin xyz="${imu_mount[0] - sensor_dx} ${imu_mount[1]} ${imu_mount[2] - sensor_dz}" rpy="$(arg imu_rpy)"/>
   </joint>
 
   <joint name="camera_joint" type="fixed">
-    <parent link="base_link"/>
+    <parent link="${sensor_parent}"/>
     <child link="camera_link"/>
-    <origin xyz="0.25 0.0 0.20" rpy="0 0 0"/>
+    <origin xyz="${0.25 - sensor_dx} 0.0 ${0.20 - sensor_dz}" rpy="0 0 0"/>
   </joint>
 
   <gazebo reference="laser">
     <sensor name="lidar" type="gpu_lidar">
       <always_on>true</always_on>
-      <update_rate>12</update_rate>
+      <update_rate>$(arg lidar_update_rate)</update_rate>
       <visualize>true</visualize>
       <topic>/apex/sim/scan</topic>
       <!-- Gazebo modern uses gz_frame_id for sensor messages. Keep the ideal
@@ -226,16 +362,16 @@
       <lidar>
         <scan>
           <horizontal>
-            <samples>360</samples>
+            <samples>$(arg lidar_samples)</samples>
             <resolution>1</resolution>
             <min_angle>-3.14159265</min_angle>
             <max_angle>3.14159265</max_angle>
           </horizontal>
         </scan>
         <range>
-          <min>0.05</min>
-          <max>12.0</max>
-          <resolution>0.01</resolution>
+          <min>$(arg lidar_range_min)</min>
+          <max>$(arg lidar_range_max)</max>
+          <resolution>$(arg lidar_range_resolution)</resolution>
         </range>
         <!-- Optional light LiDAR noise for robustness sweeps. Default stays at
              zero so the baseline ideal scan remains perfectly reproducible. -->
@@ -247,76 +383,82 @@
     </sensor>
   </gazebo>
 
+  <!-- Per-axis native noise: the historical scalar args apply when the
+       "x y z" strings are empty. -->
+  <xacro:property name="gyro_white" value="${[float(v) for v in ('$(arg imu_gyro_white_std)'.split() or [imu_gyro_noise_stddev_rps] * 3)]}"/>
+  <xacro:property name="gyro_bias" value="${[float(v) for v in '$(arg imu_gyro_bias_std)'.split()]}"/>
+  <xacro:property name="gyro_dyn" value="${[float(v) for v in '$(arg imu_gyro_dynamic_bias_std)'.split()]}"/>
+  <xacro:property name="gyro_tau" value="${[float(v) for v in '$(arg imu_gyro_dynamic_bias_tau)'.split()]}"/>
+  <xacro:property name="accel_white" value="${[float(v) for v in ('$(arg imu_accel_white_std)'.split() or [imu_accel_noise_stddev_mps2] * 3)]}"/>
+  <xacro:property name="accel_bias" value="${[float(v) for v in '$(arg imu_accel_bias_std)'.split()]}"/>
+  <xacro:property name="accel_dyn" value="${[float(v) for v in '$(arg imu_accel_dynamic_bias_std)'.split()]}"/>
+  <xacro:property name="accel_tau" value="${[float(v) for v in '$(arg imu_accel_dynamic_bias_tau)'.split()]}"/>
+
+  <xacro:macro name="imu_noise" params="axis white bias dyn tc">
+    <xacro:element xacro:name="${axis}">
+      <noise type="gaussian">
+        <mean>0.0</mean>
+        <stddev>${white}</stddev>
+        <bias_mean>0.0</bias_mean>
+        <bias_stddev>${bias}</bias_stddev>
+        <dynamic_bias_stddev>${dyn}</dynamic_bias_stddev>
+        <dynamic_bias_correlation_time>${tc}</dynamic_bias_correlation_time>
+      </noise>
+    </xacro:element>
+  </xacro:macro>
+
   <gazebo reference="imu_link">
     <sensor name="imu" type="imu">
       <always_on>true</always_on>
-      <update_rate>120</update_rate>
+      <update_rate>$(arg imu_update_rate)</update_rate>
       <topic>/apex/sim/imu</topic>
       <imu>
         <angular_velocity>
-          <x>
-            <noise type="gaussian">
-              <mean>0.0</mean>
-              <stddev>${imu_gyro_noise_stddev_rps}</stddev>
-            </noise>
-          </x>
-          <y>
-            <noise type="gaussian">
-              <mean>0.0</mean>
-              <stddev>${imu_gyro_noise_stddev_rps}</stddev>
-            </noise>
-          </y>
-          <z>
-            <noise type="gaussian">
-              <mean>0.0</mean>
-              <stddev>${imu_gyro_noise_stddev_rps}</stddev>
-            </noise>
-          </z>
+          <xacro:imu_noise axis="x" white="${gyro_white[0]}" bias="${gyro_bias[0]}" dyn="${gyro_dyn[0]}" tc="${gyro_tau[0]}"/>
+          <xacro:imu_noise axis="y" white="${gyro_white[1]}" bias="${gyro_bias[1]}" dyn="${gyro_dyn[1]}" tc="${gyro_tau[1]}"/>
+          <xacro:imu_noise axis="z" white="${gyro_white[2]}" bias="${gyro_bias[2]}" dyn="${gyro_dyn[2]}" tc="${gyro_tau[2]}"/>
         </angular_velocity>
         <linear_acceleration>
-          <x>
-            <noise type="gaussian">
-              <mean>0.0</mean>
-              <stddev>${imu_accel_noise_stddev_mps2}</stddev>
-            </noise>
-          </x>
-          <y>
-            <noise type="gaussian">
-              <mean>0.0</mean>
-              <stddev>${imu_accel_noise_stddev_mps2}</stddev>
-            </noise>
-          </y>
-          <z>
-            <noise type="gaussian">
-              <mean>0.0</mean>
-              <stddev>${imu_accel_noise_stddev_mps2}</stddev>
-            </noise>
-          </z>
+          <xacro:imu_noise axis="x" white="${accel_white[0]}" bias="${accel_bias[0]}" dyn="${accel_dyn[0]}" tc="${accel_tau[0]}"/>
+          <xacro:imu_noise axis="y" white="${accel_white[1]}" bias="${accel_bias[1]}" dyn="${accel_dyn[1]}" tc="${accel_tau[1]}"/>
+          <xacro:imu_noise axis="z" white="${accel_white[2]}" bias="${accel_bias[2]}" dyn="${accel_dyn[2]}" tc="${accel_tau[2]}"/>
         </linear_acceleration>
       </imu>
     </sensor>
   </gazebo>
 
-  <gazebo reference="camera_link">
-    <sensor name="camera" type="camera">
-      <always_on>true</always_on>
-      <update_rate>30</update_rate>
-      <visualize>false</visualize>
-      <topic>/camera/image_raw</topic>
-      <camera>
-        <horizontal_fov>1.047</horizontal_fov>
-        <image>
-          <width>640</width>
-          <height>480</height>
-          <format>R8G8B8</format>
-        </image>
-        <clip>
-          <near>0.05</near>
-          <far>50.0</far>
-        </clip>
-      </camera>
-    </sensor>
-  </gazebo>
+  <xacro:if value="$(arg imu_clean_reference)">
+    <gazebo reference="imu_link">
+      <sensor name="imu_clean" type="imu">
+        <always_on>true</always_on>
+        <update_rate>$(arg imu_update_rate)</update_rate>
+        <topic>$(arg imu_clean_topic)</topic>
+      </sensor>
+    </gazebo>
+  </xacro:if>
+
+  <xacro:if value="$(arg camera)">
+    <gazebo reference="camera_link">
+      <sensor name="camera" type="camera">
+        <always_on>true</always_on>
+        <update_rate>30</update_rate>
+        <visualize>false</visualize>
+        <topic>/camera/image_raw</topic>
+        <camera>
+          <horizontal_fov>1.047</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>50.0</far>
+          </clip>
+        </camera>
+      </sensor>
+    </gazebo>
+  </xacro:if>
 
   <xacro:steered_wheel name="front_left_wheel" parent="base_link" xyz="${wheel_base_x} ${wheel_track_y} ${axle_height}"/>
   <xacro:steered_wheel name="front_right_wheel" parent="base_link" xyz="${wheel_base_x} ${-wheel_track_y} ${axle_height}"/>
@@ -377,4 +519,18 @@
       <cmd_min>-${steering_limit_rad}</cmd_min>
     </plugin>
   </gazebo>
+
+  <!-- Real2sim: world pose of base_link at every physics step (the link poses
+       of the PosePublisher are relative to the model); the sensor node
+       composes both to follow the sprung body that carries the LiDAR. -->
+  <xacro:if value="${suspension}">
+    <gazebo>
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <odom_frame>world</odom_frame>
+        <robot_base_frame>base_link</robot_base_frame>
+        <odom_publish_frequency>1000</odom_publish_frequency>
+        <dimensions>3</dimensions>
+      </plugin>
+    </gazebo>
+  </xacro:if>
 </robot>

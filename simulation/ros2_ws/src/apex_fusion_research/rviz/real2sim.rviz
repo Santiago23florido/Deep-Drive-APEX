@@ -1,0 +1,96 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Time
+    Name: Time
+    SyncMode: 0
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 250; 250; 248
+    Fixed Frame: world
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 40
+      Color: 200; 200; 200
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/PointCloud
+      Name: Real track walls
+      Enabled: true
+      Topic:
+        Value: /apex/sim/ground_truth/perfect_map_points
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 150; 150; 150
+    - Class: rviz_default_plugins/Map
+      Name: SLAM map (learned odometry)
+      Enabled: true
+      Topic:
+        Value: /map
+        Durability Policy: Transient Local
+      Alpha: 0.6
+      Color Scheme: map
+    - Class: rviz_default_plugins/LaserScan
+      Name: Scan de-skewed (SLAM input)
+      Enabled: true
+      Topic:
+        Value: /apex/learned_odometry/scan_deskewed
+      Style: Points
+      Size (Pixels): 3
+      Color Transformer: FlatColor
+      Color: 42; 120; 200
+    - Class: rviz_default_plugins/LaserScan
+      Name: Raw A2M8 revolution
+      Enabled: false
+      Topic:
+        Value: /lidar/scan_raw
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 230; 110; 40
+    - Class: rviz_default_plugins/Odometry
+      Name: Learned odometry (odom frame)
+      Enabled: true
+      Topic:
+        Value: /apex/odometry/learned
+      Keep: 400
+      Position Tolerance: 0.05
+      Angle Tolerance: 0.2
+      Shape:
+        Value: Arrow
+        Color: 42; 120; 200
+        Shaft Length: 0.25
+        Shaft Radius: 0.02
+        Head Length: 0.08
+        Head Radius: 0.05
+    - Class: rviz_default_plugins/Odometry
+      Name: Ground truth
+      Enabled: true
+      Topic:
+        Value: /apex/sim/ground_truth/base_odom
+      Keep: 400
+      Position Tolerance: 0.1
+      Angle Tolerance: 0.3
+      Shape:
+        Value: Arrow
+        Color: 30; 30; 30
+        Shaft Length: 0.2
+        Shaft Radius: 0.015
+        Head Length: 0.06
+        Head Radius: 0.04
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: true
+      Marker Scale: 0.4
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Scale: 40
+      X: 8
+      Y: 3

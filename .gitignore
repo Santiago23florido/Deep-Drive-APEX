@@ -51,3 +51,7 @@ simulation/learning/outputs/
 
 # Multi-scenario LiDAR-IMU pose datasets (SQLite, trajectory cache, reports)
 simulation/data/multiscenario_pose/
+
+# Real2sim closed-loop runs and LIO self-supervision captures (regenerable, large)
+simulation/data/real2sim/
+simulation/data/lio_ssl/

@@ -5,9 +5,12 @@ targets, same normalisation) with what the streaming network, the classical
 LiDAR reference and the odometry metrics need:
 
 * scan geometry per run: ``range_max``, angle grid and time between beams.
-  The scanner is rolling: beam i is fired at ``stamp + i * time_increment``
-  (``stamp`` = start of the sweep), so a scan is distorted by the motion
-  during its own sweep;
+  The scanner is rolling (``stamp`` = start of the sweep), so a scan is
+  distorted by the motion during its own sweep. Beam i is fired at
+  ``stamp + beam_time_frac[i] * beams * time_increment``: ``i / beams`` for
+  the v1 profiles (counter-clockwise from ``angle_min``), and for a real
+  scanner the fraction of the revolution between its sync angle and the beam
+  in its rotation direction (the APEX A2M8 turns clockwise from +89 deg);
 * the nominal LiDAR mount (x, y) in base_link and the datasheet range noise
   (constant + proportional sigma) of the sensor profile, from the calibration
   table (the drawn per-run "true" mount and noise realization are never used);
@@ -22,6 +25,7 @@ k-1 to scan k (k >= 1); index 0 of every run is a placeholder.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import sqlite3
 from typing import Any
@@ -33,6 +37,15 @@ from torch import Tensor
 from sqlite_windows import G, load_or_build
 
 
+def bin_time_fraction(beams: int, angle_min: float, angle_increment: float, direction: str, start_angle: float) -> np.ndarray:
+    """Acquisition time of every bin as a fraction of the revolution (same
+    rule as ``apex_fusion_research.core.lidar_rolling.bin_time_fraction``)."""
+    theta = angle_min + angle_increment * np.arange(beams)
+    turn = (start_angle - theta) if direction == "cw" else (theta - start_angle)
+    frac = np.mod(turn, 2.0 * math.pi) / (2.0 * math.pi)
+    return np.where(np.isclose(frac, 1.0), 0.0, frac)
+
+
 def build_extras(db_path: Path, data: dict[str, Any]) -> dict[str, Any]:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     runs = data["runs"]
@@ -41,7 +54,7 @@ def build_extras(db_path: Path, data: dict[str, Any]) -> dict[str, Any]:
     v_body = np.zeros((n_total, 2), dtype=np.float32)
     bias = np.zeros((n_total, 3), dtype=np.float32)
     run_index = np.zeros(n_total, dtype=np.int64)
-    geom = {"range_max": [], "angle_min": [], "angle_increment": [], "time_increment_s": [], "lidar_xy": [], "lidar_sigma": []}
+    geom = {"range_max": [], "angle_min": [], "angle_increment": [], "time_increment_s": [], "lidar_xy": [], "lidar_sigma": [], "beam_time_frac": []}
     for ri, r in enumerate(runs):
         o, n = r["offset"], r["n"]
         run_index[o : o + n] = ri
@@ -61,8 +74,13 @@ def build_extras(db_path: Path, data: dict[str, Any]) -> dict[str, Any]:
             "SELECT extrinsic_translation, noise_configuration_json FROM sensor_calibration WHERE run_id = ? AND sensor_name = 'lidar'", (r["run_id"],)
         ).fetchone()
         geom["lidar_xy"].append([float(v) for v in json.loads(ext)[:2]])
-        sheet = json.loads(noise)["noise"]
+        profile = json.loads(noise)
+        sheet = profile["noise"]
         geom["lidar_sigma"].append([float(sheet["range_sigma_const_m"]), float(sheet["range_sigma_prop"])])
+        beams = int(data["lidar"].shape[-1])
+        geom["beam_time_frac"].append(bin_time_fraction(
+            beams, rows[0][3], rows[0][4], str(profile.get("scan_direction", "ccw")),
+            math.radians(float(profile.get("scan_start_angle_deg", math.degrees(rows[0][3]))))).tolist())
         # True bias (gyro z, accel x, accel y) averaged over the IMU samples of
         # each interval, with the sample selection of sqlite_windows.build_split.
         b = np.array(
@@ -95,13 +113,42 @@ def build_extras(db_path: Path, data: dict[str, Any]) -> dict[str, Any]:
 def load_split(db_path: Path, cache_dir: Path, split: str) -> dict[str, Any]:
     data = load_or_build(db_path, cache_dir, split)
     stat = db_path.stat()
-    path = cache_dir / f"{split}_streams_v2_{int(stat.st_mtime)}_{stat.st_size}.pt"
+    path = cache_dir / f"{split}_streams_v3_{int(stat.st_mtime)}_{stat.st_size}.pt"
     if path.exists():
         extras = torch.load(path, map_location="cpu", weights_only=False)
     else:
         extras = build_extras(db_path, data)
         torch.save(extras, path)
     return {**data, **extras}
+
+
+def imu_interval_stats(imu: Tensor, lengths: Tensor) -> tuple[Tensor, Tensor]:
+    """Mean planar specific force [m/s^2] and specific-force spread [m/s^2]
+    (standstill detector) of the zero-padded, normalised IMU samples of an
+    interval ([..., samples, 6], valid ``lengths``)."""
+    mask = (torch.arange(imu.shape[-2], device=imu.device) < lengths[..., None]).float()
+    count = mask.sum(-1, keepdim=True).clamp_min(1.0)
+    accel = (imu[..., :2] * mask[..., None]).sum(-2) / count * G
+    mean3 = (imu[..., :3] * mask[..., None]).sum(-2) / count
+    accel_std = (((imu[..., :3] - mean3[..., None, :]).square() * mask[..., None]).sum(-2) / count).sqrt().mean(-1) * G
+    return accel, accel_std
+
+
+def icp_features(res: dict[str, Any]) -> tuple[Tensor, Tensor]:
+    """Increment and quality indicators of the classical odometry, as the
+    hybrid network consumes them ([N, 3], [N, 9])."""
+    pred = torch.nan_to_num(res["pred"].float(), nan=0.0)
+    sig = torch.nan_to_num(res["sigma"].float(), nan=1.0).clamp(1e-5, 1.0)
+    feats = torch.stack((
+        torch.log10(sig[:, 0]) + 2.0, torch.log10(sig[:, 1]) + 2.0, torch.log10(sig[:, 2]) + 3.0,
+        torch.log10(torch.nan_to_num(res["eig_ratio"].float(), nan=1.0).clamp(1e-6, 1.0)) + 1.0,
+        torch.log10(torch.nan_to_num(res["weak_sigma_m"].float(), nan=1.0).clamp(1e-5, 1.0)) + 2.0,
+        torch.log10(torch.nan_to_num(res["icp_yaw_sigma_rad"].float(), nan=1.0).clamp(1e-6, 1.0)) + 3.0,
+        torch.nan_to_num(res["pairs"].float(), nan=0.0) / 360.0,
+        torch.nan_to_num(res["standstill"].float(), nan=0.0),
+        torch.nan_to_num(res["gyro_bias"].float(), nan=0.0) * 20.0,
+    ), dim=1)
+    return pred, feats
 
 
 class StreamData:
@@ -127,6 +174,12 @@ class StreamData:
         self.lidar_sigma = data["lidar_sigma"].to(device)  # [runs, 2]: datasheet sigma = c0 + c1 * range
         self.angle_min = data["angle_min"].to(device)
         self.angle_increment = data["angle_increment"].to(device)
+        beams = int(self.lidar.shape[-1])
+        linear = torch.arange(beams, device=device, dtype=torch.float32) / beams
+        frac = data.get("beam_time_frac")
+        self.beam_frac = frac.to(device).float() if frac is not None else linear.expand(len(self.runs), beams).clone()  # [runs, beams]
+        # v1 scanners (beam i at i * time_increment) keep the historical batches.
+        self.linear_time = bool(torch.allclose(self.beam_frac, linear.expand_as(self.beam_frac), atol=1e-6))
         self.offset = torch.tensor([r["offset"] for r in self.runs], device=device)
         self.length = torch.tensor([r["n"] for r in self.runs], device=device)
         self.t_ns = data["t_ns"]
@@ -136,19 +189,16 @@ class StreamData:
         """Per-interval output of the classical odometry (``icp_odometry``) as
         an extra input: estimate plus quality indicators (all computed from
         the sensors only, causally)."""
-        pred = torch.nan_to_num(res["pred"].float(), nan=0.0)
-        sig = torch.nan_to_num(res["sigma"].float(), nan=1.0).clamp(1e-5, 1.0)
-        feats = torch.stack((
-            torch.log10(sig[:, 0]) + 2.0, torch.log10(sig[:, 1]) + 2.0, torch.log10(sig[:, 2]) + 3.0,
-            torch.log10(torch.nan_to_num(res["eig_ratio"].float(), nan=1.0).clamp(1e-6, 1.0)) + 1.0,
-            torch.log10(torch.nan_to_num(res["weak_sigma_m"].float(), nan=1.0).clamp(1e-5, 1.0)) + 2.0,
-            torch.log10(torch.nan_to_num(res["icp_yaw_sigma_rad"].float(), nan=1.0).clamp(1e-6, 1.0)) + 3.0,
-            torch.nan_to_num(res["pairs"].float(), nan=0.0) / 360.0,
-            torch.nan_to_num(res["standstill"].float(), nan=0.0),
-            torch.nan_to_num(res["gyro_bias"].float(), nan=0.0) * 20.0,
-        ), dim=1)
+        pred, feats = icp_features(res)
         self.icp_pred = pred.to(self.device)
         self.icp_feat = feats.to(self.device)
+
+    def beam_time(self, runs: Tensor) -> Tensor | None:
+        """Acquisition time [s] of every beam after the stamp, [len(runs), beams]
+        (None when every beam i is fired at i * time_increment)."""
+        if self.linear_time:
+            return None
+        return self.beam_frac[runs] * self.beam_frac.shape[-1] * self.time_increment[runs, None]
 
     @property
     def intervals(self) -> int:
@@ -179,16 +229,12 @@ class StreamData:
         w_prev, w_cur = self.sweep_rate(idx)
         imu = self.imu[idx][..., : self.max_len, :].float()
         lengths = self.imu_len[idx]
-        mask = (torch.arange(imu.shape[-2], device=self.device) < lengths[..., None]).float()
-        count = mask.sum(-1, keepdim=True).clamp_min(1.0)
-        accel = (imu[..., :2] * mask[..., None]).sum(-2) / count * G
-        # Spread of the specific force inside the interval (standstill detector).
-        mean3 = (imu[..., :3] * mask[..., None]).sum(-2) / count
-        accel_std = (((imu[..., :3] - mean3[..., None, :]).square() * mask[..., None]).sum(-2) / count).sqrt().mean(-1) * G
+        accel, accel_std = imu_interval_stats(imu, lengths)
         run = self.run_index[idx]
         return {
             "prev_ranges": prev_r, "prev_valid": prev_v, "cur_ranges": cur_r, "cur_valid": cur_v,
             "w_prev": w_prev, "w_cur": w_cur, "time_increment": self.time_increment[run],
+            **({} if self.linear_time else {"beam_frac": self.beam_frac[run]}),
             "imu": imu, "imu_lengths": lengths, "accel": accel, "accel_std": accel_std,
             "gyro_integral": self.gyro[idx], "dt": self.dt[idx],
             # labels

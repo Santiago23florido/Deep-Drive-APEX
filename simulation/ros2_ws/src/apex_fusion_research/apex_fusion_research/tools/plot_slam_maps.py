@@ -1,4 +1,4 @@
-"""Compare the good- and damaged-sensor SLAM maps against the real track.
+"""Compare the recorded SLAM maps (good / damaged sensors, or the learned odometry of a real2sim run) against the real track.
 
 Usage:
     ros2 run apex_fusion_research plot_slam_maps <run_dir> [--threshold 0.10] [--show]
@@ -35,10 +35,10 @@ import numpy as np
 from ..core.map_metrics import absolute_trajectory_error, icp_2d, map_similarity, observed_subset, se2_apply
 
 COLORS = {"truth": "#222222", "good": "#2a9d55", "noisy": "#e4572e", "good_imu": "#9467bd",
-          "pipeline": "#3a6ea5", "track": "#b8b8b8", "observed": "#6d6d6d"}
+          "pipeline": "#3a6ea5", "learned": "#2a78c8", "track": "#b8b8b8", "observed": "#6d6d6d"}
 LABELS = {"good": "good sensors", "noisy": "damaged sensors", "good_imu": "ideal LiDAR + IMU heading",
-          "pipeline": "APEX pipeline SLAM"}
-SLAM_ORDER = ("good", "noisy", "good_imu", "pipeline")
+          "pipeline": "APEX pipeline SLAM", "learned": "learned LiDAR-inertial odometry"}
+SLAM_ORDER = ("good", "noisy", "good_imu", "pipeline", "learned")
 
 
 def _read_csv(path: Path) -> np.ndarray | None:
@@ -177,8 +177,13 @@ def plot(result: dict, out_base: Path, title: str, show: bool = False) -> None:
             ax.plot(traj["x_world"], traj["y_world"], color=COLORS[name], lw=1.4, label=f"SLAM {LABELS[name]}", zorder=4)
     ax.legend(fontsize=7, loc="upper left")
 
-    # (b), (c) anchored maps
-    for ax, name in zip(axes[1:3], ("good", "noisy")):
+    # (b), (c) anchored maps: the good / damaged pair of the baseline capture,
+    # otherwise the recorded SLAMs (e.g. the learned odometry of a real2sim run)
+    baseline = "good" in slams or "noisy" in slams
+    shown = ("good", "noisy") if baseline else tuple(n for n in SLAM_ORDER if n in slams)[:2]
+    for ax in axes[1 + len(shown) : 3]:
+        ax.axis("off")
+    for ax, name in zip(axes[1:3], shown):
         base(ax, f"SLAM map, {LABELS[name]} (anchored)")
         if name in slams:
             m = slams[name]["_arrays"]["map"]
@@ -226,14 +231,19 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("run_dir", type=Path)
     parser.add_argument("--threshold", type=float, default=0.10, help="match distance for precision/coverage [m]")
-    parser.add_argument("--title", default="slam_toolbox baseline response: good vs damaged sensors")
+    parser.add_argument("--title", default=None, help="figure title (default: from the recorded SLAMs)")
     parser.add_argument("--output", type=Path, default=None, help="figure base path (default <run_dir>/slam_maps)")
     parser.add_argument("--show", action="store_true")
     args = parser.parse_args(argv)
 
     result = evaluate(args.run_dir, args.threshold)
     write_metrics(result, args.run_dir)
-    plot(result, args.output or args.run_dir / "slam_maps", args.title, args.show)
+    title = args.title
+    if title is None:
+        names = [n for n in SLAM_ORDER if n in result["slams"]]
+        title = ("slam_toolbox baseline response: good vs damaged sensors" if {"good", "noisy"} & set(names)
+                 else "slam_toolbox map: " + ", ".join(LABELS[n] for n in names))
+    plot(result, args.output or args.run_dir / "slam_maps", title, args.show)
     print(f"reference: {result['reference']} ({result['n_reference_points']} of {result['n_track_points']} track points)")
     print(f"{'slam':<7} {'comparison':<9} {'precision':>9} {'coverage':>9} {'chamfer[m]':>11} {'ATE rmse[m]':>12}")
     for name, e in _strip(result)["slams"].items():

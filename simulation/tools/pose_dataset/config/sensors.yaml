@@ -45,6 +45,33 @@
 #   extrinsic_error.xyz_std_m, rpy_std_deg  true mount = nominal + error, drawn
 #                                           per run (miscalibration)
 #
+# Gazebo-native profiles (`backend: gazebo_native`, used by dataset v2 and the
+# live Gazebo simulation). The measurement comes from Gazebo's own sensors
+# (gpu_lidar, imu) mounted on the car with suspension; the realism layer
+# (apex_fusion_research core: lidar_rolling, imu_chip) turns it into what the
+# real device outputs. Extra fields:
+#   lidar.sample_rate_hz         device samples per second (A2M8: 2000 in the
+#                                compatible protocol, 8000 in Sensitivity mode)
+#   lidar.scan_direction         cw | ccw (physical rotation seen in base_link)
+#   lidar.scan_start_angle_deg   base_link angle of the first sample of a
+#                                revolution (device 0 deg, sync pulse)
+#   lidar.binning                min_range: 1-degree bins keep the closest
+#                                sample, like the APEX driver
+#   lidar.occluded_sectors_deg   base_link sectors blocked by the car itself
+#   lidar.publish_latency_ms     message available this long after the last
+#                                sample of the revolution
+#   lidar.gazebo                 gpu_lidar capture used as the geometry source
+#   imu.gazebo_noise             noise that Gazebo applies natively on the
+#                                1 kHz IMU (white density per axis, turn-on
+#                                bias, Gauss-Markov bias); the remaining terms
+#                                of `error` (scale, misalignment,
+#                                g-sensitivity, quantization, saturation) and
+#                                the chip low-pass are applied by imu_chip
+#   imu.dlpf                     chip filter (gyro / accel cut-off) before the
+#                                output data rate; rate_hz need not be a whole
+#                                number of physics steps (exact sample times)
+#   imu.publish_latency_ms       message available this long after sampling
+#
 # Profiles with `held_out: true` are zero-shot variants (ZERO_SHOT.md).
 
 profiles:
@@ -192,6 +219,99 @@ profiles:
       extrinsic_error: {xyz_std_m: 0.001, rpy_std_deg: 0.2}
 
   # ------------------------------------------------------------- zero-shot
+
+  # Real APEX hardware at its correct timing (real2sim). Provenance:
+  #   [ds-a2m8]   SLAMTEC RPLIDAR A2M8 datasheet (0.15-12 m, 5-15 Hz, 2000 /
+  #               4000-8000 samples/s, clockwise rotation, <1 % of range)
+  #   [ds-lsm]    ST LSM6DS3 datasheet DocID026899 Rev 10, Table 3 / Table 48
+  #   [code]      real_vehicle: Arduino_LSM6DS3 defaults (104 Hz, +-4 g,
+  #               +-2000 dps), rplidar_publisher_node._build_slam_ranges
+  #               (heading_offset_deg 91, theta = 180 - (a + 91), closest
+  #               sample per 1-degree bin), base_to_laser TF (0.18, 0, 0.12)
+  #   [real-id]   tools/analysis/real_sensor_identification.py on
+  #               real_vehicle/data (22 LiDAR and 2 IMU recordings)
+  #   [assump]    assumption, see README
+  # Timing defects of the current car software (IMU at 55.6 Hz, stamps on
+  # reception, 2 kHz compatible protocol) are NOT modelled; they are listed in
+  # real_vehicle/docs/sensor_timing_requirements.md.
+  APEX_real:
+    backend: gazebo_native
+    hardware: APEX                   # physical sensor set; runs of one trajectory with the same hardware share it
+    description: APEX car hardware - RPLIDAR A2M8 in Sensitivity mode (8 kHz, 13 Hz) and LSM6DS3 at 104 Hz, correct timing.
+    lidar:
+      model: RPLIDAR A2M8
+      rate_hz: 13.03                 # [real-id] dominant revolution period 76.7 ms
+      rate_jitter_rel: 0.01          # [assump] open-loop motor PWM
+      sample_rate_hz: 8000.0         # [ds-a2m8] high-speed protocol (Sensitivity mode, firmware >= 1.24; 4000 with older firmware: check on the car)
+      scan_direction: cw             # [ds-a2m8] + [code]
+      scan_start_angle_deg: 89.0     # [code] device 0 deg -> 180 - (0 + 91)
+      binning: min_range             # [code]
+      occluded_sectors_deg: [[145.0, 205.0]]  # [real-id] no return behind the car in 21/21 recordings
+      beams: 360
+      fov_deg: 360.0
+      angle_min_deg: -180.0
+      range_min_m: 0.15              # [ds-a2m8]
+      range_max_m: 12.0              # [ds-a2m8] + [code]
+      rolling_scan: true
+      timestamp: {offset_ms: 0.0, jitter_std_ms: 0.5}   # stamp = first sample of the revolution
+      publish_latency_ms: 3.0        # [assump] serial transfer of the last packet
+      scan_dropout_prob: 0.0
+      gazebo: {capture_rate_hz: 26.0, capture_samples: 1440, capture_range_min_m: 0.05}
+      noise:
+        # [real-id] static bins, after removing the range spread across each
+        # 1-degree bin (the binning of this model reproduces it): 0.75 mm +
+        # 0.23 % r (median over recordings) to 3.0 mm + 0.35 % r (pooled
+        # bins), median 1.3 mm; rounded up. Datasheet bound: 1 % of range.
+        range_sigma_const_m: 0.001
+        range_sigma_prop: 0.003
+        incidence_sigma_gain: 0.5
+        range_bias_std_m: 0.005
+        range_scale_std: 0.002
+        angle_jitter_std_rad: 0.0035
+        dropout_prob_base: 0.03      # [assump] Sensitivity mode keeps dark surfaces
+        dropout_prob_range_coeff: 0.1
+        grazing_angle_deg: 75.0
+        dropout_prob_grazing: 0.3
+        short_prob: 0.002
+        short_rate_per_m: 1.0
+        random_prob: 0.001
+        range_resolution_m: 0.00025  # [ds-a2m8] quarter-millimetre output unit
+      extrinsic: {xyz: [0.18, 0.0, 0.12], rpy_deg: [0.0, 0.0, 0.0]}   # [code]
+      extrinsic_error: {xyz_std_m: 0.003, rpy_std_deg: 0.7}           # [assump] hand-tuned heading offset
+    imu:
+      model: LSM6DS3 (Arduino Nano 33 IoT)
+      rate_hz: 104.0                 # [ds-lsm] + [code] ODR
+      clock_ppm_std: 5000.0          # [assump] internal oscillator
+      dlpf: {gyro_hz: 33.0, accel_hz: 50.0}   # accel [ds-lsm] Table 48; gyro [assump] LPF1 at 104 Hz
+      timestamp: {offset_ms: 0.0, jitter_std_ms: 0.05}   # stamp = sampling instant (data-ready)
+      publish_latency_ms: 2.0        # [assump] USB CDC line
+      dropout_prob: 0.0
+      dropout_burst_prob: 0.0
+      dropout_burst_len: [2, 2]
+      vibration_gain: 1.0
+      gazebo_noise:
+        # Installed noise [real-id] (rest std at the output) converted to a
+        # white density through the chip filter bandwidth; above the datasheet
+        # floor (7 mdps/rtHz, 90 ug/rtHz) because the car adds electrical and
+        # servo noise.
+        gyro: {noise_density: [3.1e-4, 6.4e-4, 2.8e-4], turn_on_bias_std: [0.06, 0.08, 0.05], bias_instability_std: 5.0e-4, bias_correlation_time_s: 200.0}
+        accel: {noise_density: [1.0e-2, 1.4e-2, 1.3e-2], turn_on_bias_std: [0.3, 0.3, 0.3], bias_instability_std: 5.0e-3, bias_correlation_time_s: 200.0}
+      error:
+        # Terms applied by imu_chip (Gazebo has no equivalent).
+        gyro: {scale_factor_std: 0.01, misalignment_std_rad: 0.01, g_sensitivity_std: 1.0e-4, full_scale: 34.907, adc_bits: 16}
+        accel: {scale_factor_std: 0.01, misalignment_std_rad: 0.01, full_scale: 39.227, adc_bits: 16}
+      extrinsic: {xyz: [0.02, 0.0, 0.08], rpy_deg: [0.0, 0.0, 0.0]}   # URDF mount of the real car
+      extrinsic_error: {xyz_std_m: 0.003, rpy_std_deg: 1.5}           # [real-id] ~2 deg accel offset at rest
+
+  APEX_real_compat:
+    backend: gazebo_native
+    description: Same hardware with the A2M8 in the 2 kHz compatible protocol (sparse 1-degree bins), as the python rplidar driver runs it today.
+    inherit: APEX_real
+    lidar:
+      sample_rate_hz: 2000.0         # [ds-a2m8] compatible protocol
+      noise:
+        dropout_prob_base: 0.12      # [real-id] 0.37 hit fraction per bin vs 0.43 geometric maximum
+
   ZS_D_dense_270:
     held_out: true
     description: >-
