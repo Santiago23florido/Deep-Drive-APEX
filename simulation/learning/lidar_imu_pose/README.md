@@ -9,9 +9,10 @@ IMU. This folder contains, in chronological order:
 3. v2: rate-independent odometry metrics, a strong classical LiDAR-inertial
    odometry and streaming / hybrid networks (`train_streaming.py`).
 
-The [references](#references) at the end cover the methods each model builds
-on. Checkpoints, caches, CSV files and figures are written to
-`learning/outputs/`, which is ignored by Git.
+The [model catalogue](#model-catalogue) at the end lists every model, where
+its checkpoint lives and how it scores; the [references](#references) cover
+the methods each one builds on. Checkpoints, caches, CSV files and figures are
+written to `learning/outputs/`, which is ignored by Git.
 
 ## 1. Original single-track pipeline (`train_pose_fusion.py`)
 
@@ -333,6 +334,45 @@ Figures: `comparison_headline.png`, `overfitting_gap.png`,
 - **Test was seen once early.** The report ran once as a dry run with
   intermediate checkpoints before the final one. No decision used the test
   split: the selection is automatic, by validation drift.
+
+## Model catalogue
+
+All models are implemented in PyTorch [21]. Checkpoints and cached estimates
+live under `learning/outputs/`, which is **not** in Git (the outputs are
+reproducible with the commands above). Test figures refer to the
+section 4 protocol (same intervals for every model); the historical models
+were trained on a different, single-track recording and are not comparable.
+
+| Model | Code | Checkpoint / estimates (`learning/outputs/…`) | Parameters | Training and selection | Test: speed error / segment drift | Builds on |
+| --- | --- | --- | --- | --- | --- | --- |
+| `LidarImuPoseNet` (historical, single track) | `train_pose_fusion.py` | `lidar_imu_pose/best_model.pt`, `best_model_before_velocity.pt`, `best_model_before_dual_scan.pt` | – | self-supervised on ICP targets (or `--supervised-ground-truth`), chronological 70/15/15 split of one track | – | [1], [12], [13], [20] |
+| `single_context_direct` | `architectures.py` | `gridsearch_sqlite/configs/single_context_direct__h*__lr*/best_model.pt` | – | grid, 10 epochs, validation RPE (best: h128, 25.3 cm) | – | [12], [13] |
+| `single_context_velocity` | `architectures.py` | `gridsearch_sqlite/configs/single_context_velocity__h*__lr*/best_model.pt` | – | grid, 10 epochs (best: h128, 25.6 cm) | – | [9], [12], [13] |
+| `dual_pair_context_velocity`, grid best (h128, lr 1e-3) | `architectures.py`, `gridsearch_sqlite.py` | `gridsearch_sqlite/best_final/best_model.pt` | 736 102 | retrained 24 epochs, validation RPE | 29.09 cm/s / 7.90 % | [9], [12], [13] |
+| Classical odometry, scan-to-scan | `icp_odometry.py` (`IcpConfig()`) | `streaming_v2/icp_{train,validation,test}.pt` | 0 | parameters tuned on validation | 10.83 cm/s / 2.18 % | [2]–[7], [9], [10] |
+| Classical odometry, scan-to-submap | `icp_odometry.py` (`submap_keyframes=5`) | `streaming_v2/icp_submap_{train,validation,test}.pt` | 0 | as above | 8.00 cm/s / 1.21 % | [2]–[10] |
+| Pure network v2, no regularisation | `streaming_model.py` (`regularize=False`) | `streaming_v2/attempt2_no_regularization/best_model.pt` | 592 145 | stopped at epoch 12 to add regularisation; validation segment drift | 25.34 cm/s / 8.47 % | [4], [9], [11]–[14], [16], [17] |
+| Pure network v2, regularised | `streaming_model.py` | `streaming_v2/best_model.pt` | 485 681 | 40 epochs, best 34 | 14.32 cm/s / 5.12 % | as above + [15] |
+| Hybrid on scan-to-scan ICP | `streaming_model.py` (`hybrid=True`) | `streaming_v2/hybrid/best_model.pt` | 488 753 | 40 epochs, best 40 | 4.41 cm/s / 1.24 % | classical + network |
+| **Hybrid on scan-to-submap ICP (best)** | `streaming_model.py` (`hybrid=True`) | `streaming_v2/hybrid_submap/best_model.pt` | 488 753 | 40 epochs, best 34 | **4.26 cm/s / 0.95 %** | classical + network |
+
+Discarded runs kept for traceability:
+- `streaming_v2/attempt1_free_bias/`: the gyro bias was a free integrator
+  and drifted.
+- `streaming_v2/hybrid_archive_tf32_icp_inputs/`: a hybrid trained on the
+  TF32-degraded ICP, with 1.82 % validation drift.
+
+Loading a v2 checkpoint:
+
+```python
+from streaming_model import StreamingPoseNet
+ck = torch.load(path, map_location=device, weights_only=False)
+net = StreamingPoseNet(ck["config"]["hidden"], hybrid=ck["config"].get("hybrid", False))
+net.load_state_dict(ck["model"])  # regularize=False for attempt2_no_regularization
+```
+
+`train_streaming.stream_predict` runs a network causally over whole runs. A
+hybrid needs `StreamData.attach_icp` with the matching classical estimates.
 
 ## References
 
