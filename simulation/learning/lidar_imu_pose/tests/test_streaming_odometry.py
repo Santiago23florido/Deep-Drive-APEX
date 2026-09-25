@@ -209,3 +209,48 @@ def test_submap_reference_reduces_drift_on_noisy_scans():
             est = om.compose(run_icp(sd, cfg, log=lambda m: None)["pred"].numpy()[1:].astype(np.float64))
             errors[name].append(np.linalg.norm(est[-1, :2] - gt[-1, :2]))
     assert np.mean(errors["submap"]) < 0.5 * np.mean(errors["scan"])
+
+
+def test_rotate_scan_clockwise_sweep_from_sync_angle():
+    """A2M8-like scanner: clockwise sweep starting at +89 deg (per-beam time
+    from the calibration, not i * dt)."""
+    from sqlite_streams import bin_time_fraction
+
+    pose = np.array([0.4, 0.3, 0.0])
+    ref = scan(ROOM, pose, 12.0)
+    yaw, rate, period = math.radians(-5.0), 1.5, 1.0 / 13.0
+    theta = -math.pi + 2 * math.pi / BEAMS * np.arange(BEAMS)
+    frac = bin_time_fraction(BEAMS, -math.pi, 2 * math.pi / BEAMS, "cw", math.radians(89.0))
+    rotated = cast(ROOM, pose[:2], pose[2] + yaw + rate * frac * period + theta, 12.0)
+    r = torch.tensor(np.where(np.isfinite(rotated), rotated, 0.0))
+    valid = torch.isfinite(torch.tensor(rotated))
+    sweep_rate = torch.tensor(rate * period / BEAMS, dtype=r.dtype)
+    out, ok_t, tau = rotate_scan(r, valid, torch.tensor(yaw, dtype=r.dtype), sweep_rate, torch.tensor(frac, dtype=r.dtype))
+    ok = ok_t.numpy() & np.isfinite(ref)
+    err = np.abs(out.numpy()[ok] - ref[ok])
+    assert ok.mean() > 0.95
+    assert np.percentile(err, 90) < 0.01
+    # Ignoring the real firing order (i * dt, counter-clockwise from -pi) is visibly worse.
+    naive, ok_n, _ = rotate_scan(r, valid, torch.tensor(yaw, dtype=r.dtype), sweep_rate)
+    both = ok_n.numpy() & np.isfinite(ref)
+    assert np.percentile(np.abs(naive.numpy()[both] - ref[both]), 90) > 2 * np.percentile(err, 90)
+    assert 0.0 <= float(tau.min()) and float(tau.max()) < 1.0
+
+
+def test_deskew_uses_per_beam_time():
+    from icp_odometry import deskew
+    from sqlite_streams import bin_time_fraction
+
+    n = BEAMS
+    frac = torch.tensor(bin_time_fraction(n, -math.pi, 2 * math.pi / n, "cw", math.radians(89.0)), dtype=torch.float32)[None]
+    ranges = torch.full((1, n), 2.0)
+    valid = torch.ones(1, n, dtype=torch.bool)
+    t_inc = torch.tensor([1.0 / 13.0 / n])
+    args = (ranges, valid, torch.tensor([0.0]), torch.tensor([[1.3, 0.0]]), t_inc, torch.zeros(1, 2), torch.tensor([-math.pi]), torch.tensor([2 * math.pi / n]))
+    pts = deskew(*args, beam_time=frac * n * t_inc[:, None])[0]
+    # Pure translation at 1.3 m/s: beam i moved by v * t_i along x.
+    theta = -math.pi + 2 * math.pi / n * torch.arange(n)
+    expect_x = 2.0 * torch.cos(theta) + 1.3 * frac[0] / 13.0
+    assert torch.allclose(pts[:, 0], expect_x, atol=1e-5)
+    linear = deskew(*args)[0]
+    assert not torch.allclose(linear[:, 0], expect_x, atol=1e-3)

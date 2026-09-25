@@ -55,7 +55,7 @@ from torch import Tensor, nn
 import odometry_metrics as om
 from architectures import PoseNet
 from gridsearch_sqlite import DEFAULT_DB, INK, INK_2, LOSS_SCALE, ROOT, SERIES, SURFACE, _style
-from icp_odometry import IcpConfig, run_icp
+from icp_odometry import ICP_VARIANTS, IcpConfig, run_icp
 from sqlite_streams import StreamData, load_split
 from sqlite_windows import WindowSampler
 from streaming_model import StreamingPoseNet
@@ -89,14 +89,14 @@ def _bar(ax, x, h, width, method, **kw):
     return ax.bar(x, h, width=width, color=COLOR[method], label=LABEL[method], **kw)
 
 
-def subset_runs(data: dict[str, Any], step: int) -> tuple[dict[str, Any], np.ndarray]:
-    """Every ``step``-th run of a split, re-indexed (same composition), and
-    the selected global indices."""
-    keep = list(range(0, len(data["runs"]), step))
+def subset_runs(data: dict[str, Any], step: int = 1, sensors: tuple[str, ...] = ()) -> tuple[dict[str, Any], np.ndarray]:
+    """Every ``step``-th run of a split (of the ``sensors`` profiles, all when
+    empty), re-indexed, and the selected global indices."""
+    keep = [i for i, r in enumerate(data["runs"]) if not sensors or r["sensor"] in sensors][::step]
     n_total = data["target"].shape[0]
     sel = np.concatenate([np.arange(data["runs"][i]["offset"], data["runs"][i]["offset"] + data["runs"][i]["n"]) for i in keep])
     out = {k: (v[sel] if torch.is_tensor(v) and v.shape[:1] == (n_total,) else v) for k, v in data.items()}
-    for k in ("range_max", "angle_min", "angle_increment", "time_increment_s", "lidar_xy", "lidar_sigma"):
+    for k in ("range_max", "angle_min", "angle_increment", "time_increment_s", "lidar_xy", "lidar_sigma", "beam_time_frac"):
         out[k] = data[k][keep]
     runs, off = [], 0
     for i in keep:
@@ -122,6 +122,7 @@ class TrainConfig:
     seed: int = 23
     hybrid: bool = False  # classical odometry as input
     icp_variant: str = "scan"  # which classical odometry: "scan" (scan-to-scan) or "submap"
+    sensors: tuple[str, ...] = ()  # sensor profiles to train and select on (empty: every profile of the database)
 
 
 # ---------------------------------------------------------------- training
@@ -228,14 +229,23 @@ def stream_predict(model: StreamingPoseNet, sd: StreamData, chunk: int = 64) -> 
     return {"pred": pred.cpu(), "sigma": sigma.cpu(), "bias": bias.cpu(), "gain": gain.cpu()}
 
 
-def train(cfg: TrainConfig, db: Path, out: Path, log) -> None:
+def train(cfg: TrainConfig, db: Path, out: Path, log, icp_dir: Path = OUT) -> None:
     torch.manual_seed(cfg.seed)
     dev = torch.device("cuda")
-    data = {s: load_split(db, CACHE, s) for s in ("train", "validation")}
+    data, sel = {}, {}
+    for s in ("train", "validation"):
+        full = load_split(db, CACHE, s)
+        data[s], sel[s] = subset_runs(full, 1, cfg.sensors) if cfg.sensors else (full, None)
+        if cfg.hybrid and sel[s] is not None:
+            load_or_run_icp(s, StreamData(full, dev), icp_dir, log, cfg.icp_variant, db)  # cached on the whole split
+        del full
     sds = {s: StreamData(d, dev) for s, d in data.items()}
     if cfg.hybrid:
         for s, sd in sds.items():
-            sd.attach_icp(load_or_run_icp(s, sd, OUT, log, cfg.icp_variant))
+            res = load_or_run_icp(s, sd if sel[s] is None else None, icp_dir, log, cfg.icp_variant, db)
+            sd.attach_icp(res if sel[s] is None else {k: (v[sel[s]] if torch.is_tensor(v) else v) for k, v in res.items()})
+    if cfg.sensors:
+        log(f"[train] sensor profiles {list(cfg.sensors)}: {len(data['train']['runs'])} train / {len(data['validation']['runs'])} validation runs")
     truth_val = om.split_truth(data["validation"])
     model = StreamingPoseNet(cfg.hidden, hybrid=cfg.hybrid).to(dev)
     params = sum(p.numel() for p in model.parameters())
@@ -271,7 +281,7 @@ def train(cfg: TrainConfig, db: Path, out: Path, log) -> None:
             rec.update({f"val_{k}": v for k, v in m.items()})
             if m["t_rel_pct"] < best[0]:
                 best = (m["t_rel_pct"], epoch)
-                torch.save({"model": model.state_dict(), "config": asdict(cfg), "epoch": epoch, "val": m}, out / "best_model.pt")
+                torch.save({"model": model.state_dict(), "config": asdict(cfg), "epoch": epoch, "val": m, "db": _db_tag(db)}, out / "best_model.pt")
             log(f"[train] epoch {epoch}/{cfg.epochs} {rec['seconds']:.0f}s loss {sums['loss']:.3f} (nll {sums['nll']:.2f} comp {sums['comp']:.2f} vel {sums['vel']:.2f} bias {sums['bias']:.2f}) trans {sums['trans_mae_cm']:.2f} cm | val speed {m['speed_err_cmps']:.2f} cm/s "
                 f"rel {m['rel_err_pct']:.2f} % yawrate {m['yawrate_err_dps']:.3f} deg/s rpe1s {m['rpe_1s_cm']:.2f} cm t_rel {m['t_rel_pct']:.2f} % r_rel {m['r_rel_degpm']:.3f} deg/m")
         else:
@@ -306,7 +316,6 @@ def grid_best_predict(data: dict[str, Any], dev: torch.device) -> dict[str, Tens
     return {"pred": pred, "sigma": sigma}
 
 
-ICP_VARIANTS = {"scan": IcpConfig(), "submap": IcpConfig(submap_keyframes=5)}
 
 
 def _same_icp(cached: dict[str, Any], cfg: IcpConfig) -> bool:
@@ -315,17 +324,28 @@ def _same_icp(cached: dict[str, Any], cfg: IcpConfig) -> bool:
     return all(cached.get(k, default[k]) == v for k, v in asdict(cfg).items() if k != "max_lanes")
 
 
-def load_or_run_icp(split: str, sd: StreamData | None, out: Path, log, variant: str = "scan") -> dict[str, Any]:
+def _db_tag(db: Path) -> dict[str, Any]:
+    return {"name": db.name, "bytes": db.stat().st_size}
+
+
+def load_or_run_icp(split: str, sd: StreamData | None, out: Path, log, variant: str = "scan", db: Path = DEFAULT_DB) -> dict[str, Any]:
+    """Cached classical odometry of a split; a cache is reused only for the
+    same ICP configuration and the same database (caches written before the
+    database tag belong to the default, v1 database)."""
     cfg = ICP_VARIANTS[variant]
     path = out / (f"icp_{split}.pt" if variant == "scan" else f"icp_{variant}_{split}.pt")
     if path.exists():
         cached = torch.load(path, weights_only=False)
-        if _same_icp(cached["config"], cfg):
+        same_db = cached.get("db", _db_tag(DEFAULT_DB) if DEFAULT_DB.exists() else None) == _db_tag(db)
+        if _same_icp(cached["config"], cfg) and same_db:
             return cached
+        if not same_db:
+            log(f"[icp] {path.name} was computed on another database: recomputing")
     if sd is None:
         raise FileNotFoundError(f"{path}: run the icp stage first")
     t0 = time.time()
     res = run_icp(sd, cfg, log=log)
+    res["db"] = _db_tag(db)
     log(f"[icp] {split}: {time.time() - t0:.0f} s")
     torch.save(res, path)
     return res
@@ -339,47 +359,55 @@ def _load_net(path: Path, dev: torch.device, regularize: bool) -> tuple[Streamin
     return model, ck
 
 
-def report(db: Path, out: Path, log) -> None:
+def report(db: Path, out: Path, log, sensors: tuple[str, ...] = ()) -> None:
     dev = torch.device("cuda")
     nets, summary = {}, {"icp_configs": {k: asdict(v) for k, v in ICP_VARIANTS.items()},
                          "selection_metric": "validation t_rel_pct (segment drift, mean over 2-40 m)", "networks": {}, "splits": {}}
     variant_of = {"hybrid": "scan", "hybrid_submap": "submap"}
-    for name, path, regularize in (("hybrid_submap", NET_DIRS["hybrid_submap"] / "best_model.pt", True), ("hybrid", NET_DIRS["hybrid"] / "best_model.pt", True),
-                                   ("streaming_v2", NET_DIRS["streaming_v2"] / "best_model.pt", True), ("streaming_v2_noreg", NOREG_MODEL, False)):
+    net_dirs = {"hybrid_submap": out / "hybrid_submap", "hybrid": out / "hybrid", "streaming_v2": out}
+    v1_study = out.resolve() == OUT.resolve()
+    for name, path, regularize in (("hybrid_submap", net_dirs["hybrid_submap"] / "best_model.pt", True), ("hybrid", net_dirs["hybrid"] / "best_model.pt", True),
+                                   ("streaming_v2", net_dirs["streaming_v2"] / "best_model.pt", True),
+                                   ("streaming_v2_noreg", NOREG_MODEL if v1_study else out / "none", False)):
         if path.exists():
             nets[name], ck = _load_net(path, dev, regularize)
             summary["networks"][name] = {"checkpoint": str(path.relative_to(ROOT)), "selected_epoch": ck["epoch"], "config": ck["config"],
                                          "parameters": sum(p.numel() for p in nets[name].parameters())}
-    icp_variants = ["scan"] + (["submap"] if (OUT / "icp_submap_test.pt").exists() else [])
-    methods = [m for m in METHODS if m in nets or m == "grid_best" or m == "icp" or (m == "icp_submap" and "submap" in icp_variants)]
+    icp_variants = [v for v in ("scan", "submap") if (out / (f"icp_test.pt" if v == "scan" else f"icp_{v}_test.pt")).exists()]
+    # The grid-search model belongs to the v1 study (its own sensors); a
+    # report on another database compares the networks and the classical odometry.
+    methods = [m for m in METHODS if m in nets or (m == "grid_best" and v1_study) or (m == "icp" and "scan" in icp_variants)
+               or (m == "icp_submap" and "submap" in icp_variants)]
     # Overfitting: the same networks on a quarter of the training runs.
-    train_sub, sel = subset_runs(load_split(db, CACHE, "train"), 4)
+    train_sub, sel = subset_runs(load_split(db, CACHE, "train"), 4, sensors)
     sd_train = StreamData(train_sub, dev)
     summary["train_subset"] = {}
     for m, net in nets.items():
         if m in variant_of:
-            icp_train = load_or_run_icp("train", None, OUT, log, variant_of[m])
+            icp_train = load_or_run_icp("train", None, out, log, variant_of[m], db)
             sd_train.attach_icp({k: (v[sel] if torch.is_tensor(v) else v) for k, v in icp_train.items()})
         summary["train_subset"][m] = om.evaluate(stream_predict(net, sd_train, chunk=16)["pred"].numpy(), om.split_truth(train_sub), groups=())["all"]
     del sd_train
     runs_for_plot = {}
     for split in ("validation", "test"):
-        data = load_split(db, CACHE, split)
+        data, sel_s = subset_runs(load_split(db, CACHE, split), 1, sensors)
         sd = StreamData(data, dev)
         truth = om.split_truth(data)
-        icps = {v: load_or_run_icp(split, sd, OUT, log, v) for v in icp_variants}
+        icps = {v: {k: (x[sel_s] if torch.is_tensor(x) else x) for k, x in load_or_run_icp(split, None, out, log, v, db).items()} for v in icp_variants}
         est = {}
         for m, net in nets.items():
             if m in variant_of:
                 sd.attach_icp(icps[variant_of[m]])
             est[m] = stream_predict(net, sd)
-        est["grid_best"] = grid_best_predict(data, dev)
-        est["icp"] = icps["scan"]
+        if "grid_best" in methods:
+            est["grid_best"] = grid_best_predict(data, dev)
+        if "scan" in icps:
+            est["icp"] = icps["scan"]
         if "submap" in icps:
             est["icp_submap"] = icps["submap"]
         preds = {m: est[m]["pred"].numpy().astype(np.float64) for m in methods}
         common = np.logical_and.reduce([np.isfinite(p).all(axis=1) for p in preds.values()])
-        degenerate = est["icp"]["eig_ratio"].numpy() < IcpConfig().degenerate_ratio
+        degenerate = next(iter(icps.values()))["eig_ratio"].numpy() < IcpConfig().degenerate_ratio
         res = {m: om.evaluate(preds[m], truth, mask=common, sigma=est[m]["sigma"].numpy(), flags={"corridor": degenerate}) for m in methods}
         gyro = np.column_stack((truth.target[:, :2], data["gyro_integral"].numpy()))  # heading-only reference (exact translation)
         res["raw_gyro_heading"] = {"all": {k: v for k, v in om.evaluate(gyro, truth, mask=common, groups=())["all"].items() if "yaw" in k or k.startswith("r_rel")}}
@@ -497,7 +525,7 @@ def plot_report(summary: dict[str, Any], runs: dict[str, Any], methods: list[str
     # 4. Breakdowns (test): sensor profile, motion profile, corridor geometry.
     fig, axes = plt.subplots(2, 3, figsize=(20, 8.5), facecolor=SURFACE)
     for col, key in enumerate(("sensor", "motion", "flag_corridor")):
-        groups = list(test["icp"][key].keys())
+        groups = list(test[methods[0]][key].keys())
         for row, (metric, unit, title) in enumerate((("speed_err_cmps", "cm/s", "speed error"), ("yawrate_err_dps", "deg/s", "heading-rate error"))):
             ax = axes[row, col]
             for i, m in enumerate(methods):
@@ -550,6 +578,7 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--hybrid", action="store_true", help="train the variant with the classical odometry as input (output in hybrid/)")
     ap.add_argument("--icp", choices=tuple(ICP_VARIANTS), default="scan", help="classical odometry variant (icp stage and --hybrid)")
+    ap.add_argument("--sensors", nargs="*", default=[], help="train / report on these sensor profiles only (e.g. APEX_real)")
     args = ap.parse_args()
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -567,11 +596,11 @@ def main() -> None:
 
     if args.stage == "icp":
         for split in ("validation", "test", "train"):  # train: input of the hybrid network
-            load_or_run_icp(split, StreamData(load_split(args.db, CACHE, split), torch.device("cuda")), args.out, log, args.icp)
+            load_or_run_icp(split, StreamData(load_split(args.db, CACHE, split), torch.device("cuda")), args.out, log, args.icp, args.db)
     elif args.stage == "train":
-        train(TrainConfig(epochs=args.epochs, hybrid=args.hybrid, icp_variant=args.icp), args.db, stage_out, log)
+        train(TrainConfig(epochs=args.epochs, hybrid=args.hybrid, icp_variant=args.icp, sensors=tuple(args.sensors)), args.db, stage_out, log, icp_dir=args.out)
     else:
-        report(args.db, args.out, log)
+        report(args.db, args.out, log, tuple(args.sensors))
 
 
 if __name__ == "__main__":

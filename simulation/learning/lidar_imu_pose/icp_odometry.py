@@ -75,6 +75,7 @@ PLICP or KISS-ICP) on the same data.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 import math
 import time
@@ -123,18 +124,36 @@ class IcpConfig:
     max_lanes: int = 128  # runs processed together on the GPU (memory)
 
 
+ICP_VARIANTS = {"scan": IcpConfig(), "submap": IcpConfig(submap_keyframes=5)}
+
+
+@contextmanager
+def fp32_matmul():
+    """Full FP32 for the ICP: TF32 matmuls (enabled for training elsewhere)
+    make cdist and the normal equations lose ~3 decimal digits."""
+    tf32 = torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = False
+    try:
+        yield
+    finally:
+        torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32 = tf32
+
+
 def rot(a: Tensor) -> tuple[Tensor, Tensor]:
     return torch.cos(a), torch.sin(a)
 
 
 def deskew(ranges: Tensor, valid: Tensor, rate: Tensor, vel: Tensor, time_inc: Tensor, lidar_xy: Tensor,
-           angle_min: Tensor, angle_inc: Tensor) -> Tensor:
+           angle_min: Tensor, angle_inc: Tensor, beam_time: Tensor | None = None) -> Tensor:
     """Beam endpoints in base_link at the start of the sweep.
 
     ranges/valid: [R, N]; rate: [R] yaw rate during the sweep; vel: [R, 2]
-    velocity during the sweep in the sweep-start frame (constant twist)."""
+    velocity during the sweep in the sweep-start frame (constant twist).
+    ``beam_time`` [R, N]: acquisition time of every beam after the stamp
+    (clockwise scanners, sweeps that start at another angle); by default
+    beam i is fired at ``i * time_inc``."""
     i = torch.arange(ranges.shape[-1], device=ranges.device, dtype=ranges.dtype)
-    tau = i[None] * time_inc[:, None]
+    tau = i[None] * time_inc[:, None] if beam_time is None else beam_time
     theta = angle_min[:, None] + i[None] * angle_inc[:, None]
     qx = lidar_xy[:, :1] + ranges * torch.cos(theta)
     qy = lidar_xy[:, 1:] + ranges * torch.sin(theta)
@@ -187,16 +206,10 @@ def run_icp(sd: StreamData, cfg: IcpConfig = IcpConfig(), log=print) -> dict[str
         ("gyro_bias", ()), ("pairs", ()), ("standstill", ()), ("map_used", ()))}
     order = torch.argsort(sd.length, descending=True)
     t0 = time.time()
-    # Full FP32: TF32 matmuls (enabled for training elsewhere) make cdist and
-    # the normal equations lose ~3 decimal digits and degrade the estimates.
-    tf32 = torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32
-    torch.backends.cuda.matmul.allow_tf32 = torch.backends.cudnn.allow_tf32 = False
-    try:
+    with fp32_matmul():
         for g, lo in enumerate(range(0, len(order), cfg.max_lanes)):
             _run_group(sd, cfg, order[lo : lo + cfg.max_lanes], logs)
             log(f"[icp {sd.split}] group {g + 1}/{math.ceil(len(order) / cfg.max_lanes)} done ({time.time() - t0:.0f} s)")
-    finally:
-        torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32 = tf32
     return {**{name: val.cpu() for name, val in logs.items()}, "config": asdict(cfg)}
 
 
@@ -238,29 +251,39 @@ def _register(cfg: IcpConfig, b: dict[str, Tensor], x_prior: Tensor, x0: Tensor,
     return {"x": x, "h": h, "h_icp": h_icp, "w": w, "e": e, "use": use, "enough": enough, "tgt_scan": (tgt, normal, nvalid)}
 
 
-def _run_group(sd: StreamData, cfg: IcpConfig, group: Tensor, logs: dict[str, Tensor]) -> None:
-    dev = sd.device
-    runs = len(group)
-    offset, length = sd.offset[group], sd.length[group]
-    geo = (sd.time_increment[group], sd.lidar_xy[group], sd.angle_min[group], sd.angle_increment[group])
-    lidar_sigma = sd.lidar_sigma[group]
-    v = torch.zeros(runs, 2, device=dev)
-    bg = torch.zeros(runs, device=dev)  # gyro-bias estimate (scalar Kalman filter per run)
-    p_bg = torch.full((runs,), cfg.bias_sigma0_rps**2, device=dev)
-    ridx = torch.arange(runs, device=dev)
-    beams = sd.lidar.shape[-1]
-    kf = cfg.submap_keyframes
-    pose = torch.zeros(runs, 3, device=dev)  # scan k-1 in the odometry frame
-    if kf:
-        kf_pts = torch.full((runs, kf, beams, 2), 1.0e4, device=dev)
-        kf_nrm = torch.zeros(runs, kf, beams, 2, device=dev)
-        kf_ok = torch.zeros(runs, kf, beams, dtype=torch.bool, device=dev)
-        kf_count = torch.zeros(runs, dtype=torch.long, device=dev)
-        kf_last = torch.zeros(runs, 3, device=dev)
-    for k in range(1, int(length.max())):
-        act = k < length
-        ids = offset + torch.minimum(torch.full_like(length, k), length - 1)
-        b = {key: val[:, 0] for key, val in sd.gather(ids[:, None]).items()}
+class IcpStream:
+    """Causal state of the classical odometry for ``R`` lanes (runs).
+
+    ``step(b, act)`` processes one scan interval of every lane (``b``: the
+    fields of ``StreamData.gather`` for that interval, ``act``: lanes that
+    have one) and returns the per-lane estimates. The batch evaluation
+    (``run_icp``) and the live node use this same code."""
+
+    def __init__(self, cfg: IcpConfig, geo: tuple, lidar_sigma: Tensor, beams: int, device: torch.device) -> None:
+        self.cfg = cfg
+        self.geo = geo  # (time_increment [R], lidar_xy [R, 2], angle_min [R], angle_increment [R], beam_time [R, N] | None)
+        self.lidar_sigma = lidar_sigma
+        runs = lidar_sigma.shape[0]
+        dev = device
+        self.v = torch.zeros(runs, 2, device=dev)
+        self.bg = torch.zeros(runs, device=dev)  # gyro-bias estimate (scalar Kalman filter per run)
+        self.p_bg = torch.full((runs,), cfg.bias_sigma0_rps**2, device=dev)
+        self.ridx = torch.arange(runs, device=dev)
+        self.pose = torch.zeros(runs, 3, device=dev)  # scan k-1 in the odometry frame
+        kf = cfg.submap_keyframes
+        if kf:
+            self.kf_pts = torch.full((runs, kf, beams, 2), 1.0e4, device=dev)
+            self.kf_nrm = torch.zeros(runs, kf, beams, 2, device=dev)
+            self.kf_ok = torch.zeros(runs, kf, beams, dtype=torch.bool, device=dev)
+            self.kf_count = torch.zeros(runs, dtype=torch.long, device=dev)
+            self.kf_last = torch.zeros(runs, 3, device=dev)
+
+    @torch.no_grad()
+    def step(self, b: dict[str, Tensor], act: Tensor) -> dict[str, Tensor]:
+        cfg, geo, ridx = self.cfg, self.geo, self.ridx
+        runs = act.shape[0]
+        kf = cfg.submap_keyframes
+        v, bg, p_bg, pose = self.v, self.bg, self.p_bg, self.pose
         dt = b["dt"]
         p_bg = p_bg + cfg.bias_walk_rps**2
         # Prediction: constant velocity + IMU specific force, gyro minus bias.
@@ -276,30 +299,31 @@ def _run_group(sd: StreamData, cfg: IcpConfig, group: Tensor, logs: dict[str, Te
             sig_t = torch.where(still, torch.full_like(sig_t, cfg.standstill_sigma_m), sig_t)
             sig_y = torch.where(still, torch.full_like(sig_y, cfg.gyro_noise_rad * 0.2), sig_y)
         lam = torch.stack((sig_t.pow(-2), sig_t.pow(-2), sig_y.pow(-2)), dim=1)
-        x = x_prior.clone()
         rate_prev, rate_cur = b["w_prev"] - bg, b["w_cur"] - bg
         if not cfg.deskew:
             rate_prev, rate_cur = torch.zeros_like(rate_prev), torch.zeros_like(rate_cur)
-        sig_pt = cfg.model_sigma_m + lidar_sigma[:, :1] + lidar_sigma[:, 1:] * b["cur_ranges"]
+        sig_pt = cfg.model_sigma_m + self.lidar_sigma[:, :1] + self.lidar_sigma[:, 1:] * b["cur_ranges"]
         # 1) scan-to-scan registration (robust); 2) in submap mode, refined
         # against the local map from that solution, kept only if both agree.
         reg = _register(cfg, b, x_prior, x_prior, lam, rate_prev, rate_cur, sig_pt, geo, dt, ridx, None)
+        map_used = torch.zeros(runs, device=dt.device)
         if kf:
+            kf_pts, kf_nrm, kf_ok, kf_count = self.kf_pts, self.kf_nrm, self.kf_ok, self.kf_count
             c, s = rot(-pose[:, 2])
             d = kf_pts - pose[:, None, None, :2]
             map_pts = torch.stack((c[:, None, None] * d[..., 0] - s[:, None, None] * d[..., 1], s[:, None, None] * d[..., 0] + c[:, None, None] * d[..., 1]), dim=-1)
             map_nrm = torch.stack((c[:, None, None] * kf_nrm[..., 0] - s[:, None, None] * kf_nrm[..., 1], s[:, None, None] * kf_nrm[..., 0] + c[:, None, None] * kf_nrm[..., 1]), dim=-1)
-            map_pts = torch.where(kf_ok[..., None], map_pts, torch.full_like(map_pts, 1.0e4)).reshape(runs, kf * beams, 2)
-            local_map = (map_pts, map_nrm.reshape(runs, kf * beams, 2), kf_ok.reshape(runs, kf * beams))
+            map_pts = torch.where(kf_ok[..., None], map_pts, torch.full_like(map_pts, 1.0e4)).reshape(runs, kf * map_pts.shape[2], 2)
+            local_map = (map_pts, map_nrm.reshape(runs, -1, 2), kf_ok.reshape(runs, -1))
             reg_map = _register(cfg, b, x_prior, reg["x"], lam, rate_prev, rate_cur, sig_pt, geo, dt, ridx, local_map)
             diff = reg_map["x"] - reg["x"]
             agree = (kf_count > 0) & reg_map["enough"] & (torch.linalg.vector_norm(diff[:, :2], dim=1) < cfg.submap_agree_m) & (diff[:, 2].abs() < cfg.submap_agree_rad)
             # Disagreement: keep the scan-to-scan estimate and restart the local map.
             reset = act & (kf_count > 0) & ~agree
-            kf_ok = torch.where(reset[:, None, None], torch.zeros_like(kf_ok), kf_ok)
-            kf_count = torch.where(reset, torch.zeros_like(kf_count), kf_count)
+            self.kf_ok = torch.where(reset[:, None, None], torch.zeros_like(kf_ok), kf_ok)
+            self.kf_count = torch.where(reset, torch.zeros_like(kf_count), kf_count)
             reg = {key: torch.where(agree.reshape((-1,) + (1,) * (val.dim() - 1)), reg_map[key], val) if key != "tgt_scan" else val for key, val in reg.items()}
-            logs["map_used"][ids[act]] = agree.float()[act]
+            map_used = agree.float()
         x, h, h_icp, w, e, use, enough = (reg[key] for key in ("x", "h", "h_icp", "w", "e", "use", "enough"))
         tgt, normal, nvalid = reg["tgt_scan"]
         # Uncertainty: MAP covariance scaled by the residual chi^2 per dof.
@@ -318,30 +342,46 @@ def _run_group(sd: StreamData, cfg: IcpConfig, group: Tensor, logs: dict[str, Te
         innov = meas - bg
         ok = act & (enough | still) & (innov.square() < 9.0 * (p_bg + r_meas))
         gain = p_bg / (p_bg + r_meas)
-        bg = torch.where(ok, bg + gain * innov, bg)
-        p_bg = torch.where(ok, (1 - gain) * p_bg, p_bg)
+        self.bg = torch.where(ok, bg + gain * innov, bg)
+        self.p_bg = torch.where(ok, (1 - gain) * p_bg, p_bg)
         # Velocity at the end of the interval, in the frame of scan k.
         v_end = x[:, :2] / dt[:, None] + 0.5 * b["accel"] * dt[:, None]
-        v = torch.where(act[:, None], _rotate(v_end, -x[:, 2]), v)
+        self.v = torch.where(act[:, None], _rotate(v_end, -x[:, 2]), v)
         if kf:
             # Scan k-1 becomes a keyframe (with the de-skew of its final
             # velocity estimate) when it is far enough from the last one.
-            moved = torch.linalg.vector_norm(pose[:, :2] - kf_last[:, :2], dim=1)
-            turned = torch.atan2(torch.sin(pose[:, 2] - kf_last[:, 2]), torch.cos(pose[:, 2] - kf_last[:, 2])).abs()
-            insert = act & ((kf_count == 0) | (moved > cfg.keyframe_dist_m) | (turned > cfg.keyframe_yaw_rad))
-            slot = kf_count % kf
+            moved = torch.linalg.vector_norm(pose[:, :2] - self.kf_last[:, :2], dim=1)
+            turned = torch.atan2(torch.sin(pose[:, 2] - self.kf_last[:, 2]), torch.cos(pose[:, 2] - self.kf_last[:, 2])).abs()
+            insert = act & ((self.kf_count == 0) | (moved > cfg.keyframe_dist_m) | (turned > cfg.keyframe_yaw_rad))
+            slot = self.kf_count % kf
             c, s = rot(pose[:, 2])
             world = torch.stack((c[:, None] * tgt[..., 0] - s[:, None] * tgt[..., 1] + pose[:, None, 0], s[:, None] * tgt[..., 0] + c[:, None] * tgt[..., 1] + pose[:, None, 1]), dim=-1)
             wnrm = torch.stack((c[:, None] * normal[..., 0] - s[:, None] * normal[..., 1], s[:, None] * normal[..., 0] + c[:, None] * normal[..., 1]), dim=-1)
             rows = ridx[insert]
-            kf_pts[rows, slot[insert]] = world[insert]
-            kf_nrm[rows, slot[insert]] = wnrm[insert]
-            kf_ok[rows, slot[insert]] = nvalid[insert]
-            kf_last = torch.where(insert[:, None], pose, kf_last)
-            kf_count = kf_count + insert.long()
-        pose = torch.where(act[:, None], _compose(pose, x), pose)
+            self.kf_pts[rows, slot[insert]] = world[insert]
+            self.kf_nrm[rows, slot[insert]] = wnrm[insert]
+            self.kf_ok[rows, slot[insert]] = nvalid[insert]
+            self.kf_last = torch.where(insert[:, None], pose, self.kf_last)
+            self.kf_count = self.kf_count + insert.long()
+        self.pose = torch.where(act[:, None], _compose(pose, x), pose)
+        return {"pred": x, "sigma": torch.sqrt(torch.diagonal(cov, dim1=-2, dim2=-1)), "weak_sigma_m": eigs[:, 0].rsqrt(),
+                "eig_ratio": eigs[:, 0] / eigs[:, 1], "icp_yaw_sigma_rad": yaw_info.rsqrt(), "gyro_bias": self.bg,
+                "pairs": use.sum(-1).float(), "standstill": still.float(), "map_used": map_used,
+                # de-skewed previous scan (base_link at the start of its sweep), for consumers such as a SLAM
+                "prev_points": tgt, "prev_points_valid": nvalid}
+
+
+def _run_group(sd: StreamData, cfg: IcpConfig, group: Tensor, logs: dict[str, Tensor]) -> None:
+    offset, length = sd.offset[group], sd.length[group]
+    geo = (sd.time_increment[group], sd.lidar_xy[group], sd.angle_min[group], sd.angle_increment[group], sd.beam_time(group))
+    stream = IcpStream(cfg, geo, sd.lidar_sigma[group], sd.lidar.shape[-1], sd.device)
+    for k in range(1, int(length.max())):
+        act = k < length
+        ids = offset + torch.minimum(torch.full_like(length, k), length - 1)
+        b = {key: val[:, 0] for key, val in sd.gather(ids[:, None]).items()}
+        out = stream.step(b, act)
         sel = ids[act]
-        for name, val in (("pred", x), ("sigma", torch.sqrt(torch.diagonal(cov, dim1=-2, dim2=-1))), ("weak_sigma_m", eigs[:, 0].rsqrt()),
-                          ("eig_ratio", eigs[:, 0] / eigs[:, 1]), ("icp_yaw_sigma_rad", yaw_info.rsqrt()), ("gyro_bias", bg),
-                          ("pairs", use.sum(-1).float()), ("standstill", still.float())):
-            logs[name][sel] = val[act]
+        if cfg.submap_keyframes:
+            logs["map_used"][sel] = out["map_used"][act]
+        for name in ("pred", "sigma", "weak_sigma_m", "eig_ratio", "icp_yaw_sigma_rad", "gyro_bias", "pairs", "standstill"):
+            logs[name][sel] = out[name][act]
