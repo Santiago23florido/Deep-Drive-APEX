@@ -5,7 +5,9 @@ IMU. This folder contains, in chronological order:
 
 1. the original single-track pipeline (`train_pose_fusion.py`);
 2. a grid search of its three architectures on the multi-scenario dataset
-   (`gridsearch_sqlite.py`).
+   (`gridsearch_sqlite.py`);
+3. v2: rate-independent odometry metrics, a strong classical LiDAR-inertial
+   odometry and streaming / hybrid networks (`train_streaming.py`).
 
 The [references](#references) at the end cover the methods each model builds
 on. Checkpoints, caches, CSV files and figures are written to
@@ -154,6 +156,100 @@ References on the same intervals: point-to-point ICP with ideal heading
 7.4 / 7.1 cm, mean increment 8.8 / 8.2 cm, raw gyro 0.074° / 0.064°. Weak
 points: the `B_economic` profile, the unseen `B_economic + stop_and_go`
 combination and the heading drift accumulated over long runs.
+
+## 3. v2: fixed metrics, a strong classical reference and streaming networks
+
+The analysis of section 2 showed three problems:
+
+- **The accuracy was misleading.** The 2 cm threshold is absolute, so short
+  20 Hz intervals looked better than 10 Hz ones. That is why test (more
+  `C_fast` runs) scored above validation. The 0.5° heading condition never
+  bound either.
+- **The drift hid errors.** It was measured at the end of closed two-lap runs.
+- **The architectures had structural limits.** Global average pooling makes
+  the scan features almost invariant to a rotation of the car, and the
+  velocity was re-estimated from scratch every 6 intervals.
+
+`train_streaming.py` scores every method **on the same intervals** with
+rate-independent metrics, against a classical reference that is meant to be
+hard to beat. Outputs go to `learning/outputs/streaming_v2/`.
+
+| Module | Content |
+| --- | --- |
+| `odometry_metrics.py` | speed error (cm/s), error relative to the step, heading-rate error, RPE over 0.5–10 s [19], KITTI-style drift over 2–40 m segments [18], 1σ/2σ coverage of the predicted uncertainty; the old accuracy is kept as `legacy_*` |
+| `sqlite_streams.py` | whole runs on the GPU; adds the rolling-sweep geometry, the nominal mount and the datasheet range noise of the LiDAR, and as labels only (never inputs) the true body velocity and the true IMU bias |
+| `icp_odometry.py` | causal classical odometry (below) |
+| `streaming_model.py` | the v2 network and its hybrid variant (below) |
+| `train_streaming.py` | stages `icp`, `train`, `report` |
+| `tests/test_streaming_odometry.py` | synthetic corridor, scan rotation, chunk invariance of the streaming state, physically consistent mirroring, submap vs scan-to-scan drift, metrics |
+
+**Classical LiDAR-inertial odometry** (`icp_odometry.py`, no learned
+parameters):
+- **Registration:** point-to-line ICP [3] with normals from local PCA and
+  heteroscedastic point weights from the LiDAR datasheet.
+- **De-skew:** the rolling sweep is corrected with the gyro and the current
+  velocity [4], [5].
+- **Prediction as prior:** the IMU prediction enters as a Gaussian prior (MAP
+  Gauss-Newton). The Cauchy kernel [7] starts wide, so that a prediction that
+  is far off can still be corrected.
+- **Corridors:** degeneracy is detected from the eigenvalues of the
+  information [6]. In a straight corridor the along-axis motion comes from
+  the inertial prediction instead of collapsing to zero.
+- **IMU filters:** a scalar Kalman filter tracks the gyro bias, and a
+  standstill (zero-velocity) update [9], [10] handles stops.
+- **Two variants:** scan-to-scan, and **scan-to-submap** [5], [8]. The submap
+  keeps 5 keyframes, one every 0.5 m or 10°, inserted one interval late with
+  their final de-skew. Its refinement starts from the scan-to-scan solution
+  and is accepted only if both agree within 5 cm and 0.5°; otherwise the
+  local map restarts. It runs in FP32 (TF32 degraded it).
+
+**Streaming network v2** (`StreamingPoseNet`):
+- **Scan comparison before pooling:** the two scans of an interval are
+  compared before any pooling. Both are compensated with the raw gyro (the
+  inter-scan rotation and the rotation during each rolling sweep [4]), then
+  stacked with their range difference, the beam direction and the beam time.
+  A circular-padded CNN pools to 9 sectors, not to 1, with a 1×1 bottleneck.
+- **Persistent state over the whole run:** a two-layer GRU [13], the
+  body-frame velocity (rotated by every heading increment [9]) and the IMU
+  biases.
+- **Kalman-style update with learned gains:** the IMU predicts the motion,
+  the LiDAR branch measures it, and the recurrent core sees the innovation and
+  outputs the gains [11].
+- **Gyro bias:** it can only move towards the bias measured by the LiDAR.
+
+**Hybrid variant** (`hybrid=True`):
+- **Input:** the classical odometry becomes the LiDAR measurement (increment,
+  σ, degeneracy ratio, correspondences, standstill flag, its gyro bias).
+- **Correction:** the network corrects it within ±5 cm / ±0.17°. The gains
+  start at "trust the ICP".
+
+```bash
+cd simulation/learning/lidar_imu_pose
+PY="env -i HOME=$HOME PATH=/usr/bin:/bin ../.venv/bin/python"
+$PY -m pytest tests                                   # 7 tests
+$PY train_streaming.py icp --icp scan                 # classical odometry on train/val/test (hybrid input)
+$PY train_streaming.py icp --icp submap
+$PY train_streaming.py train                          # pure v2 network (regularised)
+$PY train_streaming.py train --hybrid --icp scan      # hybrid on scan-to-scan ICP
+$PY train_streaming.py train --hybrid --icp submap    # hybrid on scan-to-submap ICP
+$PY train_streaming.py report                         # validation and test, figures, report.json
+```
+
+Training setup, the same for every v2 network (one configuration, no grid
+search):
+- **Schedule:** 40 epochs of 64 lanes × 32 intervals with truncated
+  back-propagation through time [14]. Each lane walks a whole run and keeps
+  its state.
+- **Optimizer:** AdamW [16], learning rate 1e-3 with the one-cycle schedule
+  [17], weight decay 1e-3.
+- **Loss:** heteroscedastic NLL [12] plus L1, pose composition over 8 and 32
+  intervals, velocity, and an auxiliary IMU-bias loss.
+- **Regularisation:**
+  - a left-right mirror of the whole world per lane (p = 0.5), consistent
+    for scans, IMU and labels;
+  - up to 8 % extra missing beams;
+  - dropout [15] on the sectors and the recurrent input.
+- **Selection:** the checkpoint with the lowest validation segment drift.
 
 ## References
 
