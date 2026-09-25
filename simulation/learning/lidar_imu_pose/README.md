@@ -251,6 +251,89 @@ search):
   - dropout [15] on the sectors and the recurrent input.
 - **Selection:** the checkpoint with the lowest validation segment drift.
 
+## 4. Results
+
+Test = unseen track + unseen sensor–speed combinations. The same 58 380
+intervals are used for every method (validation: 53 580):
+
+| Method | Speed error [cm/s] | RPE 1 s [cm] | Segment drift | Heading drift [°/m] | Heading rate [°/s] | Legacy accuracy |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Hybrid: scan-to-submap ICP + network** | **4.26** | **2.70** | **0.95 %** | **0.052** | 0.433 | **96.7 %** |
+| Hybrid: scan-to-scan ICP + network | 4.41 | 3.38 | 1.24 % | 0.061 | **0.422** | 95.8 % |
+| Scan-to-submap ICP + IMU (classical) | 8.00 | 3.62 | 1.21 % | 0.058 | 0.508 | 93.8 % |
+| Scan-to-scan ICP + IMU (classical) | 10.83 | 7.90 | 2.18 % | 0.078 | 0.539 | 89.9 % |
+| Pure network v2, regularised | 14.32 | 13.63 | 5.12 % | 0.261 | 0.763 | 83.9 % |
+| Pure network v2, no regularisation | 25.34 | 25.17 | 8.47 % | 0.241 | 0.770 | 67.9 % |
+| Grid-search best (6-interval windows) | 29.09 | 23.57 | 7.90 % | 0.229 | 0.736 | 65.6 % |
+| Raw gyro (heading only) | – | – | – | 0.235 | 0.775 | – |
+
+Validation gives the same order. The submap hybrid scores 4.84 cm/s, 1.26 %
+and 0.062 °/m; the submap ICP scores 8.52 cm/s, 1.44 % and 0.071 °/m.
+
+**The submap hybrid is the best model.**
+- **Against the best classical method** it cuts the speed error by 47 %, the
+  RPE over 1 s by 25 %, the segment drift by 21 % and the heading drift by
+  10 %.
+- **Against the grid-search model** its segment drift is 8 times lower.
+
+**Other findings:**
+- **Calibrated uncertainty.** The hybrid's σ covers 70 % / 95 % of the
+  errors (ideal 68.3 / 95.4). The classical σ is optimistic (56–58 % /
+  77–85 %). A SLAM back end will use this σ to weight the odometry.
+- **Gyro bias.** The estimate is off by 0.06 °/s, against 0.09–0.10 °/s for
+  the ICP and 0.46 °/s with no estimate.
+- **Sensor profiles.** `B_economic` stays the hard one: 2.8 % drift, against
+  0.7 % for A and 0.4 % for C. In validation, the unseen B + stop_and_go
+  combination on training tracks gives 1.2–7.7 % depending on the track,
+  against 0.9 % on the unseen track.
+- **Overfitting.** On training runs the submap hybrid drifts 1.03 %, against
+  1.26 % in validation and 0.95 % in test. The pure network drifts 3.7 %
+  against 6.1 % / 5.1 %. Regularisation lowered the pure network from 8.8 %
+  to 6.1 % in validation, but learning scan registration from scratch still
+  drifts 2–4 times more than the classical odometry.
+
+Figures: `comparison_headline.png`, `overfitting_gap.png`,
+`error_vs_horizon.png`, `breakdown_test.png`, `test_trajectories.png`,
+`hybrid*/training_curves.png`. All numbers are in `report.json`.
+
+### Lessons learned
+
+- **A free bias integrator becomes spare memory.** In the first attempt the
+  gyro bias was a free learned integrator. It drifted to the same wrong value
+  on every sensor, because the network used it as memory. Now it can only move
+  towards the bias the LiDAR measures (`attempt1_free_bias/`,
+  `attempt2_no_regularization/`).
+- **Corridors.** Straight walls carry no information along the corridor axis,
+  so point-to-point ICP collapses to "no motion". Here that direction falls
+  back to the inertial prediction, as the synthetic test checks, and the
+  degeneracy is measured.
+- **The robust kernel must start wide.** A kernel that is narrow from the
+  first iteration prevented correcting far-off predictions (start-ups,
+  braking).
+- **An unchecked submap fails on the noisy sensor.** On `B_economic`, about
+  1 % of the alignments snapped to the wrong keyframe, by up to 1 m. The
+  submap solution is now refined from the scan-to-scan one and kept only if
+  both agree.
+- **TF32 hurts the ICP.** TF32, enabled for training, degraded the ICP
+  through `cdist` and the normal equations, so the ICP now forces FP32
+  (`IcpConfig.version = 2`). The caches and the hybrid trained with TF32 are
+  archived in `icp_archive_v1_tf32/` and `hybrid_archive_tf32_icp_inputs/`.
+
+### Limits
+
+- **Simulation only.** The networks learned to correct simulated sensor
+  errors, and they use the true IMU bias as an auxiliary label that will not
+  exist on the car.
+- **One seed per network.** Small differences, such as the heading of the two
+  hybrids, are not conclusive.
+- **Fixed scan layout.** The network's LiDAR branch assumes 360 beams over
+  360°; the ICP does not.
+- **ICP not cross-checked.** It has not yet been compared with an established
+  implementation such as CSM/PLICP or KISS-ICP.
+- **Test was seen once early.** The report ran once as a dry run with
+  intermediate checkpoints before the final one. No decision used the test
+  split: the selection is automatic, by validation drift.
+
 ## References
 
 1. P. J. Besl, N. D. McKay, "A method for registration of 3-D shapes", IEEE TPAMI 14(2), 1992.
