@@ -66,18 +66,19 @@ CACHE = ROOT / "outputs" / "cache_sqlite"
 OLD_MODEL = ROOT / "outputs" / "gridsearch_sqlite" / "best_final" / "best_model.pt"
 NOREG_MODEL = OUT / "attempt2_no_regularization" / "best_model.pt"
 UNITS = (0.01, 0.01, 0.001)  # loss units: cm, cm, mrad
-METHODS = ("hybrid_submap", "hybrid", "grid_best", "icp_submap", "icp", "streaming_v2", "streaming_v2_noreg")
-HEADLINE_METHODS = ("hybrid_submap", "hybrid", "grid_best", "icp_submap", "icp", "streaming_v2")
-LABEL = {"hybrid_submap": "hybrid: ICP scan-to-submap + network", "hybrid": "hybrid: ICP scan-to-scan + network",
+METHODS = ("hybrid_submap_v3", "hybrid_submap", "hybrid", "grid_best", "icp_submap_v3", "icp_submap", "icp", "streaming_v2", "streaming_v2_noreg")
+HEADLINE_METHODS = ("hybrid_submap_v3", "hybrid_submap", "hybrid", "grid_best", "icp_submap_v3", "icp_submap", "icp", "streaming_v2")
+LABEL = {"hybrid_submap_v3": "hybrid: ICP submap v3 + network (fast-motion fixes)", "icp_submap_v3": "classical ICP scan-to-submap v3 + IMU",
+         "hybrid_submap": "hybrid: ICP scan-to-submap + network", "hybrid": "hybrid: ICP scan-to-scan + network",
          "grid_best": "grid-search best (windows)", "icp_submap": "classical ICP scan-to-submap + IMU", "icp": "classical ICP scan-to-scan + IMU",
          "streaming_v2": "pure network v2 (regularised)", "streaming_v2_noreg": "pure network v2, no regularisation"}
 # Categorical slots 1-4 in their validated order (adjacent pairs only), one
 # hue per family; the variants of a family share its hue and are hatched
 # (bars) / dashed (lines): scan-to-scan vs submap, unregularised vs regularised.
 YELLOW = "#eda100"  # slot 4
-COLOR = {"hybrid_submap": SERIES[0], "hybrid": SERIES[0], "grid_best": SERIES[1], "icp_submap": SERIES[2], "icp": SERIES[2],
-         "streaming_v2": YELLOW, "streaming_v2_noreg": YELLOW}
-HATCH = {"hybrid": "////", "icp": "////", "streaming_v2_noreg": "////"}
+COLOR = {"hybrid_submap_v3": SERIES[0], "hybrid_submap": SERIES[0], "hybrid": SERIES[0], "grid_best": SERIES[1],
+         "icp_submap_v3": SERIES[2], "icp_submap": SERIES[2], "icp": SERIES[2], "streaming_v2": YELLOW, "streaming_v2_noreg": YELLOW}
+HATCH = {"hybrid": "////", "icp": "////", "streaming_v2_noreg": "////", "hybrid_submap_v3": "....", "icp_submap_v3": "...."}
 DASH = {m: (0, (4, 2)) for m in HATCH}
 NET_DIRS = {"hybrid_submap": OUT / "hybrid_submap", "hybrid": OUT / "hybrid", "streaming_v2": OUT}
 GRAY = "#9a9890"
@@ -123,6 +124,8 @@ class TrainConfig:
     hybrid: bool = False  # classical odometry as input
     icp_variant: str = "scan"  # which classical odometry: "scan" (scan-to-scan) or "submap"
     sensors: tuple[str, ...] = ()  # sensor profiles to train and select on (empty: every profile of the database)
+    sweep_profile: bool = False  # network: rotation during the sweeps from the gyro profile (False: constant rate, the historical models)
+    imu_delay_comp: bool = False  # IMU stamps moved back by the chip filter delay (False: raw stamps, the historical models)
 
 
 # ---------------------------------------------------------------- training
@@ -234,20 +237,20 @@ def train(cfg: TrainConfig, db: Path, out: Path, log, icp_dir: Path = OUT) -> No
     dev = torch.device("cuda")
     data, sel = {}, {}
     for s in ("train", "validation"):
-        full = load_split(db, CACHE, s)
+        full = load_split(db, CACHE, s, cfg.imu_delay_comp)
         data[s], sel[s] = subset_runs(full, 1, cfg.sensors) if cfg.sensors else (full, None)
         if cfg.hybrid and sel[s] is not None:
-            load_or_run_icp(s, StreamData(full, dev), icp_dir, log, cfg.icp_variant, db)  # cached on the whole split
+            load_or_run_icp(s, StreamData(full, dev), icp_dir, log, cfg.icp_variant, db, cfg.imu_delay_comp)  # cached on the whole split
         del full
     sds = {s: StreamData(d, dev) for s, d in data.items()}
     if cfg.hybrid:
         for s, sd in sds.items():
-            res = load_or_run_icp(s, sd if sel[s] is None else None, icp_dir, log, cfg.icp_variant, db)
+            res = load_or_run_icp(s, sd if sel[s] is None else None, icp_dir, log, cfg.icp_variant, db, cfg.imu_delay_comp)
             sd.attach_icp(res if sel[s] is None else {k: (v[sel[s]] if torch.is_tensor(v) else v) for k, v in res.items()})
     if cfg.sensors:
         log(f"[train] sensor profiles {list(cfg.sensors)}: {len(data['train']['runs'])} train / {len(data['validation']['runs'])} validation runs")
     truth_val = om.split_truth(data["validation"])
-    model = StreamingPoseNet(cfg.hidden, hybrid=cfg.hybrid).to(dev)
+    model = StreamingPoseNet(cfg.hidden, hybrid=cfg.hybrid, sweep_profile=cfg.sweep_profile).to(dev)
     params = sum(p.numel() for p in model.parameters())
     steps_per_epoch = math.ceil(sds["train"].intervals / (cfg.lanes * cfg.chunk))
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay)
@@ -324,19 +327,22 @@ def _same_icp(cached: dict[str, Any], cfg: IcpConfig) -> bool:
     return all(cached.get(k, default[k]) == v for k, v in asdict(cfg).items() if k != "max_lanes")
 
 
-def _db_tag(db: Path) -> dict[str, Any]:
-    return {"name": db.name, "bytes": db.stat().st_size}
+def _db_tag(db: Path, imu_delay_comp: bool = False) -> dict[str, Any]:
+    return {"name": db.name, "bytes": db.stat().st_size, **({"imu_delay_comp": True} if imu_delay_comp else {})}
 
 
-def load_or_run_icp(split: str, sd: StreamData | None, out: Path, log, variant: str = "scan", db: Path = DEFAULT_DB) -> dict[str, Any]:
+def load_or_run_icp(split: str, sd: StreamData | None, out: Path, log, variant: str = "scan", db: Path = DEFAULT_DB,
+                    imu_delay_comp: bool = False) -> dict[str, Any]:
     """Cached classical odometry of a split; a cache is reused only for the
-    same ICP configuration and the same database (caches written before the
-    database tag belong to the default, v1 database)."""
+    same ICP configuration, the same database and the same IMU stamps
+    (caches written before the database tag belong to the default, v1
+    database)."""
     cfg = ICP_VARIANTS[variant]
-    path = out / (f"icp_{split}.pt" if variant == "scan" else f"icp_{variant}_{split}.pt")
+    suffix = "_imudelay" if imu_delay_comp else ""
+    path = out / (f"icp_{split}{suffix}.pt" if variant == "scan" else f"icp_{variant}_{split}{suffix}.pt")
     if path.exists():
         cached = torch.load(path, weights_only=False)
-        same_db = cached.get("db", _db_tag(DEFAULT_DB) if DEFAULT_DB.exists() else None) == _db_tag(db)
+        same_db = cached.get("db", _db_tag(DEFAULT_DB) if DEFAULT_DB.exists() else None) == _db_tag(db, imu_delay_comp)
         if _same_icp(cached["config"], cfg) and same_db:
             return cached
         if not same_db:
@@ -345,7 +351,7 @@ def load_or_run_icp(split: str, sd: StreamData | None, out: Path, log, variant: 
         raise FileNotFoundError(f"{path}: run the icp stage first")
     t0 = time.time()
     res = run_icp(sd, cfg, log=log)
-    res["db"] = _db_tag(db)
+    res["db"] = _db_tag(db, imu_delay_comp)
     log(f"[icp] {split}: {time.time() - t0:.0f} s")
     torch.save(res, path)
     return res
@@ -354,46 +360,53 @@ def load_or_run_icp(split: str, sd: StreamData | None, out: Path, log, variant: 
 # ------------------------------------------------------------------ report
 def _load_net(path: Path, dev: torch.device, regularize: bool) -> tuple[StreamingPoseNet, dict[str, Any]]:
     ck = torch.load(path, map_location=dev, weights_only=False)
-    model = StreamingPoseNet(ck["config"]["hidden"], regularize=regularize, hybrid=ck["config"].get("hybrid", False)).to(dev)
+    model = StreamingPoseNet(ck["config"]["hidden"], regularize=regularize, hybrid=ck["config"].get("hybrid", False),
+                             sweep_profile=ck["config"].get("sweep_profile", False)).to(dev)
     model.load_state_dict(ck["model"])
     return model, ck
 
 
-def report(db: Path, out: Path, log, sensors: tuple[str, ...] = ()) -> None:
+def report(db: Path, out: Path, log, sensors: tuple[str, ...] = (), imu_delay_comp: bool = False) -> None:
     dev = torch.device("cuda")
     nets, summary = {}, {"icp_configs": {k: asdict(v) for k, v in ICP_VARIANTS.items()},
                          "selection_metric": "validation t_rel_pct (segment drift, mean over 2-40 m)", "networks": {}, "splits": {}}
-    variant_of = {"hybrid": "scan", "hybrid_submap": "submap"}
-    net_dirs = {"hybrid_submap": out / "hybrid_submap", "hybrid": out / "hybrid", "streaming_v2": out}
+    variant_of = {"hybrid": "scan", "hybrid_submap": "submap", "hybrid_submap_v3": "submap_v3"}
+    net_dirs = {"hybrid_submap_v3": out / "hybrid_submap_v3", "hybrid_submap": out / "hybrid_submap", "hybrid": out / "hybrid", "streaming_v2": out}
     v1_study = out.resolve() == OUT.resolve()
-    for name, path, regularize in (("hybrid_submap", net_dirs["hybrid_submap"] / "best_model.pt", True), ("hybrid", net_dirs["hybrid"] / "best_model.pt", True),
+    for name, path, regularize in (("hybrid_submap_v3", net_dirs["hybrid_submap_v3"] / "best_model.pt", True),
+                                   ("hybrid_submap", net_dirs["hybrid_submap"] / "best_model.pt", True), ("hybrid", net_dirs["hybrid"] / "best_model.pt", True),
                                    ("streaming_v2", net_dirs["streaming_v2"] / "best_model.pt", True),
                                    ("streaming_v2_noreg", NOREG_MODEL if v1_study else out / "none", False)):
         if path.exists():
-            nets[name], ck = _load_net(path, dev, regularize)
-            summary["networks"][name] = {"checkpoint": str(path.relative_to(ROOT)), "selected_epoch": ck["epoch"], "config": ck["config"],
+            net, ck = _load_net(path, dev, regularize)
+            if bool(ck["config"].get("imu_delay_comp", False)) != imu_delay_comp:
+                log(f"[report] {name}: trained with imu_delay_comp={not imu_delay_comp}, skipped (report with the same setting)")
+                continue
+            nets[name] = net
+            summary["networks"][name] = {"checkpoint": str(path.resolve().relative_to(ROOT)), "selected_epoch": ck["epoch"], "config": ck["config"],
                                          "parameters": sum(p.numel() for p in nets[name].parameters())}
-    icp_variants = [v for v in ("scan", "submap") if (out / (f"icp_test.pt" if v == "scan" else f"icp_{v}_test.pt")).exists()]
+    sfx = "_imudelay" if imu_delay_comp else ""
+    icp_variants = [v for v in ("scan", "submap", "submap_v3") if (out / (f"icp_test{sfx}.pt" if v == "scan" else f"icp_{v}_test{sfx}.pt")).exists()]
     # The grid-search model belongs to the v1 study (its own sensors); a
     # report on another database compares the networks and the classical odometry.
     methods = [m for m in METHODS if m in nets or (m == "grid_best" and v1_study) or (m == "icp" and "scan" in icp_variants)
-               or (m == "icp_submap" and "submap" in icp_variants)]
+               or (m.startswith("icp_") and m[4:] in icp_variants)]
     # Overfitting: the same networks on a quarter of the training runs.
-    train_sub, sel = subset_runs(load_split(db, CACHE, "train"), 4, sensors)
+    train_sub, sel = subset_runs(load_split(db, CACHE, "train", imu_delay_comp), 4, sensors)
     sd_train = StreamData(train_sub, dev)
     summary["train_subset"] = {}
     for m, net in nets.items():
         if m in variant_of:
-            icp_train = load_or_run_icp("train", None, out, log, variant_of[m], db)
+            icp_train = load_or_run_icp("train", None, out, log, variant_of[m], db, imu_delay_comp)
             sd_train.attach_icp({k: (v[sel] if torch.is_tensor(v) else v) for k, v in icp_train.items()})
         summary["train_subset"][m] = om.evaluate(stream_predict(net, sd_train, chunk=16)["pred"].numpy(), om.split_truth(train_sub), groups=())["all"]
     del sd_train
     runs_for_plot = {}
     for split in ("validation", "test"):
-        data, sel_s = subset_runs(load_split(db, CACHE, split), 1, sensors)
+        data, sel_s = subset_runs(load_split(db, CACHE, split, imu_delay_comp), 1, sensors)
         sd = StreamData(data, dev)
         truth = om.split_truth(data)
-        icps = {v: {k: (x[sel_s] if torch.is_tensor(x) else x) for k, x in load_or_run_icp(split, None, out, log, v, db).items()} for v in icp_variants}
+        icps = {v: {k: (x[sel_s] if torch.is_tensor(x) else x) for k, x in load_or_run_icp(split, None, out, log, v, db, imu_delay_comp).items()} for v in icp_variants}
         est = {}
         for m, net in nets.items():
             if m in variant_of:
@@ -403,8 +416,9 @@ def report(db: Path, out: Path, log, sensors: tuple[str, ...] = ()) -> None:
             est["grid_best"] = grid_best_predict(data, dev)
         if "scan" in icps:
             est["icp"] = icps["scan"]
-        if "submap" in icps:
-            est["icp_submap"] = icps["submap"]
+        for v in icps:
+            if v != "scan":
+                est[f"icp_{v}"] = icps[v]
         preds = {m: est[m]["pred"].numpy().astype(np.float64) for m in methods}
         common = np.logical_and.reduce([np.isfinite(p).all(axis=1) for p in preds.values()])
         degenerate = next(iter(icps.values()))["eig_ratio"].numpy() < IcpConfig().degenerate_ratio
@@ -414,7 +428,7 @@ def report(db: Path, out: Path, log, sensors: tuple[str, ...] = ()) -> None:
         summary["splits"][split] = {
             "intervals_scored": int(common.sum()), "corridor_fraction_pct": 100 * float(degenerate[common].mean()),
             "gyro_bias_error_dps": {**{m: _bias_err(est[m]["bias"].numpy()[:, 0], data, common) for m in nets},
-                                    **{m: _bias_err(est[m]["gyro_bias"].numpy(), data, common) for m in ("icp", "icp_submap") if m in est},
+                                    **{m: _bias_err(est[m]["gyro_bias"].numpy(), data, common) for m in ("icp", "icp_submap", "icp_submap_v3") if m in est},
                                     "no_estimate": _bias_err(np.zeros(len(common)), data, common)},
             **res,
         }
@@ -579,6 +593,8 @@ def main() -> None:
     ap.add_argument("--hybrid", action="store_true", help="train the variant with the classical odometry as input (output in hybrid/)")
     ap.add_argument("--icp", choices=tuple(ICP_VARIANTS), default="scan", help="classical odometry variant (icp stage and --hybrid)")
     ap.add_argument("--sensors", nargs="*", default=[], help="train / report on these sensor profiles only (e.g. APEX_real)")
+    ap.add_argument("--imu-delay-comp", action="store_true", help="move the IMU stamps back by the chip filter delay (every stage)")
+    ap.add_argument("--sweep-profile", action="store_true", help="train: the network compensates the rotation during each sweep with the gyro profile")
     args = ap.parse_args()
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -596,11 +612,14 @@ def main() -> None:
 
     if args.stage == "icp":
         for split in ("validation", "test", "train"):  # train: input of the hybrid network
-            load_or_run_icp(split, StreamData(load_split(args.db, CACHE, split), torch.device("cuda")), args.out, log, args.icp, args.db)
+            load_or_run_icp(split, StreamData(load_split(args.db, CACHE, split, args.imu_delay_comp), torch.device("cuda")), args.out, log, args.icp, args.db,
+                            args.imu_delay_comp)
     elif args.stage == "train":
-        train(TrainConfig(epochs=args.epochs, hybrid=args.hybrid, icp_variant=args.icp, sensors=tuple(args.sensors)), args.db, stage_out, log, icp_dir=args.out)
+        train(TrainConfig(epochs=args.epochs, hybrid=args.hybrid, icp_variant=args.icp, sensors=tuple(args.sensors), imu_delay_comp=args.imu_delay_comp,
+                          sweep_profile=args.sweep_profile),
+              args.db, stage_out, log, icp_dir=args.out)
     else:
-        report(args.db, args.out, log, tuple(args.sensors))
+        report(args.db, args.out, log, tuple(args.sensors), args.imu_delay_comp)
 
 
 if __name__ == "__main__":

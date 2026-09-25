@@ -11,6 +11,10 @@ LiDAR reference and the odometry metrics need:
   the v1 profiles (counter-clockwise from ``angle_min``), and for a real
   scanner the fraction of the revolution between its sync angle and the beam
   in its rotation direction (the APEX A2M8 turns clockwise from +89 deg);
+* the heading profile of every sweep (``gyro_profile``): the raw gyro-z
+  integral from the start of interval k at ``PROFILE_KNOTS + 1`` equally
+  spaced instants, so the de-skew follows the real rotation during the
+  sweep instead of a constant rate (its last value is ``gyro_integral``);
 * the nominal LiDAR mount (x, y) in base_link and the datasheet range noise
   (constant + proportional sigma) of the sensor profile, from the calibration
   table (the drawn per-run "true" mount and noise realization are never used);
@@ -46,6 +50,37 @@ def bin_time_fraction(beams: int, angle_min: float, angle_increment: float, dire
     return np.where(np.isclose(frac, 1.0), 0.0, frac)
 
 
+PROFILE_KNOTS = 16  # sweep heading profile: 17 instants, ~4.8 ms apart at 13 Hz (IMU at 9.6 ms)
+
+
+def gyro_profile(t: np.ndarray, gz: np.ndarray, a: float, b: float, knots: int = PROFILE_KNOTS) -> np.ndarray:
+    """Raw gyro-z integral [rad] from ``a`` to ``a + j / knots * (b - a)``,
+    j = 0..knots (times in s). Same interpolant as the interval integral of
+    ``sqlite_windows.build_split`` (linear between samples, trapezoid), so the
+    last value equals it."""
+    grid = a + (b - a) * np.arange(knots + 1) / knots
+    ts = np.union1d(grid, t[(t > a) & (t < b)])
+    g = np.interp(ts, t, gz)
+    cum = np.concatenate(([0.0], np.cumsum(0.5 * (g[1:] + g[:-1]) * np.diff(ts))))
+    return np.interp(grid, ts, cum)
+
+
+def sweep_interp(values: Tensor, duration: Tensor, tau: Tensor) -> Tensor:
+    """``values`` [R, K+1, ...] sampled at K+1 equally spaced instants over
+    ``duration`` [R], linearly interpolated at the times ``tau`` [R, N]
+    (extrapolated with the last segment beyond the sweep)."""
+    k = values.shape[1] - 1
+    u = tau / duration[:, None].clamp_min(1e-4) * k
+    j0 = torch.floor(u).clamp(0, k - 1)
+    w = u - j0
+    j0 = j0.long()
+    shape = j0.shape + values.shape[2:]
+    idx = j0.reshape(j0.shape + (1,) * (values.dim() - 2)).expand(shape)
+    v0, v1 = values.gather(1, idx), values.gather(1, idx + 1)
+    w = w.reshape(w.shape + (1,) * (values.dim() - 2))
+    return v0 + (v1 - v0) * w
+
+
 def build_extras(db_path: Path, data: dict[str, Any]) -> dict[str, Any]:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     runs = data["runs"]
@@ -53,6 +88,7 @@ def build_extras(db_path: Path, data: dict[str, Any]) -> dict[str, Any]:
     t_ns = data["t_ns"].numpy()
     v_body = np.zeros((n_total, 2), dtype=np.float32)
     bias = np.zeros((n_total, 3), dtype=np.float32)
+    heading = np.zeros((n_total, PROFILE_KNOTS + 1), dtype=np.float32)
     run_index = np.zeros(n_total, dtype=np.int64)
     geom = {"range_max": [], "angle_min": [], "angle_increment": [], "time_increment_s": [], "lidar_xy": [], "lidar_sigma": [], "beam_time_frac": []}
     for ri, r in enumerate(runs):
@@ -85,15 +121,16 @@ def build_extras(db_path: Path, data: dict[str, Any]) -> dict[str, Any]:
         # each interval, with the sample selection of sqlite_windows.build_split.
         b = np.array(
             conn.execute(
-                "SELECT s.timestamp_ns, t.bgz, t.bax, t.bay FROM imu_samples s JOIN imu_bias_truth t ON t.imu_id = s.imu_id WHERE s.run_id = ? ORDER BY s.seq",
+                "SELECT s.timestamp_ns, t.bgz, t.bax, t.bay, s.gz FROM imu_samples s JOIN imu_bias_truth t ON t.imu_id = s.imu_id WHERE s.run_id = ? ORDER BY s.seq",
                 (r["run_id"],),
             ).fetchall(),
             dtype=np.float64,
         )
-        imu_t = b[:, 0].astype(np.int64)
-        csum = np.vstack((np.zeros((1, 3)), np.cumsum(b[:, 1:], axis=0)))
+        imu_t = b[:, 0].astype(np.int64) - int(round(r.get("imu_delay_s", 0.0) * 1e9))  # same stamps as sqlite_windows
+        csum = np.vstack((np.zeros((1, 3)), np.cumsum(b[:, 1:4], axis=0)))
         ts = t_ns[o : o + n]
         for k in range(1, n):
+            heading[o + k] = gyro_profile(imu_t * 1e-9, b[:, 4], ts[k - 1] * 1e-9, ts[k] * 1e-9)
             lo = int(np.searchsorted(imu_t, ts[k - 1], side="right"))
             hi = int(np.searchsorted(imu_t, ts[k], side="right"))
             if hi <= lo:
@@ -101,19 +138,23 @@ def build_extras(db_path: Path, data: dict[str, Any]) -> dict[str, Any]:
                 hi = lo + 1
             bias[o + k] = (csum[hi] - csum[lo]) / (hi - lo)
         bias[o] = bias[o + 1]
+        heading[o] = heading[o + 1]
     conn.close()
     return {
         "v_body": torch.from_numpy(v_body),
+        "gyro_profile": torch.from_numpy(heading),
         "bias_truth": torch.from_numpy(bias),
         "run_index": torch.from_numpy(run_index),
         **{k: torch.tensor(v, dtype=torch.float32) for k, v in geom.items()},
     }
 
 
-def load_split(db_path: Path, cache_dir: Path, split: str) -> dict[str, Any]:
-    data = load_or_build(db_path, cache_dir, split)
+def load_split(db_path: Path, cache_dir: Path, split: str, imu_delay_comp: bool = False) -> dict[str, Any]:
+    """A split with its stream extras; ``imu_delay_comp``: IMU stamps moved
+    back by the chip filter delay (``sqlite_windows.imu_group_delay_s``)."""
+    data = load_or_build(db_path, cache_dir, split, imu_delay_comp)
     stat = db_path.stat()
-    path = cache_dir / f"{split}_streams_v3_{int(stat.st_mtime)}_{stat.st_size}.pt"
+    path = cache_dir / f"{split}_streams_v4_{int(stat.st_mtime)}_{stat.st_size}{'_imudelay' if imu_delay_comp else ''}.pt"
     if path.exists():
         extras = torch.load(path, map_location="cpu", weights_only=False)
     else:
@@ -164,6 +205,10 @@ class StreamData:
         self.max_len = int(data["imu_len"].max())
         self.dt = data["dt"].to(device)
         self.gyro = data["gyro_integral"].to(device)
+        prof = data.get("gyro_profile")
+        if prof is None:  # data without the profile: constant rate over every interval
+            prof = data["gyro_integral"][:, None] * torch.linspace(0.0, 1.0, PROFILE_KNOTS + 1)
+        self.gyro_profile = prof.to(device).float()  # [N, PROFILE_KNOTS + 1] heading during interval k (raw gyro)
         self.target = data["target"].to(device)
         self.v_body = data["v_body"].to(device)
         self.bias_truth = data["bias_truth"].to(device)
@@ -227,16 +272,19 @@ class StreamData:
         prev_r, prev_v = self.ranges(idx - 1)
         cur_r, cur_v = self.ranges(idx)
         w_prev, w_cur = self.sweep_rate(idx)
+        run = self.run_index[idx]
+        nxt = torch.minimum(idx + 1, self.offset[run] + self.length[run] - 1)
         imu = self.imu[idx][..., : self.max_len, :].float()
         lengths = self.imu_len[idx]
         accel, accel_std = imu_interval_stats(imu, lengths)
-        run = self.run_index[idx]
         return {
             "prev_ranges": prev_r, "prev_valid": prev_v, "cur_ranges": cur_r, "cur_valid": cur_v,
             "w_prev": w_prev, "w_cur": w_cur, "time_increment": self.time_increment[run],
             **({} if self.linear_time else {"beam_frac": self.beam_frac[run]}),
             "imu": imu, "imu_lengths": lengths, "accel": accel, "accel_std": accel_std,
             "gyro_integral": self.gyro[idx], "dt": self.dt[idx],
+            # heading profiles of the sweeps of scans k-1 (interval k) and k (interval k+1)
+            "prof_prev": self.gyro_profile[idx], "prof_cur": self.gyro_profile[nxt], "dt_next": self.dt[nxt],
             # labels
             "target": self.target[idx], "v_body": self.v_body[idx], "bias_truth": self.bias_truth[idx],
             **({"icp_pred": self.icp_pred[idx], "icp_feat": self.icp_feat[idx]} if hasattr(self, "icp_pred") else {}),

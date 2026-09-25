@@ -11,7 +11,11 @@ each one aimed at a limit measured on the grid-search model:
    (the current scan rotated by the gyro increment, and both scans corrected
    for the rotation during their own rolling sweep), then stacked as channels
    together with their range difference, the beam direction (cos, sin) and
-   the time of the beam inside the sweep. A circular-padded CNN keeps the
+   the time of the beam inside the sweep. With ``sweep_profile`` the
+   rotation during each sweep follows the gyro sample by sample (the heading
+   profile of ``sqlite_streams``) instead of a constant rate, which matters
+   when the yaw rate changes inside the sweep (entering or leaving a curve
+   at speed). A circular-padded CNN keeps the
    angular layout (pooling to 9 sectors, not to 1), so the features are not
    rotation invariant and the residual rotation (= gyro error) is visible.
 2. State persists across the whole run. The fusion GRU hidden state, the
@@ -82,12 +86,14 @@ import math
 import torch
 from torch import Tensor, nn
 
+from sqlite_streams import sweep_interp
 from train_pose_fusion import ImuEncoder
 
 TWO_PI = 2.0 * math.pi
 
 
-def rotate_scan(ranges: Tensor, valid: Tensor, shift: Tensor, sweep_rate: Tensor, frac: Tensor | None = None) -> tuple[Tensor, Tensor, Tensor]:
+def rotate_scan(ranges: Tensor, valid: Tensor, shift: Tensor, sweep_rate: Tensor, frac: Tensor | None = None,
+                beam_rot: Tensor | None = None) -> tuple[Tensor, Tensor, Tensor]:
     """Resample a 360-degree scan on its own angular grid after a rotation.
 
     Beam i (angle theta_i) is re-expressed at theta_i + shift + rotation of
@@ -96,7 +102,9 @@ def rotate_scan(ranges: Tensor, valid: Tensor, shift: Tensor, sweep_rate: Tensor
     after the stamp. ``frac`` [..., N] gives instead the firing time of every
     beam as a fraction of the revolution (a clockwise scanner, or one whose
     revolution starts at another angle), the rotation of beam i being then
-    ``sweep_rate * N * frac[i]``. Returns ranges, validity and the time
+    ``sweep_rate * N * frac[i]``. ``beam_rot`` [..., N] gives directly the
+    rotation of the car when every beam was fired (from the gyro profile of
+    the sweep) and replaces ``sweep_rate``. Returns ranges, validity and the time
     fraction of the (fractional) source beam of every output direction.
     Neighbouring beams are interpolated only when both are valid and lie on
     one surface; otherwise the nearest one is used.
@@ -104,16 +112,17 @@ def rotate_scan(ranges: Tensor, valid: Tensor, shift: Tensor, sweep_rate: Tensor
     n = ranges.shape[-1]
     inc = TWO_PI / n
     j = torch.arange(n, device=ranges.device, dtype=ranges.dtype)
-    if frac is None:
+    if frac is None and beam_rot is None:
         u = (j * inc - shift[..., None]) / (inc + sweep_rate[..., None])
     else:
-        # theta_u + shift + turn * frac(u) = theta_j, solved by fixed point
+        # theta_u + shift + rotation(u) = theta_j, solved by fixed point
         # (the rotation during one beam is ~1/40 of a beam at 2 rad/s).
-        turn = sweep_rate[..., None] * n
+        if beam_rot is None:
+            beam_rot = sweep_rate[..., None] * n * frac
         u = (j * inc - shift[..., None]) / inc
         for _ in range(3):
-            fi = frac.gather(-1, torch.remainder(torch.round(u), n).long())
-            u = (j * inc - shift[..., None] - turn * fi) / inc
+            ri = beam_rot.gather(-1, torch.remainder(torch.round(u), n).long())
+            u = (j * inc - shift[..., None] - ri) / inc
     u = torch.remainder(u, n)
     i0 = torch.floor(u).long().clamp(max=n - 1)
     w = u - i0
@@ -128,15 +137,30 @@ def rotate_scan(ranges: Tensor, valid: Tensor, shift: Tensor, sweep_rate: Tensor
     return r * v, v, tau
 
 
-def pair_channels(batch: dict[str, Tensor]) -> Tensor:
+def sweep_rotation(profile: Tensor, duration: Tensor, frac: Tensor, dt_beam: Tensor) -> Tensor:
+    """Raw gyro rotation [..., N] at the firing time of every beam (``frac``
+    of the revolution, beam period ``dt_beam``), from the heading profile
+    [..., K+1] of a sweep lasting ``duration`` [...]."""
+    n = frac.shape[-1]
+    tau = (frac * n * dt_beam[..., None]).reshape(-1, n)
+    return sweep_interp(profile.reshape(-1, profile.shape[-1]), duration.reshape(-1), tau).reshape(duration.shape + (n,))
+
+
+def pair_channels(batch: dict[str, Tensor], profile: bool = False) -> Tensor:
     """[B, T, 8, beams] input of the pair encoder, both scans in the frame of
-    the previous scan, rotation compensated with the raw gyro."""
+    the previous scan, rotation compensated with the raw gyro (constant rate
+    over each sweep, or its heading profile with ``profile``)."""
     beams = batch["prev_ranges"].shape[-1]
     inc = TWO_PI / beams
     dt_beam = batch["time_increment"]
     frac = batch.get("beam_frac")
-    prev_r, prev_v, _ = rotate_scan(batch["prev_ranges"], batch["prev_valid"], torch.zeros_like(batch["dt"]), batch["w_prev"] * dt_beam, frac)
-    cur_r, cur_v, tau = rotate_scan(batch["cur_ranges"], batch["cur_valid"], batch["gyro_integral"], batch["w_cur"] * dt_beam, frac)
+    rot_prev = rot_cur = None
+    if profile:
+        f = frac if frac is not None else (torch.arange(beams, device=dt_beam.device, dtype=dt_beam.dtype) / beams).expand(dt_beam.shape + (beams,))
+        rot_prev = sweep_rotation(batch["prof_prev"], batch["dt"], f, dt_beam)
+        rot_cur = sweep_rotation(batch["prof_cur"], batch["dt_next"], f, dt_beam)
+    prev_r, prev_v, _ = rotate_scan(batch["prev_ranges"], batch["prev_valid"], torch.zeros_like(batch["dt"]), batch["w_prev"] * dt_beam, frac, rot_prev)
+    cur_r, cur_v, tau = rotate_scan(batch["cur_ranges"], batch["cur_valid"], batch["gyro_integral"], batch["w_cur"] * dt_beam, frac, rot_cur)
     both = (prev_v & cur_v).float()
     theta = -math.pi + inc * torch.arange(beams, device=prev_r.device, dtype=prev_r.dtype)
     shape = prev_r.shape
@@ -208,11 +232,13 @@ ICP_FEAT_MIRROR = (1.0,) * 8 + (-1.0,)  # the ICP gyro-bias feature changes sign
 
 
 class StreamingPoseNet(nn.Module):
-    def __init__(self, hidden: int = 128, scales: StreamScales = StreamScales(), regularize: bool = True, hybrid: bool = False) -> None:
+    def __init__(self, hidden: int = 128, scales: StreamScales = StreamScales(), regularize: bool = True, hybrid: bool = False,
+                 sweep_profile: bool = False) -> None:
         super().__init__()
         self.hidden = hidden
         self.scales = scales
         self.hybrid = hybrid
+        self.sweep_profile = sweep_profile  # rotation during the sweeps from the gyro profile (no parameters: a flag)
         extra = ICP_INPUTS if hybrid else 0
         self.pair_encoder = PairEncoder(hidden) if regularize else PairEncoder(hidden, bottleneck=None)
         self.imu_encoder = ImuEncoder(hidden)
@@ -244,7 +270,7 @@ class StreamingPoseNet(nn.Module):
 
     def forward(self, batch: dict[str, Tensor], state: dict[str, Tensor]) -> tuple[dict[str, Tensor], dict[str, Tensor]]:
         sc = self.scales
-        channels = pair_channels(batch)
+        channels = pair_channels(batch, self.sweep_profile)
         imu_in, dt_all, gyro_all, acc_all = batch["imu"], batch["dt"], batch["gyro_integral"], batch["accel"]
         mirror = batch.get("mirror")
         if mirror is not None:
@@ -320,7 +346,8 @@ def load_checkpoint(path, device: torch.device | str = "cpu") -> tuple["Streamin
     ck = torch.load(path, map_location=device, weights_only=False)
     cfg = ck.get("config", {})
     regularize = any(k.startswith("pair_encoder.cnn.13.") for k in ck["model"])
-    model = StreamingPoseNet(int(cfg.get("hidden", 128)), regularize=regularize, hybrid=bool(cfg.get("hybrid", False))).to(device)
+    model = StreamingPoseNet(int(cfg.get("hidden", 128)), regularize=regularize, hybrid=bool(cfg.get("hybrid", False)),
+                             sweep_profile=bool(cfg.get("sweep_profile", False))).to(device)
     model.load_state_dict(ck["model"])
     model.eval()
     return model, ck
