@@ -1,64 +1,73 @@
 # LiDAR–IMU pose learning
 
-Entrenamiento autosupervisado de movimiento planar para el vehículo APEX. La
-red combina una rama local con los dos últimos barridos y una rama causal de
-contexto con cinco barridos. Ambas comparten la CNN espacial, pero tienen GRU
-independientes. Una compuerta aprendida decide cuánto aplicar de la corrección
-contextual. Las muestras IMU cubren los intervalos correspondientes. Produce:
+Planar motion estimation for the APEX vehicle from a 2D LiDAR and a 6-axis
+IMU. This folder contains, in chronological order:
+
+1. the original single-track pipeline (`train_pose_fusion.py`);
+2. a grid search of its three architectures on the multi-scenario dataset
+   (`gridsearch_sqlite.py`);
+3. v2: rate-independent odometry metrics, a strong classical LiDAR-inertial
+   odometry and streaming / hybrid networks (`train_streaming.py`).
+
+The [model catalogue](#model-catalogue) at the end lists every model, where
+its checkpoint lives and how it scores; the [references](#references) cover
+the methods each one builds on. Checkpoints, caches, CSV files and figures are
+written to `learning/outputs/`, which is ignored by Git.
+
+## 1. Original single-track pipeline (`train_pose_fusion.py`)
+
+Self-supervised planar motion learning for one recorded track. The network
+(`LidarImuPoseNet`) combines a local branch with the last two scans and a
+causal context branch with five scans. Both share the spatial CNN but have
+independent GRUs [13]; a learned gate decides how much of the contextual
+correction to apply. The IMU samples cover the matching intervals. Outputs:
 
 - `delta_pose = [dx, dy, dyaw]`;
-- incertidumbre diagonal de ese incremento;
-- sesgos estimados `[bax, bay, baz, bgx, bgy, bgz]`.
+- a diagonal uncertainty of that increment (heteroscedastic NLL [12]);
+- estimated biases `[bax, bay, baz, bgx, bgy, bgz]`.
 
-La traslación incorpora una mecanización recurrente diferenciable:
+The translation includes a differentiable recurrent mechanization:
 
 ```text
 v[t]  = v[t-1] + (a[t] - bias_a[t]) dt + delta_v_net[t]
 dp[t] = v[t-1] dt + 0.5 (a[t] - bias_a[t]) dt^2 + delta_p_net[t]
 ```
 
-La GRU inicializa la velocidad de cada ventana y aprende únicamente las
-correcciones residuales. La rotación usa de forma análoga la integral del
-giróscopo corregida por el sesgo estimado.
+The GRU initializes the velocity of each window and only learns the residual
+corrections. The rotation uses the gyro integral corrected by the estimated
+bias in the same way.
 
-Las lecturas se sincronizan por sus timestamps reales: cada intervalo entre
-dos barridos conserva las muestras IMU que realmente llegaron, sin forzarlas
-a un número interpolado. Para formar lotes se rellena hasta el máximo del
-intervalo y se entrega la longitud válida a una GRU empaquetada, que ignora el
-relleno. El tensor LiDAR conserva los 360 rayos de cada uno de los cinco
-barridos de contexto.
+Readings are synchronized by their real timestamps: every interval between
+two scans keeps the IMU samples that actually arrived, without resampling
+them to a fixed count. Batches are padded to the longest interval and the
+valid length goes to a packed GRU, which ignores the padding. The LiDAR tensor
+keeps the 360 beams of each of the five context scans.
 
-La corrección LiDAR se forma como:
+The LiDAR correction is
 
 ```text
 delta_pose = delta_pair + sigmoid(gate) * delta_context + delta_inertial
 ```
 
-Además de las pérdidas por paso, la composición de los seis incrementos de una
-secuencia debe coincidir con la composición de los incrementos obtenidos solo
-desde sensores. Esto impide que las dos ramas produzcan movimientos locales
-incompatibles con el contexto largo.
+Besides the per-step losses, the composition of the six increments of a
+sequence must match the composition of the sensor-only increments, so that
+the two branches cannot produce local motions that contradict the long
+context.
 
-La pose exacta de Gazebo **no entra en el entrenamiento ni en la selección del
-checkpoint**. Durante entrenamiento se utiliza movimiento relativo calculado
-solo desde LiDAR mediante ICP implementado en PyTorch (`torch.cdist` y
-`torch.linalg.svd`), consistencia con la integral giroscópica,
-suavidad temporal y regularización de los sesgos. El ground truth se abre una
-única vez al terminar para evaluar y dibujar el 15 % de validación. El 15 % de
-test permanece reservado y solo se informa su pérdida autosupervisada.
+The exact Gazebo pose **is not used for training nor for checkpoint
+selection** in the default mode. Training uses the relative motion computed
+from the LiDAR alone with a point-to-point ICP written in PyTorch
+(`torch.cdist` and `torch.linalg.svd`, [1], [20]), consistency with the gyro
+integral, temporal smoothness and bias regularization. The ground truth is
+opened once at the end to evaluate and plot the 15 % validation split; the
+15 % test split stays reserved and only its self-supervised loss is reported.
 
-El modo opcional `--supervised-ground-truth` sustituye esos objetivos ICP por
-incrementos relativos obtenidos de la pose exacta. Está pensado para medir el
-techo supervisado y estudiar generalización entre pistas y sensores.
+The optional `--supervised-ground-truth` mode replaces those ICP targets with
+relative increments from the exact pose, to measure the supervised ceiling
+and study generalization across tracks and sensors.
 
-El reparto es cronológico para evitar que ventanas solapadas de una misma
-vuelta aparezcan a ambos lados de una partición:
-
-- 70 % entrenamiento;
-- 15 % validación;
-- 15 % test.
-
-Ejemplo:
+The split is chronological so that overlapping windows of one lap never fall
+on both sides of a partition: 70 % train, 15 % validation, 15 % test.
 
 ```bash
 python3 learning/lidar_imu_pose/train_pose_fusion.py \
@@ -66,8 +75,7 @@ python3 learning/lidar_imu_pose/train_pose_fusion.py \
   --epochs 30 --device cuda
 ```
 
-Para entrenar directamente contra la pose exacta del simulador y generar las
-curvas de aprendizaje:
+Training directly against the exact simulator pose, with learning curves:
 
 ```bash
 python3 learning/lidar_imu_pose/train_pose_fusion.py \
@@ -76,5 +84,316 @@ python3 learning/lidar_imu_pose/train_pose_fusion.py \
   --epochs 40 --device cuda --supervised-ground-truth
 ```
 
-Los checkpoints, cachés, métricas y figuras se escriben por defecto en
-`learning/outputs/lidar_imu_pose/`, que está ignorado por Git.
+Checkpoints, caches, metrics and figures go to
+`learning/outputs/lidar_imu_pose/` by default.
+
+## 2. Grid search on the multi-scenario dataset (`gridsearch_sqlite.py`)
+
+`gridsearch_sqlite.py` trains the three architectures developed in this folder
+on `simulation/data/multiscenario_pose/pose_dataset.sqlite3` (generated by
+`simulation/tools/generate_pose_dataset.py`), supervised by the exact simulator
+pose, with the dataset's own splits (train: 5 tracks; validation: one unseen
+track; test: another unseen track plus unseen sensor–speed combinations).
+
+| Architecture | Historical checkpoint | Description |
+| --- | --- | --- |
+| `single_context_direct` | `best_model_before_velocity.pt` | shared LiDAR CNN1D + one GRU over the context, IMU CNN+GRU, fusion GRU, increment regressed directly |
+| `single_context_velocity` | `best_model_before_dual_scan.pt` | same + recurrent velocity mechanization |
+| `dual_pair_context_velocity` | `best_model.pt` (`LidarImuPoseNet`) | pair GRU (2 scans) + context GRU (5) with a gate + mechanization |
+
+`architectures.py` rebuilds the three with the parameter names and shapes of
+those checkpoints (they load with `strict=True`). Two changes for the new
+dataset, identical in all three: output caps rescaled (the originals were set
+for 0.24 m/s; here there are up to 4.4 m/s and 0.43 m per interval) and IMU
+means that ignore the padding. The CNN runs once per unique scan of a window
+(same result, checked to 1e-8). `sqlite_windows.py` reads each split once into
+GPU-resident windows.
+
+```bash
+cd simulation/learning/lidar_imu_pose
+PY="env -i HOME=$HOME PATH=/usr/bin:/bin ../.venv/bin/python"
+$PY gridsearch_sqlite.py train --epochs 10 --shard 0/2 &   # two processes share the GPU
+$PY gridsearch_sqlite.py train --epochs 10 --shard 1/2 &
+wait
+$PY icp_reference.py                      # point-to-point ICP reference on 3000 intervals
+$PY gridsearch_sqlite.py report           # validation ranking and figures
+$PY gridsearch_sqlite.py final --final-epochs 24   # retrains the best one, evaluates test once
+```
+
+Metrics of this stage (per interval between scans): translation and heading
+error, *accuracy* = % of intervals with error < 2 cm and < 0.5°, RPE over
+windows of 6 intervals (selection metric, validation only) and drift when
+integrating each whole run. Section 3 explains why these metrics were
+replaced. Outputs in `learning/outputs/gridsearch_sqlite/`.
+
+### Results (18 configurations, 10 epochs each)
+
+Selected on validation by RPE (error of the pose composed over 6 intervals).
+Top 5 (`outputs/gridsearch_sqlite/grid_results.csv`):
+
+| Configuration | Val RPE [cm] | Val accuracy | Val error per interval |
+| --- | --- | --- | --- |
+| **dual_pair_context_velocity, h128, lr 1e-3** | **24.2** | **45.4 %** | 4.29 cm / 0.070° |
+| dual_pair_context_velocity, h96, lr 1e-3 | 24.6 | 44.7 % | 4.33 cm / 0.070° |
+| single_context_direct, h128, lr 1e-3 | 25.3 | 41.6 % | 4.52 cm / 0.069° |
+| single_context_velocity, h128, lr 1e-3 | 25.6 | 45.1 % | 4.45 cm / 0.070° |
+| single_context_velocity, h96, lr 1e-3 | 26.8 | 43.9 % | 4.61 cm / 0.070° |
+
+The learning rate dominates (the 9 best use 1e-3), then the hidden size; the
+dual architecture wins by a small margin (one seed, so not significant). The
+best one was retrained for 24 epochs (`outputs/gridsearch_sqlite/best_final/`)
+and the test split was evaluated once:
+
+| | Validation | Test |
+| --- | --- | --- |
+| Accuracy (< 2 cm and < 0.5°) | 61.0 % | 65.6 % |
+| Loose accuracy (< 5 cm and < 1°) | 85.3 % | 88.8 % |
+| Translation error per interval | 2.51 cm | 2.18 cm |
+| Heading error per interval | 0.067° | 0.061° |
+| RPE (6 intervals) | 13.6 cm | 12.0 cm |
+| Median drift integrating the whole run | 2.6 % | 1.7 % |
+
+References on the same intervals: point-to-point ICP with ideal heading
+7.4 / 7.1 cm, mean increment 8.8 / 8.2 cm, raw gyro 0.074° / 0.064°. Weak
+points: the `B_economic` profile, the unseen `B_economic + stop_and_go`
+combination and the heading drift accumulated over long runs.
+
+## 3. v2: fixed metrics, a strong classical reference and streaming networks
+
+The analysis of section 2 showed three problems:
+
+- **The accuracy was misleading.** The 2 cm threshold is absolute, so short
+  20 Hz intervals looked better than 10 Hz ones. That is why test (more
+  `C_fast` runs) scored above validation. The 0.5° heading condition never
+  bound either.
+- **The drift hid errors.** It was measured at the end of closed two-lap runs.
+- **The architectures had structural limits.** Global average pooling makes
+  the scan features almost invariant to a rotation of the car, and the
+  velocity was re-estimated from scratch every 6 intervals.
+
+`train_streaming.py` scores every method **on the same intervals** with
+rate-independent metrics, against a classical reference that is meant to be
+hard to beat. Outputs go to `learning/outputs/streaming_v2/`.
+
+| Module | Content |
+| --- | --- |
+| `odometry_metrics.py` | speed error (cm/s), error relative to the step, heading-rate error, RPE over 0.5–10 s [19], KITTI-style drift over 2–40 m segments [18], 1σ/2σ coverage of the predicted uncertainty; the old accuracy is kept as `legacy_*` |
+| `sqlite_streams.py` | whole runs on the GPU; adds the rolling-sweep geometry, the nominal mount and the datasheet range noise of the LiDAR, and as labels only (never inputs) the true body velocity and the true IMU bias |
+| `icp_odometry.py` | causal classical odometry (below) |
+| `streaming_model.py` | the v2 network and its hybrid variant (below) |
+| `train_streaming.py` | stages `icp`, `train`, `report` |
+| `tests/test_streaming_odometry.py` | synthetic corridor, scan rotation, chunk invariance of the streaming state, physically consistent mirroring, submap vs scan-to-scan drift, metrics |
+
+**Classical LiDAR-inertial odometry** (`icp_odometry.py`, no learned
+parameters):
+- **Registration:** point-to-line ICP [3] with normals from local PCA and
+  heteroscedastic point weights from the LiDAR datasheet.
+- **De-skew:** the rolling sweep is corrected with the gyro and the current
+  velocity [4], [5].
+- **Prediction as prior:** the IMU prediction enters as a Gaussian prior (MAP
+  Gauss-Newton). The Cauchy kernel [7] starts wide, so that a prediction that
+  is far off can still be corrected.
+- **Corridors:** degeneracy is detected from the eigenvalues of the
+  information [6]. In a straight corridor the along-axis motion comes from
+  the inertial prediction instead of collapsing to zero.
+- **IMU filters:** a scalar Kalman filter tracks the gyro bias, and a
+  standstill (zero-velocity) update [9], [10] handles stops.
+- **Two variants:** scan-to-scan, and **scan-to-submap** [5], [8]. The submap
+  keeps 5 keyframes, one every 0.5 m or 10°, inserted one interval late with
+  their final de-skew. Its refinement starts from the scan-to-scan solution
+  and is accepted only if both agree within 5 cm and 0.5°; otherwise the
+  local map restarts. It runs in FP32 (TF32 degraded it).
+
+**Streaming network v2** (`StreamingPoseNet`):
+- **Scan comparison before pooling:** the two scans of an interval are
+  compared before any pooling. Both are compensated with the raw gyro (the
+  inter-scan rotation and the rotation during each rolling sweep [4]), then
+  stacked with their range difference, the beam direction and the beam time.
+  A circular-padded CNN pools to 9 sectors, not to 1, with a 1×1 bottleneck.
+- **Persistent state over the whole run:** a two-layer GRU [13], the
+  body-frame velocity (rotated by every heading increment [9]) and the IMU
+  biases.
+- **Kalman-style update with learned gains:** the IMU predicts the motion,
+  the LiDAR branch measures it, and the recurrent core sees the innovation and
+  outputs the gains [11].
+- **Gyro bias:** it can only move towards the bias measured by the LiDAR.
+
+**Hybrid variant** (`hybrid=True`):
+- **Input:** the classical odometry becomes the LiDAR measurement (increment,
+  σ, degeneracy ratio, correspondences, standstill flag, its gyro bias).
+- **Correction:** the network corrects it within ±5 cm / ±0.17°. The gains
+  start at "trust the ICP".
+
+```bash
+cd simulation/learning/lidar_imu_pose
+PY="env -i HOME=$HOME PATH=/usr/bin:/bin ../.venv/bin/python"
+$PY -m pytest tests                                   # 7 tests
+$PY train_streaming.py icp --icp scan                 # classical odometry on train/val/test (hybrid input)
+$PY train_streaming.py icp --icp submap
+$PY train_streaming.py train                          # pure v2 network (regularised)
+$PY train_streaming.py train --hybrid --icp scan      # hybrid on scan-to-scan ICP
+$PY train_streaming.py train --hybrid --icp submap    # hybrid on scan-to-submap ICP
+$PY train_streaming.py report                         # validation and test, figures, report.json
+```
+
+Training setup, the same for every v2 network (one configuration, no grid
+search):
+- **Schedule:** 40 epochs of 64 lanes × 32 intervals with truncated
+  back-propagation through time [14]. Each lane walks a whole run and keeps
+  its state.
+- **Optimizer:** AdamW [16], learning rate 1e-3 with the one-cycle schedule
+  [17], weight decay 1e-3.
+- **Loss:** heteroscedastic NLL [12] plus L1, pose composition over 8 and 32
+  intervals, velocity, and an auxiliary IMU-bias loss.
+- **Regularisation:**
+  - a left-right mirror of the whole world per lane (p = 0.5), consistent
+    for scans, IMU and labels;
+  - up to 8 % extra missing beams;
+  - dropout [15] on the sectors and the recurrent input.
+- **Selection:** the checkpoint with the lowest validation segment drift.
+
+## 4. Results
+
+Test = unseen track + unseen sensor–speed combinations. The same 58 380
+intervals are used for every method (validation: 53 580):
+
+| Method | Speed error [cm/s] | RPE 1 s [cm] | Segment drift | Heading drift [°/m] | Heading rate [°/s] | Legacy accuracy |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Hybrid: scan-to-submap ICP + network** | **4.26** | **2.70** | **0.95 %** | **0.052** | 0.433 | **96.7 %** |
+| Hybrid: scan-to-scan ICP + network | 4.41 | 3.38 | 1.24 % | 0.061 | **0.422** | 95.8 % |
+| Scan-to-submap ICP + IMU (classical) | 8.00 | 3.62 | 1.21 % | 0.058 | 0.508 | 93.8 % |
+| Scan-to-scan ICP + IMU (classical) | 10.83 | 7.90 | 2.18 % | 0.078 | 0.539 | 89.9 % |
+| Pure network v2, regularised | 14.32 | 13.63 | 5.12 % | 0.261 | 0.763 | 83.9 % |
+| Pure network v2, no regularisation | 25.34 | 25.17 | 8.47 % | 0.241 | 0.770 | 67.9 % |
+| Grid-search best (6-interval windows) | 29.09 | 23.57 | 7.90 % | 0.229 | 0.736 | 65.6 % |
+| Raw gyro (heading only) | – | – | – | 0.235 | 0.775 | – |
+
+Validation gives the same order. The submap hybrid scores 4.84 cm/s, 1.26 %
+and 0.062 °/m; the submap ICP scores 8.52 cm/s, 1.44 % and 0.071 °/m.
+
+**The submap hybrid is the best model.**
+- **Against the best classical method** it cuts the speed error by 47 %, the
+  RPE over 1 s by 25 %, the segment drift by 21 % and the heading drift by
+  10 %.
+- **Against the grid-search model** its segment drift is 8 times lower.
+
+**Other findings:**
+- **Calibrated uncertainty.** The hybrid's σ covers 70 % / 95 % of the
+  errors (ideal 68.3 / 95.4). The classical σ is optimistic (56–58 % /
+  77–85 %). A SLAM back end will use this σ to weight the odometry.
+- **Gyro bias.** The estimate is off by 0.06 °/s, against 0.09–0.10 °/s for
+  the ICP and 0.46 °/s with no estimate.
+- **Sensor profiles.** `B_economic` stays the hard one: 2.8 % drift, against
+  0.7 % for A and 0.4 % for C. In validation, the unseen B + stop_and_go
+  combination on training tracks gives 1.2–7.7 % depending on the track,
+  against 0.9 % on the unseen track.
+- **Overfitting.** On training runs the submap hybrid drifts 1.03 %, against
+  1.26 % in validation and 0.95 % in test. The pure network drifts 3.7 %
+  against 6.1 % / 5.1 %. Regularisation lowered the pure network from 8.8 %
+  to 6.1 % in validation, but learning scan registration from scratch still
+  drifts 2–4 times more than the classical odometry.
+
+Figures: `comparison_headline.png`, `overfitting_gap.png`,
+`error_vs_horizon.png`, `breakdown_test.png`, `test_trajectories.png`,
+`hybrid*/training_curves.png`. All numbers are in `report.json`.
+
+### Lessons learned
+
+- **A free bias integrator becomes spare memory.** In the first attempt the
+  gyro bias was a free learned integrator. It drifted to the same wrong value
+  on every sensor, because the network used it as memory. Now it can only move
+  towards the bias the LiDAR measures (`attempt1_free_bias/`,
+  `attempt2_no_regularization/`).
+- **Corridors.** Straight walls carry no information along the corridor axis,
+  so point-to-point ICP collapses to "no motion". Here that direction falls
+  back to the inertial prediction, as the synthetic test checks, and the
+  degeneracy is measured.
+- **The robust kernel must start wide.** A kernel that is narrow from the
+  first iteration prevented correcting far-off predictions (start-ups,
+  braking).
+- **An unchecked submap fails on the noisy sensor.** On `B_economic`, about
+  1 % of the alignments snapped to the wrong keyframe, by up to 1 m. The
+  submap solution is now refined from the scan-to-scan one and kept only if
+  both agree.
+- **TF32 hurts the ICP.** TF32, enabled for training, degraded the ICP
+  through `cdist` and the normal equations, so the ICP now forces FP32
+  (`IcpConfig.version = 2`). The caches and the hybrid trained with TF32 are
+  archived in `icp_archive_v1_tf32/` and `hybrid_archive_tf32_icp_inputs/`.
+
+### Limits
+
+- **Simulation only.** The networks learned to correct simulated sensor
+  errors, and they use the true IMU bias as an auxiliary label that will not
+  exist on the car.
+- **One seed per network.** Small differences, such as the heading of the two
+  hybrids, are not conclusive.
+- **Fixed scan layout.** The network's LiDAR branch assumes 360 beams over
+  360°; the ICP does not.
+- **ICP not cross-checked.** It has not yet been compared with an established
+  implementation such as CSM/PLICP or KISS-ICP.
+- **Test was seen once early.** The report ran once as a dry run with
+  intermediate checkpoints before the final one. No decision used the test
+  split: the selection is automatic, by validation drift.
+
+## Model catalogue
+
+All models are implemented in PyTorch [21]. Checkpoints and cached estimates
+live under `learning/outputs/`, which is **not** in Git (the outputs are
+reproducible with the commands above). Test figures refer to the
+section 4 protocol (same intervals for every model); the historical models
+were trained on a different, single-track recording and are not comparable.
+
+| Model | Code | Checkpoint / estimates (`learning/outputs/…`) | Parameters | Training and selection | Test: speed error / segment drift | Builds on |
+| --- | --- | --- | --- | --- | --- | --- |
+| `LidarImuPoseNet` (historical, single track) | `train_pose_fusion.py` | `lidar_imu_pose/best_model.pt`, `best_model_before_velocity.pt`, `best_model_before_dual_scan.pt` | – | self-supervised on ICP targets (or `--supervised-ground-truth`), chronological 70/15/15 split of one track | – | [1], [12], [13], [20] |
+| `single_context_direct` | `architectures.py` | `gridsearch_sqlite/configs/single_context_direct__h*__lr*/best_model.pt` | – | grid, 10 epochs, validation RPE (best: h128, 25.3 cm) | – | [12], [13] |
+| `single_context_velocity` | `architectures.py` | `gridsearch_sqlite/configs/single_context_velocity__h*__lr*/best_model.pt` | – | grid, 10 epochs (best: h128, 25.6 cm) | – | [9], [12], [13] |
+| `dual_pair_context_velocity`, grid best (h128, lr 1e-3) | `architectures.py`, `gridsearch_sqlite.py` | `gridsearch_sqlite/best_final/best_model.pt` | 736 102 | retrained 24 epochs, validation RPE | 29.09 cm/s / 7.90 % | [9], [12], [13] |
+| Classical odometry, scan-to-scan | `icp_odometry.py` (`IcpConfig()`) | `streaming_v2/icp_{train,validation,test}.pt` | 0 | parameters tuned on validation | 10.83 cm/s / 2.18 % | [2]–[7], [9], [10] |
+| Classical odometry, scan-to-submap | `icp_odometry.py` (`submap_keyframes=5`) | `streaming_v2/icp_submap_{train,validation,test}.pt` | 0 | as above | 8.00 cm/s / 1.21 % | [2]–[10] |
+| Pure network v2, no regularisation | `streaming_model.py` (`regularize=False`) | `streaming_v2/attempt2_no_regularization/best_model.pt` | 592 145 | stopped at epoch 12 to add regularisation; validation segment drift | 25.34 cm/s / 8.47 % | [4], [9], [11]–[14], [16], [17] |
+| Pure network v2, regularised | `streaming_model.py` | `streaming_v2/best_model.pt` | 485 681 | 40 epochs, best 34 | 14.32 cm/s / 5.12 % | as above + [15] |
+| Hybrid on scan-to-scan ICP | `streaming_model.py` (`hybrid=True`) | `streaming_v2/hybrid/best_model.pt` | 488 753 | 40 epochs, best 40 | 4.41 cm/s / 1.24 % | classical + network |
+| **Hybrid on scan-to-submap ICP (best)** | `streaming_model.py` (`hybrid=True`) | `streaming_v2/hybrid_submap/best_model.pt` | 488 753 | 40 epochs, best 34 | **4.26 cm/s / 0.95 %** | classical + network |
+
+Discarded runs kept for traceability:
+- `streaming_v2/attempt1_free_bias/`: the gyro bias was a free integrator
+  and drifted.
+- `streaming_v2/hybrid_archive_tf32_icp_inputs/`: a hybrid trained on the
+  TF32-degraded ICP, with 1.82 % validation drift.
+
+Loading a v2 checkpoint:
+
+```python
+from streaming_model import StreamingPoseNet
+ck = torch.load(path, map_location=device, weights_only=False)
+net = StreamingPoseNet(ck["config"]["hidden"], hybrid=ck["config"].get("hybrid", False))
+net.load_state_dict(ck["model"])  # regularize=False for attempt2_no_regularization
+```
+
+`train_streaming.stream_predict` runs a network causally over whole runs. A
+hybrid needs `StreamData.attach_icp` with the matching classical estimates.
+
+## References
+
+1. P. J. Besl, N. D. McKay, "A method for registration of 3-D shapes", IEEE TPAMI 14(2), 1992.
+2. Y. Chen, G. Medioni, "Object modelling by registration of multiple range images", Image and Vision Computing 10(3), 1992.
+3. A. Censi, "An ICP variant using a point-to-line metric", IEEE ICRA 2008.
+4. J. Zhang, S. Singh, "LOAM: Lidar Odometry and Mapping in Real-time", RSS 2014.
+5. I. Vizzo, T. Guadagnino, B. Mersch, L. Wiesmann, J. Behley, C. Stachniss, "KISS-ICP: In Defense of Point-to-Point ICP – Simple, Accurate, and Robust Registration If Done the Right Way", IEEE RA-L 8(2), 2023.
+6. J. Zhang, M. Kaess, S. Singh, "On degeneracy of optimization-based state estimation problems", IEEE ICRA 2016.
+7. Z. Zhang, "Parameter estimation techniques: a tutorial with application to conic fitting", Image and Vision Computing 15(1), 1997.
+8. W. Hess, D. Kohler, H. Rapp, D. Andor, "Real-time loop closure in 2D LIDAR SLAM", IEEE ICRA 2016.
+9. P. D. Groves, "Principles of GNSS, Inertial, and Multisensor Integrated Navigation Systems", 2nd ed., Artech House, 2013.
+10. I. Skog, P. Händel, J.-O. Nilsson, J. Rantakokko, "Zero-velocity detection — An algorithm evaluation", IEEE Trans. Biomedical Engineering 57(11), 2010.
+11. G. Revach, N. Shlezinger, X. Ni, A. L. Escoriza, R. J. G. van Sloun, Y. C. Eldar, "KalmanNet: Neural Network Aided Kalman Filtering for Partially Known Dynamics", IEEE Trans. Signal Processing 70, 2022.
+12. A. Kendall, Y. Gal, "What Uncertainties Do We Need in Bayesian Deep Learning for Computer Vision?", NeurIPS 2017.
+13. K. Cho et al., "Learning Phrase Representations using RNN Encoder–Decoder for Statistical Machine Translation", EMNLP 2014.
+14. R. J. Williams, J. Peng, "An efficient gradient-based algorithm for on-line training of recurrent network trajectories", Neural Computation 2(4), 1990.
+15. N. Srivastava, G. Hinton, A. Krizhevsky, I. Sutskever, R. Salakhutdinov, "Dropout: A Simple Way to Prevent Neural Networks from Overfitting", JMLR 15, 2014.
+16. I. Loshchilov, F. Hutter, "Decoupled Weight Decay Regularization", ICLR 2019.
+17. L. N. Smith, N. Topin, "Super-Convergence: Very Fast Training of Neural Networks Using Large Learning Rates", Proc. SPIE 11006, 2019.
+18. A. Geiger, P. Lenz, R. Urtasun, "Are we ready for autonomous driving? The KITTI vision benchmark suite", CVPR 2012.
+19. J. Sturm, N. Engelhard, F. Endres, W. Burgard, D. Cremers, "A benchmark for the evaluation of RGB-D SLAM systems", IROS 2012.
+20. K. S. Arun, T. S. Huang, S. D. Blostein, "Least-squares fitting of two 3-D point sets", IEEE TPAMI 9(5), 1987.
+21. A. Paszke et al., "PyTorch: An Imperative Style, High-Performance Deep Learning Library", NeurIPS 2019.
