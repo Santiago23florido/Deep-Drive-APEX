@@ -14,6 +14,7 @@ LiDAR–IMU fusion method for small autonomous vehicles. It provides:
 | **Ground truth + evaluation** | 6-DoF truth from Gazebo, per-sample navigation errors, CSV/metadata recording and publication-quality plots. |
 | **SLAM baseline** | Identical `slam_toolbox` instances fed with good and damaged sensors, run headless. Maps, trajectories, the real track and raw measurements are exported to CSV, then scored against the real track (section 9). |
 | **Validation tools** | Allan-variance identification, LiDAR-model statistical report, unit tests with analytical references. |
+| **Real2sim sensors + closed loop** | Gazebo-native sensors made real by a realism layer (RPLIDAR A2M8 rolling revolutions, LSM6DS3 chip), the learned LiDAR-inertial odometry + slam_toolbox driving a pose-dataset format on its own estimate, with a truth referee and the evaluation (section 13). |
 
 Every model lives in a ROS-independent module configured by a dataclass. Every
 dataclass field is automatically exposed as a ROS parameter, loadable from a
@@ -117,6 +118,8 @@ apex_fusion_research/
 │   │   ├── slam_odometry.py   # planar SLAM motion prior (heading_only / full_pose)
 │   │   ├── occupancy.py       # OccupancyGrid -> points, PGM/YAML export
 │   │   ├── map_metrics.py     # SE(2), map similarity, point-to-line ICP, ATE
+│   │   ├── lidar_rolling.py   # real2sim: gpu_lidar captures -> rolling A2M8 revolutions
+│   │   ├── imu_chip.py        # real2sim: Gazebo 1 kHz IMU -> LSM6DS3 output
 │   │   └── config_io.py       # dataclass <-> flat parameters <-> ROS YAML
 │   ├── nodes/                 # thin ROS 2 wrappers around core/
 │   │   ├── imu_sensor_node.py
@@ -127,6 +130,10 @@ apex_fusion_research/
 │   │   ├── scan_projector_node.py
 │   │   ├── slam_odometry_node.py      # <tag>/odom -> <tag>/base_link prior
 │   │   ├── slam_map_recorder_node.py  # SLAM maps + trajectories + real track to CSV
+│   │   ├── real_sensor_node.py        # real2sim: Gazebo sensors -> /apex/imu/data_raw, /lidar/scan_raw
+│   │   ├── sim_actuation_node.py      # real2sim: /apex/cmd_vel_track -> dataset ESC / servo -> Gazebo
+│   │   ├── track_driver_node.py       # real2sim: pure pursuit + speed plan on the estimated pose
+│   │   ├── run_referee_node.py        # real2sim: lap / collision / off-track verdict (truth)
 │   │   └── _common.py         # ConfigParameters: dataclass -> ROS parameters
 │   └── tools/                 # offline analysis (console scripts)
 │       ├── plot_ins_drift.py
@@ -137,6 +144,7 @@ apex_fusion_research/
 ├── config/{imu,lidar,ins,slam}/*.yaml   # parameter presets
 ├── doc/images/                # figures used in this README
 ├── launch/fusion_research_sim.launch.py
+├── launch/apex_real2sim.launch.py     # real2sim closed loop (section 13)
 ├── rviz/fusion_research.rviz
 └── test/                      # pytest, runs without ROS
 ```
@@ -544,8 +552,8 @@ constraints, is therefore the first target for the LiDAR–IMU fusion work.
 
 ## 12. Roadmap
 
-1. Identify the real IMU and LiDAR, then create hardware presets.
-2. Model LiDAR motion distortion.
+1. ~~Identify the real IMU and LiDAR, then create hardware presets.~~ Done: `APEX_real` (section 13).
+2. ~~Model LiDAR motion distortion.~~ Done: `core/lidar_rolling.py` (section 13).
 3. Loosely coupled error-state Kalman filter: INS prediction plus LiDAR scan
    matching updates, with bias estimation checked against `true_*_bias`.
    Evaluate it against the SLAM baseline of section 9.
@@ -553,6 +561,91 @@ constraints, is therefore the first target for the LiDAR–IMU fusion work.
    captures, so loop closure and full-track coverage enter the comparison.
 5. Monte-Carlo campaigns over seeds and parameter sweeps, with NEES/NIS
    consistency and RMSE statistics.
+
+## 13. Real2sim: Gazebo-native sensors and the learned odometry in closed loop
+
+**Goal.** Run the car in Gazebo the way the real car will run, as the sensors
+and the software stack of the car see it:
+- Gazebo measures with its own sensors, and the realism layer (`core/lidar_rolling.py`, `core/imu_chip.py`) makes the measurement look like the real hardware.
+- The learned LiDAR-inertial odometry (`learning/lidar_imu_pose/live_odometry.py`) estimates the pose.
+- `slam_toolbox` builds the map on it.
+- The car drives a pose-dataset format (track, motion profile, seed, laps) using only that estimate.
+
+The same realism layer produced the training data (`tools/pose_dataset/README.md`, §13).
+
+```
+Gazebo (track world, car with suspension, gpu_lidar capture 26 Hz, 1 kHz IMU with Gazebo noise)
+  -> real_sensor_node   A2M8 revolution (13 Hz, clockwise from +89 deg, stamp = first sample) on /lidar/scan_raw
+                        LSM6DS3 sample (104 Hz, stamp = sampling instant) on /apex/imu/data_raw
+                        (published when the device would deliver them, simulation clock)
+  -> learned_odometry_node (learning/.venv: torch)
+        TF odom_learned -> base_link at every scan stamp, /apex/odometry/learned (sigma -> covariance),
+        /apex/odometry/learned_predicted (IMU-propagated, for control), /apex/learned_odometry/scan_deskewed
+  -> slam_toolbox (config/slam/slam_toolbox_learned.yaml): /map, TF map -> odom_learned
+  -> track_driver_node  T_world_map (start pose) * map->odom * predicted pose -> pure pursuit + speed plan
+  -> /apex/cmd_vel_track (Twist, the real car's interface) -> sim_actuation_node (dataset ESC / servo) -> Gazebo
+run_referee_node (truth only): lap completed / collision / off-track -> run_result.json, real walls for the map evaluation
+```
+
+**What the car knows.**
+- **Calibration:** only its nominal calibration (`base_link -> laser` at 0.18/0/0.12 and `-> imu_link` as static TFs). The simulated true mounts differ by the drawn calibration error.
+- **Start pose:** by default (`--start-pose true`) the path is laid out from where the car stands, as when it plans in its own map; the truth is used once and never updated. `--start-pose nominal` uses the start line instead, and the seeded placement error (up to 2°) is then unknown to it.
+- **Truth:** only the referee and the evaluation see it.
+
+**Frequencies.**
+- **Physics:** 1 kHz.
+- **Sensors:** IMU at 104 Hz, LiDAR at 13 Hz.
+- **Estimator:** one update per revolution, once the IMU covers it. Compute is ~20 ms on the CPU with 4 threads, the default; the GPU is slower for one car.
+- **Latency:** the corrected pose is available ~100 ms after its stamp (sweep + compute). The predicted pose follows the IMU.
+- **SLAM:** ≤ 5 Hz.
+- **Driver:** 50 Hz.
+- **Clock:** every node runs on the simulation clock.
+
+```bash
+./simulation/tools/sim/apex_real2sim_up.sh --track val_mixed --motion medium --seed 1 --laps 2
+# --checkpoint <file>           default: learning/outputs/real2sim_v2/hybrid_submap/best_model.pt (trained on APEX_real)
+# --motion slow_variable        real-car speeds
+# --sensor APEX_real_compat     A2M8 in the 2 kHz protocol
+# --drive truth                 drive on the exact pose (diagnostic: estimator without the closed loop)
+# --gui / --no-rviz             Gazebo GUI, no RViz
+```
+
+**Outputs.** Each run writes `simulation/data/real2sim/<run>/`:
+- **Evaluation:** `run_result.json` (referee), `evaluation.json` / `evaluation.png`.
+  - Odometry against the truth at the true revolution starts, with the offline metrics (speed error, RPE, segment drift, σ coverage).
+  - SLAM map metrics, latencies, the achieved real-time factor and the received sensor timing.
+- **Logs:** `estimator.csv`, `driver.csv`, `truth_scans.csv`, `truth_track.csv`, `imu_raw.csv`.
+- **SLAM:** `slam/` (maps, trajectories) and `slam_metrics.json` (`plot_slam_maps`).
+
+**Validation with the retrained model** (`real2sim_v2/hybrid_submap`, `val_mixed`, a track never seen in training, seed 1, 2 laps, `APEX_real`, CPU).
+
+| | `medium` (fast, 3.3 m/s cruise) | `slow_variable` (0.3–1.5 m/s) |
+| --- | --- | --- |
+| Referee | both laps completed (103.5 of 103.7 m), no collision | both laps completed (102.8 of 103.3 m), no collision |
+| Max lateral error (truth) | 0.29 m | 0.15 m |
+| Belief error of the driver, p50 / p95 | 0.13 / 0.25 m | 0.10 / 0.16 m |
+| Odometry: speed error, segment drift | 4.36 cm/s, 0.85 % (offline, validation runs of this format: 0.87 %) | 1.15 cm/s, 0.63 % (offline, same: 0.59 %) |
+| SLAM map, anchored: precision / coverage / chamfer | 0.65 / 0.84 / 8.9 cm | 0.75 / 0.75 / 6.9 cm |
+| SLAM map, shape (after rigid ICP): precision / coverage / chamfer | 0.74 / 0.83 / 8.0 cm | 0.97 / 0.94 / 3.8 cm |
+| SLAM ATE (RMSE) | 0.15 m | 0.10 m |
+| Estimator latency p50 / p95 (scan stamp → estimate) | 152 / 176 ms | 155 / 178 ms |
+| Predicted pose age used by the driver, p95 | 32 ms | 33 ms |
+| Real-time factor | 0.46 | 0.51 |
+| Timing audit | passed | passed |
+
+- **Live equals offline.** The drift of the live odometry matches the offline evaluation of the same format; the estimator reproduces the batch path exactly (`learning/lidar_imu_pose/tests/test_live_odometry.py`).
+- **Anchored against shape.** The anchored map is offset by a rigid 0.2–0.6° and a few centimetres. The car only knows its nominal LiDAR mount, and the drawn mount error of these runs is 0.35–0.77° in yaw; the early heading drift adds to it. The shape of the map is good, with 3.8 cm chamfer at slow speed.
+- **Latency.** About 80 ms is the revolution itself plus its publication, and about 10 ms is the IMU that must cover the revolution. The rest is the network and the ICP, 62–64 ms (wall clock) while Gazebo, the sensor layer and the SLAM share the CPU; alone they take ~20 ms. Control is not affected: the driver uses the IMU-propagated pose, compensated for its age.
+
+**Timing audit.** `tools/analysis/sensor_timing_audit.py <dir> --profile APEX_real` checks a recording against the timing the model expects. Simulated runs pass it; today's real-car recordings do not (see `real_vehicle/docs/sensor_timing_requirements.md`, recommendations only).
+
+**Tests.** `test/test_realism_layer.py` checks:
+- the chip rate and output noise density;
+- the bias labels;
+- the rolling emulation against exact per-sample ray casting;
+- clockwise order, blind sector and stamps.
+
+`tools/pose_dataset/tests/test_suspension.py` checks the sprung-body response.
 
 ## References
 

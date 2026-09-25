@@ -335,6 +335,79 @@ Figures: `comparison_headline.png`, `overfitting_gap.png`,
   intermediate checkpoints before the final one. No decision used the test
   split: the selection is automatic, by validation drift.
 
+## 5. Real2sim: the real sensors and the live node
+
+Sections 1–4 use the v1 dataset, whose sensors this project synthesized
+itself. They differ from the car:
+- **LiDAR:** it swept counter-clockwise from −180°; the A2M8 turns clockwise from its sync angle at +89°.
+- **IMU:** 125 Hz; the car's IMU has another rate.
+- **Suspension:** none.
+
+The real2sim chain (dataset v2, `tools/pose_dataset/README.md` §13) produces
+Gazebo-native measurements of the real hardware (profile `APEX_real`). The
+same chain runs live (`ros2_ws/src/apex_fusion_research/README.md` §13).
+
+**Per-beam firing time.** The firing time of every bin now comes from the LiDAR calibration: rotation direction and sync angle, stored with every run. It no longer comes from "beam i at i · dt":
+- **`sqlite_streams.bin_time_fraction`:** gives each bin's time within the revolution; `StreamData` carries it per run.
+- **ICP (`icp_odometry.deskew`) and network (`streaming_model.rotate_scan` / `pair_channels`):** they de-skew each beam from that time. The network's inverse mapping is solved by fixed point, since the time jumps at the sync angle.
+- **Old data:** v1 runs keep the historical layout. Their batches, and those of the v1 checkpoints, are unchanged (tests below).
+
+**Live node.**
+- **`live_odometry.LiveOdometry`:** runs a checkpoint on the raw messages, one IMU sample and one revolution at a time. It rebuilds every interval exactly as the training data:
+  - IMU samples in (t_{k-1}, t_k], or the nearest one; normalisation and float16 rounding;
+  - the IMU padding the network was trained with;
+  - trapezoidal gyro integrals, float32 rates;
+  - the yaw rate over the revolution of scan k, waiting until the IMU covers it;
+  - ICP in FP32 with the same `IcpStream` as the batch path; persistent network state.
+- **`learned_odometry_node.py`:** the ROS 2 wrapper. It publishes the TF at the scan stamps, the pose propagated with the IMU for control, and the scan de-skewed for the SLAM.
+- **Checkpoint loading:** `streaming_model.load_checkpoint` reads the architecture (pure / hybrid, ICP variant, early unregularised layout) from the checkpoint, so a retrained model is a drop-in replacement.
+- **Compute:** ~20 ms per revolution on the CPU (4 threads) against ~110 ms on the GPU for a single car. The CPU is the default.
+
+**Tests.**
+- **`tests/test_live_odometry.py`:** replays a stored validation run message by message through `LiveOdometry`, for a v1 run and for a v2 run (clockwise A2M8). It matches `run_icp` + `stream_predict` within 1e-5 m and 1e-6 rad.
+- **`tests/test_streaming_odometry.py`:** covers the clockwise sweep in `rotate_scan` and `deskew`.
+- **Refactored ICP:** bit-identical to the original on the same data.
+
+**Training on v2.** Outputs go to `outputs/real2sim_v2/` and are selected on the v2 validation track. The classical ICP caches are now tied to their database, and `--out` is honoured by every stage.
+
+```bash
+cd simulation/learning/lidar_imu_pose
+DB=../../data/multiscenario_pose/pose_dataset_v2.sqlite3 OUT=../outputs/real2sim_v2
+PY="env -i HOME=$HOME PATH=/usr/bin:/bin ../.venv/bin/python"
+$PY train_streaming.py icp --icp submap --db $DB --out $OUT
+$PY train_streaming.py train --hybrid --icp submap --sensors APEX_real --db $DB --out $OUT
+$PY train_streaming.py report --sensors APEX_real --db $DB --out $OUT
+```
+
+`--sensors` keeps only the runs of those profiles (the cached ICP is sliced, not recomputed). The v2 database holds `APEX_real` only.
+
+### Results on v2 (`outputs/real2sim_v2/`)
+
+The same hybrid network (scan-to-submap ICP + streaming network, 488 753 parameters) was trained for 40 epochs on the 195 training runs of v2 (18 min on the GPU); the best validation epoch is 38. Validation is on `val_mixed`, test on `test_unseen`; neither track is seen in training. Both cover all eight motions, fast and slow.
+
+| Split | Model | Speed error | Segment drift | Rotation drift | 2σ coverage (x / yaw) |
+| --- | --- | --- | --- | --- | --- |
+| Validation | Scan-to-submap ICP | 9.60 cm/s | 2.08 % | 0.054 °/m | 77 % / 84 % |
+| Validation | **Hybrid** | **2.92 cm/s** | **0.76 %** | 0.050 °/m | 93 % / 96 % |
+| Test | Scan-to-submap ICP | 11.75 cm/s | 3.90 % | 0.050 °/m | 75 % / 82 % |
+| Test | **Hybrid** | **3.51 cm/s** | **1.36 %** | 0.044 °/m | 92 % / 95 % |
+
+Segment drift of the hybrid on the test track, by motion:
+
+| Fast (1.5–4.2 m/s) | low | medium | high | variable | stop_and_go |
+| --- | --- | --- | --- | --- | --- |
+| Hybrid | 0.60 % | 0.83 % | 1.12 % | 1.07 % | 1.28 % |
+| ICP | 2.70 % | 3.05 % | 2.67 % | 4.29 % | 6.25 % |
+
+| Slow (0.3–1.5 m/s) | slow | slow_variable | slow_stop_and_go |
+| --- | --- | --- | --- |
+| Hybrid | 1.95 % | 0.63 % | 3.32 % |
+| ICP | 4.64 % | 0.54 % | 5.03 % |
+
+- **Against v1.** v1 gave 0.95 % on its test track, with sensors synthesized by this project (counter-clockwise sweep from −180°, 125 Hz IMU, rigid car). v2 has the real A2M8 and LSM6DS3, the suspension and the slow motions, so the two figures are not comparable.
+- **Weakest case:** `slow_stop_and_go` on the test track (3.3 %). The distance between stops is short, so a few centimetres of error at every restart weigh a lot; the ICP alone is worse there too. `slow_variable` is the only case where the ICP alone is slightly better (0.54 % against 0.63 %).
+- **Live equivalence:** `tests/test_live_odometry.py` replays a v2 validation run through `LiveOdometry` with this checkpoint and matches the batch evaluation within 1e-5 m.
+
 ## Model catalogue
 
 All models are implemented in PyTorch [21]. Checkpoints and cached estimates
@@ -355,6 +428,8 @@ were trained on a different, single-track recording and are not comparable.
 | Pure network v2, regularised | `streaming_model.py` | `streaming_v2/best_model.pt` | 485 681 | 40 epochs, best 34 | 14.32 cm/s / 5.12 % | as above + [15] |
 | Hybrid on scan-to-scan ICP | `streaming_model.py` (`hybrid=True`) | `streaming_v2/hybrid/best_model.pt` | 488 753 | 40 epochs, best 40 | 4.41 cm/s / 1.24 % | classical + network |
 | **Hybrid on scan-to-submap ICP (best)** | `streaming_model.py` (`hybrid=True`) | `streaming_v2/hybrid_submap/best_model.pt` | 488 753 | 40 epochs, best 34 | **4.26 cm/s / 0.95 %** | classical + network |
+| Classical odometry, scan-to-submap, v2 data (§5) | `icp_odometry.py` (`submap_keyframes=5`) | `real2sim_v2/icp_submap_{train,validation,test}.pt` | 0 | as above | 11.75 cm/s / 3.90 % (v2 test) | [2]–[10] |
+| **Hybrid on scan-to-submap ICP, real2sim v2 (live default)** | `streaming_model.py` (`hybrid=True`) | `real2sim_v2/hybrid_submap/best_model.pt` | 488 753 | 40 epochs on v2 `APEX_real`, best 38 | **3.51 cm/s / 1.36 %** (v2 test) | classical + network |
 
 Discarded runs kept for traceability:
 - `streaming_v2/attempt1_free_bias/`: the gyro bias was a free integrator
