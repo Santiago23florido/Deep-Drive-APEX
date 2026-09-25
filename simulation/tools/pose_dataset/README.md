@@ -336,11 +336,11 @@ statistics and a packed GRU ignore padding, and multi-worker loading.
 
 ## 11. Known limitations
 
-- The Gazebo car has no suspension. Roll, pitch and vibration come from the documented body model, applied to the sensors. The planar pose, velocities and yaw rate are exact physics.
+- v1: the Gazebo car has no suspension. Roll, pitch and vibration come from the documented body model, applied to the sensors. The planar pose, velocities and yaw rate are exact physics. (v2, §13, has a physical suspension.)
 - The contact model is rigid DART with µ = 1.2, and grip at the limit is probably optimistic. This is why v_max reaches 3.5–4.75 m/s.
 - The dimensions of the real-track replica are estimated from a photo.
 - The LiDAR sees only boxes and cylinders, with no material reflectivity beyond the statistical dropout model.
-- IMU sample instants are rounded to the 1 ms physics step.
+- v1: IMU sample instants are rounded to the 1 ms physics step (v2 samples at exact instants).
 - Physics runs at 1 kHz, so the IMU DLPF and sampling cannot represent content above 500 Hz.
 
 ## 12. Using the tracks in Gazebo
@@ -362,7 +362,74 @@ gz sim ros2_ws/src/rc_sim_description/worlds/pose_dataset/urban_grid.world   # t
 - The worlds contain the dataset geometry with collisions, plus the physics, IMU and rendering-sensor systems the ROS car needs.
 - Scenarios `pose_<track>` are appended to `config/apex_sim_scenarios.json`. The existing scenarios are left byte for byte, and they spawn the car at the start of the reference path.
 
-## 13. Files
+## 13. Dataset v2: real2sim with Gazebo-native sensors
+
+The v1 streams (§5) are synthesized by this tool: its own ray casting and an
+IMU built from the exact state. The live Gazebo simulation uses Gazebo's
+sensors instead, and the real car has its own hardware and timing. v2 aligns
+the three. The car is built from the same xacro as the live simulation, and
+Gazebo measures with its own sensors. A realism layer turns those
+measurements into what the real devices output. The same code runs in the
+dataset and in the live simulation
+(`ros2_ws/src/apex_fusion_research/apex_fusion_research/core/`).
+
+**Signal chain.**
+
+```
+Gazebo physics (car with suspension) -> gpu_lidar capture (26 Hz x 1440 rays) -> lidar_rolling -> A2M8 revolution
+                                     -> imu 1 kHz + Gazebo noise (+ noise-free twin) -> imu_chip -> LSM6DS3 sample
+```
+
+**The real hardware (`sensors.yaml`, profiles `APEX_real` and `APEX_real_compat`).** Every value has its provenance in the file.
+
+| | Value | Source |
+| --- | --- | --- |
+| LiDAR | RPLIDAR A2M8, 13.03 Hz, clockwise from +89° (sync), 8000 samples/s (compat: 2000), closest sample per 1° bin, blind sector +145°..−155°, noise 1 mm + 0.3 % of range (measured on static bins after removing the range spread across each 1° bin, which the binning reproduces) | datasheet, `real_vehicle` driver code, `tools/analysis/real_sensor_identification.py` on `real_vehicle/data` |
+| IMU | LSM6DS3 at 104 Hz (ODR); chip low-pass 33 Hz (gyro) and 50 Hz (accel); installed noise 1.7–3.9 mrad/s and 0.07–0.10 m/s²; turn-on bias up to ~0.1 rad/s | datasheet (DocID026899), Arduino_LSM6DS3 defaults, rest segments of the real recordings |
+| Timing | Stamp = first sample of the revolution / sampling instant; publication 3 ms / 2 ms later | how the hardware works (the defects of today's car software are documented in `real_vehicle/docs/sensor_timing_requirements.md` and not modelled) |
+| Body | Physical suspension (xacro `suspension:=true`): 3.1°/g roll, 2.1°/g pitch, 3.5 Hz, ζ 0.49; the sensors ride on the sprung body at the true mounts drawn per trajectory | `vehicle.yaml` targets, checked by `suspension_check.py` / `tests/test_suspension.py` |
+
+**What Gazebo does and what the layer adds.**
+- **Gazebo:** geometry and physics, plus the IMU white noise, turn-on bias and Gauss-Markov bias (native SDF noise, seeded per trajectory).
+- **`imu_chip`:** vibration, the chip filter, the exact output rate with its clock error, scale, misalignment, g-sensitivity, quantization and saturation.
+- **`lidar_rolling`:** the rolling sweep. Each device sample is taken from its own pose: the nearest capture is re-projected into the sample's viewpoint and intersected with the reconstructed surface.
+  - Against exact per-sample ray casting the error is below 1 mm (p95 1 mm; > 5 cm in 0.3–1.1 % of the bins, at occlusion edges). The effect itself is 20 mm median and metres at the edges, at 3.3 m/s.
+  - The layer also adds the rotation direction and sync angle, the blind sector, range noise and binning.
+- **Where the LiDAR noise is applied:** the layer applies it to each final sample. Applying Gazebo's LiDAR noise before the resampling would smear it.
+
+**Storage.** The layout is v1's, so loaders and training work unchanged.
+- **Scan stamps:** the first sample of the revolution. Revolution starts lie on the 1 ms grid, so the label pose is exact.
+- **Beam timing:** the sweep direction and sync angle are stored with the calibration (`sensor_calibration.noise_configuration_json`). The loaders derive the firing time of every bin from them (`sqlite_streams.bin_time_fraction`).
+- **IMU ground truth:** IMU samples keep their exact off-grid instants; their ground-truth row is the nearest step (QA tolerance + 0.5 ms).
+- **Bias labels:** the difference with the noise-free twin IMU, averaged over 1 s.
+
+**Presets.**
+- **`smoke_v2`:** a system check.
+- **`full_v2`:** the v1 tracks and splits, the five fast motions (6 train / 5 val / 5 test seeds, 2 laps), and three slow ones at the real car's speeds.
+  - Slow motions: `slow`, `slow_variable`, `slow_stop_and_go`, at 0.3–1.5 m/s; 3 seeds, 1 lap.
+  - Sensor: `APEX_real`.
+- **`APEX_real_compat`** (the 2 kHz protocol of today's car driver) shares the hardware (`hardware: APEX`) and can be added to a preset. It is not a design target: with ~150 samples per revolution the classical ICP finds no correspondences (normals need consecutive bins).
+- **`check_v2`:** 3 validation runs, to check the classical odometry after a sensor change.
+
+```bash
+python3 tools/generate_pose_dataset.py --preset full_v2 --database data/multiscenario_pose/pose_dataset_v2.sqlite3 --workers 6
+# after an interruption, or to retry failed runs:
+python3 tools/generate_pose_dataset.py --preset full_v2 --database data/multiscenario_pose/pose_dataset_v2.sqlite3 --workers 6 --resume --retry-failed
+```
+
+**Result.** 263 runs (195 train, 34 validation, 34 test), one per trajectory, `APEX_real` only; 0 failures, all QA checks passed.
+- 189 k scans, 1.51 M IMU samples and 1.68 M ground-truth rows in 1.2 GB.
+- Measured on every run: LiDAR 13.02–13.05 Hz, IMU 103–105 Hz, 7–9 IMU samples per scan, 75 % valid 1° bins per revolution (the blind sector and the open track take the rest).
+- 4.1 h of simulated time in 95 min with 6 workers (2.6× real time): each worker renders its gpu_lidar, at RTF 0.4–0.7.
+- The trained model and its results are in `learning/lidar_imu_pose/README.md` (real2sim v2).
+
+**Limitations of v2.**
+- **Surfaces:** gpu_lidar sees geometry only; reflectivity is statistical (dropouts).
+- **Rolling emulation:** reconstructed from 26 Hz snapshots.
+- **Vibration and chip filter:** modelled, not physical.
+- **Speed calibration:** the maximum stable speeds were measured on the rigid car.
+
+## 14. Files
 
 ```
 tools/generate_pose_dataset.py          CLI (re-exec into a clean Python 3.12)
@@ -372,7 +439,9 @@ tools/pose_dataset/
   config/rc_car_model.sdf               car model generated from the xacro (sha1-checked)
   tracks.py geometry.py                 track builder, SDF I/O, footprint collisions
   vehicle.py controller.py gz_runner.py physics, actuators, driver, worker entry point
-  raycast.py sensors.py                 LiDAR ray casting and sensor synthesis
+  raycast.py sensors.py                 LiDAR ray casting and sensor synthesis (v1)
+  native_runner.py                      v2: Gazebo-native sensors + realism layer (sensor_backend gazebo_native)
+  suspension_check.py                   sprung-body response of the Gazebo car
   calibrate.py campaign.py parallel.py  speed calibration, campaign, process pool
   db.py blobs.py qa.py report.py        SQLite, BLOB codecs, QA, report
   torch_dataset.py                      PyTorch Dataset + collate

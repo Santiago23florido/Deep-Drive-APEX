@@ -96,6 +96,10 @@ def run_qa(synth: dict[str, Any], physics: dict[str, Any], nominal_imu_hz: float
         lidar_stamp_error_ms_mean=float(lat_l.mean() * 1e-6), lidar_stamp_error_ms_std=float(lat_l.std() * 1e-6),
     )
     tol_i = (abs(float(ts_cfg_i.get("offset_ms", 0))) + 7 * float(ts_cfg_i.get("jitter_std_ms", 0)) + 0.01) * 1e6
+    if synth["profile"].get("backend") == "gazebo_native":
+        # Exact sampling instants of the chip clock: the ground-truth row is
+        # the nearest physics step, up to half a step away.
+        tol_i += 0.5 * step
     tol_l = (abs(float(ts_cfg_l.get("offset_ms", 0))) + 7 * float(ts_cfg_l.get("jitter_std_ms", 0)) + 0.01) * 1e6
     checks["timestamps_match_ground_truth"] = bool(np.all(np.abs(lat_i) <= tol_i)) and bool(np.all(np.abs(lat_l) <= tol_l))
 

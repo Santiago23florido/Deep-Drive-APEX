@@ -48,8 +48,29 @@ from apex_fusion_research.core.imu_error import ImuErrorConfig, ImuErrorModel  #
 from apex_fusion_research.core.lidar_noise import LidarNoiseConfig, LidarNoiseModel  # noqa: E402
 
 
+def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+    out = copy.deepcopy(base)
+    for k, v in over.items():
+        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else copy.deepcopy(v)
+    return out
+
+
 def load_sensor_profiles(path: Path | None = None) -> dict[str, dict[str, Any]]:
-    return yaml.safe_load((path or PACKAGE_DIR / "config" / "sensors.yaml").read_text(encoding="utf-8"))["profiles"]
+    """Profiles of ``sensors.yaml``; ``inherit: <name>`` deep-merges a profile
+    over another one (only the fields that differ are written)."""
+    raw = yaml.safe_load((path or PACKAGE_DIR / "config" / "sensors.yaml").read_text(encoding="utf-8"))["profiles"]
+    resolved: dict[str, dict[str, Any]] = {}
+
+    def get(name: str, chain: tuple[str, ...] = ()) -> dict[str, Any]:
+        if name in chain:
+            raise ValueError(f"sensor profile inheritance cycle: {' -> '.join(chain + (name,))}")
+        if name not in resolved:
+            prof = dict(raw[name])
+            parent = prof.pop("inherit", None)
+            resolved[name] = _deep_merge(get(parent, chain + (name,)), prof) if parent else prof
+        return resolved[name]
+
+    return {name: get(name) for name in raw}
 
 
 def rng_for(*parts: Any) -> np.random.Generator:

@@ -55,6 +55,45 @@ presets:
       - {split: test, tracks: [test_unseen], motions: *all_motions, sensors: *all_sensors, seeds: [1, 2, 3, 4, 5]}
       - {split: test, tracks: *train_tracks, motions: [high], sensors: [C_fast], seeds: [201, 202]}
 
+  # ------------------------------------------------------------ v2 (real2sim)
+  # Gazebo-native sensors of the real APEX hardware (native_runner). Same tracks and splits as v1; fast (fractions
+  # of v_ref) and slow (0.3-1.5 m/s) driving. Write it to its own database,
+  # e.g. data/multiscenario_pose/pose_dataset_v2.sqlite3.
+  smoke_v2:
+    role: main
+    sensor_backend: gazebo_native
+    description: "System check of the native backend: 1 training and 1 validation track, 1 fast and 1 slow motion, 1 seed."
+    laps: 1.0
+    groups:
+      - {split: train, tracks: [oval_asym], motions: [medium, slow_variable], sensors: [APEX_real, APEX_real_compat], seeds: [1]}
+      - {split: validation, tracks: [val_mixed], motions: [medium, slow_variable], sensors: [APEX_real, APEX_real_compat], seeds: [2]}
+
+  check_v2:
+    role: main
+    sensor_backend: gazebo_native
+    description: "Quick look at the classical odometry on the real sensors: validation track, fast motions, 1 seed."
+    laps: 1.0
+    groups:
+      - {split: validation, tracks: [val_mixed], motions: [medium, high, slow], sensors: [APEX_real], seeds: [1]}
+
+  full_v2:
+    role: main
+    sensor_backend: gazebo_native
+    description: >-
+      Real2sim campaign: 5 training tracks, the validation and test tracks,
+      5 fast motions x 6 / 5 seeds (2 laps) and 3 slow motions x 3 seeds
+      (1 lap), APEX_real (the A2M8 in its high-speed protocol: the 2 kHz
+      compatible protocol of today's car driver is a software defect to fix,
+      not a design target; APEX_real_compat stays available).
+    laps: 2.0
+    groups:
+      - {split: train, tracks: *train_tracks, motions: *all_motions, sensors: [APEX_real], seeds: [1, 2, 3, 4, 5, 6]}
+      - {split: train, tracks: *train_tracks, motions: [slow, slow_variable, slow_stop_and_go], sensors: [APEX_real], seeds: [1, 2, 3], laps: 1.0}
+      - {split: validation, tracks: [val_mixed], motions: *all_motions, sensors: [APEX_real], seeds: [1, 2, 3, 4, 5]}
+      - {split: validation, tracks: [val_mixed], motions: [slow, slow_variable, slow_stop_and_go], sensors: [APEX_real], seeds: [1, 2, 3], laps: 1.0}
+      - {split: test, tracks: [test_unseen], motions: *all_motions, sensors: [APEX_real], seeds: [1, 2, 3, 4, 5]}
+      - {split: test, tracks: [test_unseen], motions: [slow, slow_variable, slow_stop_and_go], sensors: [APEX_real], seeds: [1, 2, 3], laps: 1.0}
+
   zeroshot:
     role: zeroshot
     description: >-

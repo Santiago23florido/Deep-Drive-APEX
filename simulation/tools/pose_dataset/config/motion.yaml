@@ -53,6 +53,40 @@ profiles:
     a_acc_mps2: 1.7
     a_dec_mps2: 2.3
 
+  # ----------------------------------------------------------------- slow
+  # Real-car speeds (the APEX tour drives at 0.2-1.5 m/s). v_ref is 3.5-4.75
+  # m/s on the pose tracks, so these fractions give 0.3-1.5 m/s.
+  slow:
+    kind: constant
+    description: Constant cruise at 15 % of the maximum stable speed (0.5-0.7 m/s).
+    fraction: 0.15
+
+  slow_variable:
+    kind: variable
+    description: >-
+      Slow driving with speed changes: straights at 22-32 % of v_ref
+      (0.8-1.5 m/s), gentle curves, never below 7 % (0.25-0.33 m/s).
+    straight_fraction: [0.22, 0.32]
+    lateral_accel_mps2: [1.0, 2.0]
+    min_fraction: 0.07
+    segment_length_m: [2.0, 6.0]
+    segment_scales: [0.4, 0.6, 0.8, 1.0]
+    a_acc_mps2: [0.4, 0.8]
+    a_dec_mps2: [0.6, 1.2]
+
+  slow_stop_and_go:
+    kind: stop_and_go
+    description: >-
+      Cruise at 12-25 % of v_ref (0.4-1.2 m/s) with 3-5 full stops per lap
+      of 0.8-2.0 s and moderate acceleration and braking.
+    cruise_fraction: [0.12, 0.25]
+    lateral_accel_mps2: 2.0
+    stops_per_lap: [3, 5]
+    dwell_s: [0.8, 2.0]
+    min_stop_spacing_m: 5.0
+    a_acc_mps2: 1.0
+    a_dec_mps2: 1.5
+
   # ------------------------------------------------------------- zero-shot
   zs_creep:
     kind: variable

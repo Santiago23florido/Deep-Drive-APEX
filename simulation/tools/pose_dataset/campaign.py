@@ -51,6 +51,9 @@ def build_plan(preset_name: str, repeats: int = 1, laps: float | None = None) ->
     calib = load_calibration()["tracks"]
     held = held_out_names()
     laps = float(laps if laps is not None else preset.get("laps", 1.0))
+    # gazebo_native: Gazebo's own sensors + the real2sim realism layer
+    # (native_runner); every sensor of the preset must be a native profile.
+    backend = preset.get("sensor_backend", "synthesized")
     trajectories: dict[str, dict[str, Any]] = {}
     for group in preset["groups"]:
         excluded = {tuple(c) for c in group.get("exclude_combos", [])}
@@ -62,6 +65,8 @@ def build_plan(preset_name: str, repeats: int = 1, laps: float | None = None) ->
                         for kind, name, table in (("track", tr, tracks), ("motion", mo, motions), ("sensor", se, sensors)):
                             if name not in table:
                                 raise KeyError(f"preset {preset_name}: unknown {kind} {name!r}")
+                        if (sensors[se].get("backend", "synthesized") == "gazebo_native") != (backend == "gazebo_native"):
+                            raise ValueError(f"preset {preset_name}: sensor {se} does not match the sensor_backend {backend}")
                         if role == "main" and (tr in held["tracks"] or mo in held["motions"] or se in held["sensors"]):
                             raise ValueError(f"preset {preset_name} (role main) uses a held-out zero-shot variant: {tr}/{mo}/{se}")
                         if (se, mo) in excluded:
@@ -73,9 +78,9 @@ def build_plan(preset_name: str, repeats: int = 1, laps: float | None = None) ->
                         v_ref = float(calib[tr]["v_max_stable_mps"]) * float(group.get("v_ref_scale", 1.0))
                         traj = trajectories.setdefault(tkey, {
                             "trajectory_key": tkey, "track": tr, "track_family": tracks[tr].get("family", tr), "motion": mo,
-                            "seed": seed, "direction": 1 if seed % 2 == 1 else -1, "laps": laps, "v_ref": v_ref,
+                            "seed": seed, "direction": 1 if seed % 2 == 1 else -1, "laps": float(group.get("laps", laps)), "v_ref": v_ref,
                             "split": group["split"], "variant": variant, "track_overrides": group.get("track_overrides", {}),
-                            "runs": [],
+                            "backend": backend, "runs": [],
                         })
                         if traj["split"] != group["split"]:
                             raise ValueError(f"trajectory {tkey} assigned to two splits ({traj['split']}, {group['split']})")
@@ -254,8 +259,12 @@ class Campaign:
                 continue
             job = {k: v for k, v in t.items() if k not in ("runs",)}
             job["runs"] = pending
-            job["out_npz"] = str(traj_dir / f"{t['trajectory_key']}.npz")
-            job["tmp_dir"] = str(traj_dir)
+            native = t.get("backend") == "gazebo_native"
+            job_dir = traj_dir / "native" if native else traj_dir
+            job["out_npz"] = str(job_dir / f"{t['trajectory_key']}.npz")
+            job["tmp_dir"] = str(job_dir)
+            if native:
+                job["runner"] = "pose_dataset.native_runner"
             jobs.append(job)
         total_runs = sum(len(j["runs"]) for j in jobs)
         self.log(f"[campaign] preset={self.plan['preset']} database={self.db_path} runs pending={total_runs} (skipped {skipped} already done) trajectories={len(jobs)} workers={self.workers}")

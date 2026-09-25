@@ -83,7 +83,7 @@ class JobPool:
                 log = open(Path(job["out_npz"]).with_suffix(".log"), "w", encoding="utf-8")
                 partition = f"pose_ds_{os.getpid()}_{counter}"
                 proc = subprocess.Popen(
-                    [self.python, "-m", "pose_dataset.gz_runner", str(job_path)],
+                    [self.python, "-m", job.get("runner", "pose_dataset.gz_runner"), str(job_path)],
                     cwd=str(TOOLS_DIR),
                     env=worker_env(partition),
                     stdout=log,
