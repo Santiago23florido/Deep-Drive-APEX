@@ -2,6 +2,29 @@
 
 Deep Drive APEX is an autonomous RC car project built with ROS 2 and Gazebo. The repository explicitly separates simulation, the SLAM-enabled physical vehicle, and historical code so each environment can evolve without mixing dependencies or commands.
 
+## Autonomous Racing on a Track It Has Never Seen (Simulation)
+
+<p align="center">
+  <img src="simulation/ros2_ws/src/apex_fusion_research/doc/images/race/anim_carrera.gif" width="860" alt="The car racing on the line it planned on its own map">
+</p>
+
+In Gazebo, on a track and with sensor draws never seen in training, the car:
+
+- **Lap 1 (no map):** drives reactively on the LiDAR, following the walls, while `slam_toolbox` builds the map.
+- **Closes its own lap:** it detects the crossing of its own start line.
+- **Plans a racing line on its own map:** a minimum-curvature line in 0.5 s.
+- **Races it:** laps 2 and 3 take about 22 s, against about 48 s for lap 1.
+
+Its only pose is the neural LiDAR-inertial odometry corrected by the SLAM, and it uses only noisy sensors. It knows nothing about the track: it cannot see the curbs, which sit below the LiDAR plane.
+
+| Lap 1: the map grows as the car explores (RViz) | Lap 1 from the logs: LiDAR placed with the car's own pose estimate |
+| --- | --- |
+| <img src="simulation/ros2_ws/src/apex_fusion_research/doc/images/race/rviz_mapa_vuelta1.gif" width="420" alt="SLAM map growing during lap 1"> | <img src="simulation/ros2_ws/src/apex_fusion_research/doc/images/race/anim_vuelta1.gif" width="420" alt="Lap 1, reactive, without a map"> |
+| **Laps 2-3 on the planned line (RViz)** | **The car in Gazebo, followed by a camera** |
+| <img src="simulation/ros2_ws/src/apex_fusion_research/doc/images/race/rviz_carrera.gif" width="420" alt="Race laps in RViz"> | <img src="simulation/ros2_ws/src/apex_fusion_research/doc/images/race/gazebo_carrera.gif" width="300" alt="Gazebo chase camera"> |
+
+The full description is in [Real2sim race mode](simulation/ros2_ws/src/apex_fusion_research/README.md#131-race-mode-explore-map-race): validation on 4 seeds, the odometry model's training figures, and what worked.
+
 ## Documentation at a Glance
 
 The documentation covers installation, quick starts, ROS architecture, Gazebo simulation, SLAM-enabled real-vehicle execution, interfaces, parameters, data, diagnostics, and legacy code.
