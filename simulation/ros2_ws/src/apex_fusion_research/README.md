@@ -614,7 +614,8 @@ run_referee_node (truth only): lap completed / collision / off-track -> run_resu
 - **Evaluation:** `run_result.json` (referee), `evaluation.json` / `evaluation.png`.
   - Odometry against the truth at the true revolution starts, with the offline metrics (speed error, RPE, segment drift, σ coverage).
   - SLAM map metrics, latencies, the achieved real-time factor and the received sensor timing.
-- **Logs:** `estimator.csv`, `driver.csv`, `truth_scans.csv`, `truth_track.csv`, `imu_raw.csv`.
+- **Logs:** `estimator.csv`, `driver.csv`, `truth_scans.csv`, `truth_track.csv`, `imu_raw.csv`, `lidar_scans.csv` (the published revolutions, one row each).
+- **Sensor data and map figures:** `learning/.venv/bin/python tools/analysis/plot_real2sim_sensors.py <run_dir>` writes `sensores.png` (IMU and LiDAR as the car received them) and `mapa.png` (the car's occupancy grid, and the same map in the world over the real walls with the true, SLAM and odometry-only trajectories).
 - **SLAM:** `slam/` (maps, trajectories) and `slam_metrics.json` (`plot_slam_maps`).
 
 **Validation with the retrained model** (`real2sim_v2/hybrid_submap`, `val_mixed`, a track never seen in training, seed 1, 2 laps, `APEX_real`, CPU).
