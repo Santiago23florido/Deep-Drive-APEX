@@ -5,7 +5,14 @@ true pose of the car: progress along the reference path of the format,
 lateral error, collision of the car footprint with the track geometry,
 rollover, stuck and timeout. The run is ``completed`` once the true progress
 reaches the planned distance and the car has stood still for
-``static_end_s``, ``failed`` at the first violated rule. The verdict is
+``static_end_s``, ``failed`` at the first violated rule.
+
+``mode:=race`` (the race driver: reactive lap 1, then its own race line) does
+not tie the car to the seeded reference path: the lateral error is reported,
+not judged; the car fails when its footprint leaves the true lane by more
+than ``max_lane_excess_m`` or hits anything (walls, curbs, pillars). The
+timeout follows from a minimum average speed, and the true lap times and
+the minimum clearance of each lap are recorded. The verdict is
 published (latched JSON) and written to ``<output_dir>/run_result.json``; the
 launcher stops the simulation when that file appears. Nothing here feeds the
 car: the driver only sees the estimated pose.
@@ -48,6 +55,11 @@ class RunRefereeNode(Node):
         dp("wait_first_motion_s", 120.0)
         dp("track_topic", "/apex/sim/ground_truth/perfect_map_points")
         dp("scan_height_m", 0.12)  # nominal LiDAR height: walls crossing it are what the scanner sees
+        dp("mode", "format")  # format (dataset driver on the seeded path) | race (race driver)
+        dp("min_avg_speed_mps", 0.4)
+        dp("race_extra_s", 60.0)
+        dp("max_lane_excess_m", 0.30)
+        dp("race_stuck_timeout_s", 8.0)
         gp = lambda n: self.get_parameter(n).value  # noqa: E731
         rs = run_setup(str(gp("track")), str(gp("motion")), int(gp("seed")), float(gp("laps")), float(gp("v_ref")))
         from pose_dataset.controller import PurePursuit  # noqa: PLC0415
@@ -64,7 +76,21 @@ class RunRefereeNode(Node):
         self.rear = rs["rear_offset"]
         self.static_end_ns = int(float(gp("static_end_s")) * 1e9)
         self.check_ns = int(float(gp("check_period_s")) * 1e9)
-        self.timeout_s = float(gp("timeout_factor")) * setup["plan"].planned_duration() + 15.0
+        self.mode = str(gp("mode"))
+        self.lap_len = setup["path"].length
+        if self.mode == "race":
+            from ..core.race_config import vehicle_limits  # noqa: PLC0415
+            from ..core.race_eval import TrueTrack  # noqa: PLC0415
+
+            self.true_track = TrueTrack(rs["track"], vehicle_limits(vcfg))
+            self.timeout_s = self.total / float(gp("min_avg_speed_mps")) + float(gp("race_extra_s"))
+        else:
+            self.timeout_s = float(gp("timeout_factor")) * setup["plan"].planned_duration() + 15.0
+        self.max_excess = float(gp("max_lane_excess_m"))
+        self.race_stuck_s = float(gp("race_stuck_timeout_s"))
+        self.lap_times: list[float] = []
+        self.lap_min_clr: list[float] = [math.inf]
+        self.max_excess_seen = -math.inf
         self.wait_s = float(gp("wait_first_motion_s"))
         self.out_dir = Path(str(gp("output_dir"))) if str(gp("output_dir")) else None
         self.status_pub = self.create_publisher(String, str(gp("status_topic")), LATCHED_QOS)
@@ -141,10 +167,21 @@ class RunRefereeNode(Node):
             self.max_lat = max(self.max_lat, abs(lat))
             self.max_rp = max(self.max_rp, abs(roll), abs(pitch))
         reason = None
+        race = self.mode == "race"
+        if race and moving:
+            clr = self.true_track.clear(p.x, p.y, yaw)
+            self.lap_min_clr[-1] = min(self.lap_min_clr[-1], clr)
+            excess = float(self.true_track.lane_excess(p.x, p.y, yaw)[0])
+            self.max_excess_seen = max(self.max_excess_seen, excess)
+            while self.s >= (len(self.lap_times) + 1) * self.lap_len:
+                self.lap_times.append(t * 1e-9)
+                self.lap_min_clr.append(math.inf)
         hit = self.checker.collides(self.rect_corners(p.x, p.y, yaw, self.len, self.width))
         if hit:
             reason = f"collision with {hit}"
-        elif moving and abs(lat) > float(self.safety["max_lateral_error_m"]):
+        elif race and moving and excess > self.max_excess:
+            reason = f"off_track (footprint {excess:.2f} m outside the lane)"
+        elif not race and moving and abs(lat) > float(self.safety["max_lateral_error_m"]):
             reason = f"off_track (lateral error {lat:.2f} m)"
         elif max(abs(roll), abs(pitch)) > math.radians(float(self.safety["max_roll_pitch_deg"])):
             reason = "rollover"
@@ -157,7 +194,8 @@ class RunRefereeNode(Node):
         else:
             self.stuck_since = None
         # A long stop that the plan does not explain (stops last <= 2 s).
-        if reason is None and self.stuck_since is not None and (t - self.stuck_since) * 1e-9 > float(self.safety["stuck_timeout_s"]) + 2.0:
+        stuck_s = self.race_stuck_s if race else float(self.safety["stuck_timeout_s"]) + 2.0
+        if reason is None and self.stuck_since is not None and (t - self.stuck_since) * 1e-9 > stuck_s:
             reason = "stopped / stuck"
         if reason:
             self._finish(t, "failed", reason)
@@ -176,8 +214,17 @@ class RunRefereeNode(Node):
             "status": status, "failure_reason": reason, "lap_completed": status == "completed",
             "progress_m": self.s, "planned_m": self.total, "driven_m": self.path_m, "max_lateral_error_m": self.max_lat,
             "max_roll_pitch_deg": math.degrees(self.max_rp), "t_end_s": t * 1e-9,
-            "drive_s": (t - self.t_move) * 1e-9 if self.t_move else 0.0, **self.meta,
+            "drive_s": (t - self.t_move) * 1e-9 if self.t_move else 0.0, **self.meta, "mode": self.mode,
         }
+        if self.mode == "race":
+            t0 = self.t_move * 1e-9 if self.t_move else 0.0
+            marks = [t0] + self.lap_times
+            self.verdict.update({
+                "lap_times_s": [b - a for a, b in zip(marks, marks[1:])], "lap_len_m": self.lap_len,
+                "lap_min_clearance_m": [c for c in self.lap_min_clr if math.isfinite(c)],
+                "min_clearance_m": min((c for c in self.lap_min_clr if math.isfinite(c)), default=math.nan),
+                "max_lane_excess_m": self.max_excess_seen,
+            })
         self.status_pub.publish(json_msg({"state": status, **self.verdict}))
         self.get_logger().info(f"run {status}{': ' + reason if reason else ''} (true progress {self.s:.1f} / {self.total:.1f} m, max lateral {self.max_lat:.2f} m)")
         if self.out_dir is not None:

@@ -223,6 +223,118 @@ def slam_map(run: Path, t0: float, ev: dict) -> Path:
     return out
 
 
+def race(run: Path, ev: dict) -> Path | None:
+    """The race driver: lap 1 reactive, the planned line, the race laps (truth for the evaluation)."""
+    import sys  # noqa: PLC0415
+
+    sim = Path(__file__).resolve().parents[2]
+    for p in (sim / "tools", sim / "ros2_ws" / "src" / "apex_fusion_research"):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    from scipy.spatial import cKDTree  # noqa: PLC0415
+
+    from apex_fusion_research.core.clearance import outline_points  # noqa: PLC0415
+    from apex_fusion_research.core.race_eval import load_truth_track  # noqa: PLC0415
+
+    cfg = json.loads((run / "run_config.json").read_text())
+    rl = _csv(run / "plan" / "raceline.csv") if (run / "plan" / "raceline.csv").exists() else None
+    tr, drv = _csv(run / "truth_track.csv"), _csv(run / "driver.csv")
+    lap = ev.get("lap", {})
+    al = run / "slam" / "alignment.json"
+    twm = json.loads(al.read_text())["learned"]["T_world_map"] if al.exists() else cfg["spawn_true"]
+    track = load_truth_track(cfg["track"])
+    t_tr = tr["t_ns"] * 1e-9
+    # Phase of the car at each truth sample, and the true laps of the referee.
+    ph_t = drv["t"]
+    idx = np.clip(np.searchsorted(ph_t, t_tr) - 1, 0, len(ph_t) - 1)
+    phase = drv["phase"][idx]
+    lap1 = np.isin(phase, ["explore", "closing", "planning"])
+    racing = phase == "race"
+    moving = np.nonzero(tr["speed"] > 0.1)[0]
+    t_move = t_tr[moving[0]] if len(moving) else t_tr[0]
+    lap_times = lap.get("lap_times_s", [])
+    bounds = t_move + np.concatenate(([0.0], np.cumsum(lap_times))) if lap_times else np.array([t_move])
+
+    fig = plt.figure(figsize=(15, 15), facecolor=SURFACE)
+    gs = fig.add_gridspec(3, 2, height_ratios=[1.6, 1, 0.8], hspace=0.38, wspace=0.18)
+    ax = fig.add_subplot(gs[0, :])
+    _style(ax, "Lo que condujo el carro, en el mundo (la verdad solo para esta figura)")
+    ax.grid(False)
+    for kinds, col, lab in ((("wall", "obstacle"), WALL, "paredes y pilares (el LiDAR los ve)"), (("curb",), "#dcd9d0", "bordillos (bajo el plano del LiDAR: invisibles para el carro)")):
+        pts, _ = outline_points(track.geometry, kinds=kinds)
+        ax.scatter(pts[:, 0], pts[:, 1], s=1.5, color=col, linewidths=0, label=lab, rasterized=True)
+    ax.plot(np.where(lap1, tr["x"], np.nan), np.where(lap1, tr["y"], np.nan), color=BLUE, lw=1.2, label="vuelta 1: reactiva, sin mapa")
+    ax.plot(np.where(racing, tr["x"], np.nan), np.where(racing, tr["y"], np.nan), color=AQUA, lw=1.2, label="vueltas siguientes: sobre la línea planificada")
+    if rl is not None:
+        c, s_ = math.cos(twm[2]), math.sin(twm[2])
+        wx, wy = twm[0] + c * rl["x"] - s_ * rl["y"], twm[1] + s_ * rl["x"] + c * rl["y"]
+        ax.plot(np.r_[wx, wx[:1]], np.r_[wy, wy[:1]], color=ORANGE, lw=1.3, ls=(0, (4, 2)), label="línea planificada en el mapa del carro")
+    ax.plot([tr["x"][0]], [tr["y"][0]], marker="o", ms=7, color=INK, ls="none", label="salida")
+    ax.set_aspect("equal")
+    ax.set_xlabel("x [m]", fontsize=8, color=INK_2)
+    ax.set_ylabel("y [m]", fontsize=8, color=INK_2)
+    leg = ax.legend(fontsize=8, frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.06), ncol=3)
+    for h in (getattr(leg, "legend_handles", None) or leg.legendHandles)[:2]:
+        h.set_sizes([20])
+    race = ev.get("race", {})
+    pt = race.get("plan_truth", {})
+    if pt:
+        _note(ax, f"línea planificada contra la pista real: holgura mínima {100 * pt['line_min_clearance_m']:.0f} cm, "
+                  f"{100 * pt['line_inside_lane_frac']:.0f} % dentro del carril; corredor sólido {100 * pt['corridor_sound_frac']:.0f} %")
+    # Speed along the race line (planned against real), per lap.
+    ax = fig.add_subplot(gs[1, 0])
+    _style(ax, "Velocidad a lo largo de la línea planificada")
+    if rl is not None:
+        c, s_ = math.cos(twm[2]), math.sin(twm[2])
+        dx, dy = tr["x"] - twm[0], tr["y"] - twm[1]
+        local = np.column_stack((c * dx + s_ * dy, -s_ * dx + c * dy))
+        dist, k = cKDTree(np.column_stack((rl["x"], rl["y"]))).query(local)
+        s_line = rl["s"][k]
+        ax.plot(rl["s"], rl["v"], color=ORANGE, lw=1.4, ls=(0, (4, 2)), label="planificada")
+        for i in range(len(bounds) - 1):
+            m = (t_tr >= bounds[i]) & (t_tr < bounds[i + 1])
+            if not m.any():
+                continue
+            order = np.argsort(s_line[m])
+            col = BLUE if i == 0 else AQUA
+            ax.plot(s_line[m][order], tr["speed"][m][order], color=col, lw=1.0,
+                    label="real, vuelta 1" if i == 0 else ("real, vueltas planificadas" if i == 1 else None))
+        ax.set_xlabel("distancia sobre la línea [m]", fontsize=8, color=INK_2)
+        ax.set_ylabel("m/s", fontsize=8, color=INK_2)
+        ax.legend(fontsize=8, frameon=False, loc="lower right")
+        ax = fig.add_subplot(gs[1, 1])
+        _style(ax, "Distancia real a la línea planificada durante la carrera")
+        m = racing
+        ax.plot(s_line[m], np.where(m, dist, np.nan)[m] * 100, ".", ms=1.5, color=AQUA, label="real (verdad)")
+        lat = np.abs(drv["lat_race"])
+        ok = np.isfinite(lat) & (drv["phase"] == "race")
+        if ok.any():
+            _, kd = cKDTree(np.column_stack((rl["x"], rl["y"]))).query(np.column_stack((drv["x_map"][ok], drv["y_map"][ok])))
+            ax.plot(rl["s"][kd], lat[ok] * 100, ".", ms=1.5, color=INK_2, label="la que cree el carro")
+        ax.set_xlabel("distancia sobre la línea [m]", fontsize=8, color=INK_2)
+        ax.set_ylabel("cm", fontsize=8, color=INK_2)
+        ax.legend(fontsize=8, frameon=False, loc="upper right", markerscale=6)
+    # Lap times and clearances.
+    names = [f"vuelta {i + 1}" for i in range(len(lap_times))]
+    for col_i, (vals, title, unit, scale) in enumerate(((lap_times, "Tiempo de cada vuelta (verdad)", "s", 1.0),
+                                                        (lap.get("lap_min_clearance_m", [])[: len(lap_times)], "Holgura mínima del carro en cada vuelta (verdad)", "cm", 100.0))):
+        ax = fig.add_subplot(gs[2, col_i])
+        _style(ax, title)
+        if vals:
+            colors = [BLUE] + [AQUA] * (len(vals) - 1)
+            bars = ax.bar(names[: len(vals)], np.asarray(vals) * scale, color=colors, width=0.55, edgecolor=SURFACE, linewidth=2)
+            for b, v in zip(bars, vals):
+                ax.text(b.get_x() + b.get_width() / 2, b.get_height(), f"{v * scale:.1f}", ha="center", va="bottom", fontsize=8, color=INK_2)
+        ax.set_ylabel(unit, fontsize=8, color=INK_2)
+    status = {"completed": "completada", "failed": "fallida"}.get(lap.get("status"), lap.get("status", "?"))
+    fig.suptitle(f"{run.name}: pista no vista, vuelta 1 reactiva y vueltas planificadas en su propio mapa ({status}"
+                 f"{': ' + lap.get('failure_reason') if lap.get('failure_reason') else ''})", x=0.06, y=0.94, ha="left", fontsize=13, color=INK)
+    out = run / "carrera.png"
+    fig.savefig(out, dpi=120, bbox_inches="tight", facecolor=SURFACE)
+    plt.close(fig)
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("run_dir", type=Path)
@@ -232,6 +344,9 @@ def main() -> None:
     t0 = 0.0
     for path in (sensors(run, t0), slam_map(run, t0, ev)):
         print(path)
+    cfg = json.loads((run / "run_config.json").read_text()) if (run / "run_config.json").exists() else {}
+    if cfg.get("driver") == "race":
+        print(race(run, ev))
 
 
 if __name__ == "__main__":

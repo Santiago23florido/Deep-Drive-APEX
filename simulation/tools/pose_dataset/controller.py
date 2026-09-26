@@ -165,6 +165,12 @@ class PurePursuit:
         n = len(path.s)
         self._window = max(20, int(2.0 / max(path.length / n, 1e-3)))
 
+    def reset(self, x: float, y: float) -> None:
+        """Restart the progress at the path point nearest to (x, y) (global search)."""
+        self.idx = int(np.argmin(np.hypot(self.path.xy[:, 0] - x, self.path.xy[:, 1] - y)))
+        self._last_s = float(self.path.s[self.idx])
+        self.s_total = 0.0
+
     def locate(self, x: float, y: float) -> tuple[float, float]:
         """Update progress with the reference point; return (s_total, lateral error)."""
         n = len(self.path.s)

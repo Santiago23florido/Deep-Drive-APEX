@@ -76,3 +76,38 @@ def write_pgm_yaml(
         encoding="utf-8",
     )
     return pgm, yaml_path
+
+
+def read_pgm_yaml(base_path: str | Path) -> tuple[np.ndarray, GridInfo]:
+    """Inverse of :func:`write_pgm_yaml`: ``(grid, info)``.
+
+    ``grid`` is ``int16 [height, width]`` in the OccupancyGrid convention
+    (row 0 = bottom, -1 unknown, 0 free, 100 occupied).
+    """
+    base = Path(base_path)
+    meta = {}
+    for line in base.with_suffix(".yaml").read_text(encoding="utf-8").splitlines():
+        if ":" in line:
+            key, value = line.split(":", 1)
+            meta[key.strip()] = value.strip()
+    raw = (base.parent / meta.get("image", base.with_suffix(".pgm").name)).read_bytes()
+    parts, pos = [], 0
+    while len(parts) < 4:  # magic, width, height, maxval (comments skipped)
+        while raw[pos : pos + 1].isspace():
+            pos += 1
+        if raw[pos : pos + 1] == b"#":
+            pos = raw.index(b"\n", pos) + 1
+            continue
+        end = pos
+        while not raw[end : end + 1].isspace():
+            end += 1
+        parts.append(raw[pos:end])
+        pos = end
+    width, height = int(parts[1]), int(parts[2])
+    image = np.flipud(np.frombuffer(raw[pos + 1 : pos + 1 + width * height], dtype=np.uint8).reshape(height, width))
+    grid = np.full(image.shape, -1, dtype=np.int16)
+    grid[image == 254] = 0
+    grid[image == 0] = 100
+    origin = [float(v) for v in meta["origin"].strip("[]").split(",")]
+    info = GridInfo(width, height, float(meta["resolution"]), origin[0], origin[1], origin[2] if len(origin) > 2 else 0.0)
+    return grid, info

@@ -27,7 +27,6 @@ from collections import deque
 import heapq
 import itertools
 import math
-import os
 from pathlib import Path
 import sys
 import threading
@@ -46,20 +45,10 @@ import yaml
 
 from ..core.imu_chip import ImuChip, chip_config_from_profile
 from ..core.lidar_rolling import RollingLidar, rolling_config_from_profile
+from ..core.sim_paths import sim_root  # noqa: F401 (re-exported)
 from ._common import json_msg
 
 RELIABLE = QoSProfile(depth=500, reliability=ReliabilityPolicy.RELIABLE)
-
-
-def sim_root() -> Path:
-    env = os.environ.get("APEX_SIM_ROOT", "").strip()
-    if env:
-        return Path(env)
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        if (parent / "tools" / "pose_dataset").is_dir():
-            return parent
-    raise RuntimeError("cannot locate simulation/ (set APEX_SIM_ROOT)")
 
 
 def load_profile(name: str, sensors_yaml: Path) -> dict:
