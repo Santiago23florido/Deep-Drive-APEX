@@ -7,10 +7,14 @@ a split on the GPU. For interval k (scan k-1 -> scan k):
 1. prediction: translation from the previous estimate (constant velocity)
    plus the mean IMU specific force, heading from the gyro integral minus
    the running gyro-bias estimate;
-2. de-skew: the scanner is rolling (beam i fired at stamp + i * dt_beam), so
-   every beam is moved to the pose of its sweep start with the gyro rate
-   of that sweep and the current velocity estimate; the de-skew is repeated
-   after the first solve with the refined velocity;
+2. de-skew: the scanner is rolling (every beam is fired at its own time
+   after the stamp), so every beam is moved to the pose of its sweep start:
+   the heading at the beam's firing time from the gyro profile of that sweep
+   (the gyro integrated sample by sample, minus the bias; ``deskew_profile``)
+   and the translation along that heading with the current velocity
+   estimate. The de-skew is repeated after the first solve with the refined
+   velocity. Without the profile the rate is constant over the sweep, which
+   bends the scan whenever the yaw rate changes (entering or leaving a curve);
 3. point-to-line ICP (Censi-style) between the de-skewed scans in base_link
    (nominal mount), with normals from local PCA along the beam order,
    heteroscedastic point weights and a Cauchy kernel;
@@ -34,7 +38,16 @@ stay the same, consecutive scans are all anchored to the same geometry, so
 the error grows per keyframe instead of per scan, and features seen from
 earlier positions keep constraining the motion. A keyframe is inserted one
 interval late, when the velocity during its own sweep is known, with the
-de-skew of that final estimate.
+de-skew of that final estimate. The submap solution is kept only if it
+agrees with the scan-to-scan one within ``submap_agree_m`` (or, with
+``submap_agree_rel``, within that fraction of the step: their disagreement
+grows with the motion per interval).
+
+Variant ``submap_v3`` (``ICP_VARIANTS``, version 3) targets fast motion: the
+heading of every beam from the gyro profile of its sweep, and the relative
+agreement (30 % of the step). Use it with IMU stamps compensated for the chip
+filter delay (``sqlite_windows.imu_group_delay_s``), which a lagging gyro
+otherwise turns into a heading error proportional to the yaw acceleration.
 
 Outputs per interval: increment, 1-sigma per axis (scaled by the residual
 chi^2), and the along-weakest-direction ICP sigma (degeneracy indicator).
@@ -83,18 +96,19 @@ import time
 import torch
 from torch import Tensor
 
-from sqlite_streams import StreamData
+from sqlite_streams import StreamData, sweep_interp
 
 
 @dataclass(frozen=True)
 class IcpConfig:
-    version: int = 2  # bumped when the algorithm changes (2: FP32 forced, map refinement from the scan solution)
+    version: int = 2  # bumped when the algorithm changes (2: FP32 forced, map refinement from the scan solution; 3: ICP_VARIANTS["submap_v3"])
     iterations: int = 8  # Gauss-Newton iterations per de-skew pass
     deskew_passes: int = 2
     gates_m: tuple[float, ...] = (0.40, 0.40, 0.25, 0.25, 0.15, 0.15, 0.15, 0.15)
     model_sigma_m: float = 0.003  # added to the datasheet range noise (de-skew, normals, mount)
     deskew: bool = True  # rotation (gyro) part of the de-skew
     deskew_translation: bool = True  # translation (velocity) part
+    deskew_profile: bool = False  # heading from the gyro profile of the sweep (False: constant rate over the sweep, versions <= 2)
     cauchy: float = 2.0  # robust kernel scale, in point sigmas ...
     # ... but never below this per-iteration floor: a wide kernel first, so
     # a prediction that is far off (start, stops, hard acceleration) can
@@ -121,10 +135,18 @@ class IcpConfig:
     map_iterations: int = 4
     submap_agree_m: float = 0.05  # submap estimate kept only within this of the scan-to-scan one ...
     submap_agree_rad: float = 0.0087  # ... and 0.5 deg; otherwise scan-to-scan and a fresh local map
+    submap_agree_rel: float = 0.0  # translation agreement also accepted within this fraction of the step (0: fixed 5 cm)
     max_lanes: int = 128  # runs processed together on the GPU (memory)
 
 
-ICP_VARIANTS = {"scan": IcpConfig(), "submap": IcpConfig(submap_keyframes=5)}
+ICP_VARIANTS = {
+    "scan": IcpConfig(),
+    "submap": IcpConfig(submap_keyframes=5),
+    # Fast motion: de-skew from the gyro profile of each sweep, and a submap
+    # solution kept within 5 cm or 30 % of the step of the scan-to-scan one
+    # (at 3.5-5 m/s the fixed 5 cm rejected 5 % of the refinements).
+    "submap_v3": IcpConfig(version=3, submap_keyframes=5, deskew_profile=True, submap_agree_rel=0.3),
+}
 
 
 @contextmanager
@@ -144,24 +166,40 @@ def rot(a: Tensor) -> tuple[Tensor, Tensor]:
 
 
 def deskew(ranges: Tensor, valid: Tensor, rate: Tensor, vel: Tensor, time_inc: Tensor, lidar_xy: Tensor,
-           angle_min: Tensor, angle_inc: Tensor, beam_time: Tensor | None = None) -> Tensor:
+           angle_min: Tensor, angle_inc: Tensor, beam_time: Tensor | None = None,
+           sweep: tuple[Tensor, Tensor] | None = None) -> Tensor:
     """Beam endpoints in base_link at the start of the sweep.
 
     ranges/valid: [R, N]; rate: [R] yaw rate during the sweep; vel: [R, 2]
-    velocity during the sweep in the sweep-start frame (constant twist).
+    body velocity during the sweep, in the sweep-start frame.
     ``beam_time`` [R, N]: acquisition time of every beam after the stamp
     (clockwise scanners, sweeps that start at another angle); by default
-    beam i is fired at ``i * time_inc``."""
+    beam i is fired at ``i * time_inc``.
+    ``sweep`` = (heading [R, K+1], duration [R]): heading of the car at K+1
+    equally spaced instants of the sweep (gyro profile minus bias). It
+    replaces the constant ``rate``, and the body velocity is carried along
+    that heading (midpoint rule per segment)."""
     i = torch.arange(ranges.shape[-1], device=ranges.device, dtype=ranges.dtype)
     tau = i[None] * time_inc[:, None] if beam_time is None else beam_time
     theta = angle_min[:, None] + i[None] * angle_inc[:, None]
     qx = lidar_xy[:, :1] + ranges * torch.cos(theta)
     qy = lidar_xy[:, 1:] + ranges * torch.sin(theta)
-    psi = rate[:, None] * tau
+    if sweep is None:
+        psi = rate[:, None] * tau
+        ch, sh = rot(0.5 * psi)
+        px = (ch * vel[:, :1] - sh * vel[:, 1:]) * tau
+        py = (sh * vel[:, :1] + ch * vel[:, 1:]) * tau
+    else:
+        heading, duration = sweep
+        k = heading.shape[1] - 1
+        cm, sm = rot(0.5 * (heading[:, 1:] + heading[:, :-1]))
+        seg = duration[:, None] / k
+        step = torch.stack(((cm * vel[:, :1] - sm * vel[:, 1:]) * seg, (sm * vel[:, :1] + cm * vel[:, 1:]) * seg), dim=-1)
+        track = torch.cat((torch.zeros_like(step[:, :1]), torch.cumsum(step, dim=1)), dim=1)  # [R, K+1, 2]
+        psi = sweep_interp(heading, duration, tau)
+        p = sweep_interp(track, duration, tau)
+        px, py = p[..., 0], p[..., 1]
     c, s = rot(psi)
-    ch, sh = rot(0.5 * psi)
-    px = (ch * vel[:, :1] - sh * vel[:, 1:]) * tau
-    py = (sh * vel[:, :1] + ch * vel[:, 1:]) * tau
     pts = torch.stack((c * qx - s * qy + px, s * qx + c * qy + py), dim=-1)
     return torch.where(valid[..., None], pts, torch.full_like(pts, 1.0e4))
 
@@ -203,7 +241,7 @@ def run_icp(sd: StreamData, cfg: IcpConfig = IcpConfig(), log=print) -> dict[str
     n_total = sd.target.shape[0]
     logs = {name: torch.full((n_total,) + shape, float("nan"), device=sd.device) for name, shape in (
         ("pred", (3,)), ("sigma", (3,)), ("weak_sigma_m", ()), ("eig_ratio", ()), ("icp_yaw_sigma_rad", ()),
-        ("gyro_bias", ()), ("pairs", ()), ("standstill", ()), ("map_used", ()))}
+        ("gyro_bias", ()), ("pairs", ()), ("standstill", ()), ("map_used", ()), ("map_diff", (2,)), ("yaw_icp", ()), ("yaw_info", ()))}
     order = torch.argsort(sd.length, descending=True)
     t0 = time.time()
     with fp32_matmul():
@@ -214,7 +252,8 @@ def run_icp(sd: StreamData, cfg: IcpConfig = IcpConfig(), log=print) -> dict[str
 
 
 def _register(cfg: IcpConfig, b: dict[str, Tensor], x_prior: Tensor, x0: Tensor, lam: Tensor, rate_prev: Tensor, rate_cur: Tensor,
-              sig_pt: Tensor, geo: tuple, dt: Tensor, ridx: Tensor, local_map: tuple[Tensor, Tensor, Tensor] | None) -> dict[str, Tensor]:
+              sig_pt: Tensor, geo: tuple, dt: Tensor, ridx: Tensor, local_map: tuple[Tensor, Tensor, Tensor] | None,
+              sweeps: tuple = (None, None)) -> dict[str, Tensor]:
     """De-skew passes + robust Gauss-Newton (MAP with the prediction as prior),
     against the previous scan or against ``local_map`` (points, normals,
     validity in the frame of the previous scan). The map refinement starts
@@ -224,8 +263,8 @@ def _register(cfg: IcpConfig, b: dict[str, Tensor], x_prior: Tensor, x0: Tensor,
     passes, iterations, first = (cfg.deskew_passes, cfg.iterations, 0) if local_map is None else (cfg.map_passes, cfg.map_iterations, 2)
     for _ in range(passes):
         vel = x[:, :2] / dt[:, None] if cfg.deskew and cfg.deskew_translation else torch.zeros_like(x[:, :2])
-        tgt = deskew(b["prev_ranges"], b["prev_valid"], rate_prev, vel, *geo)
-        src = deskew(b["cur_ranges"], b["cur_valid"], rate_cur, _rotate(vel, -x[:, 2]), *geo)
+        tgt = deskew(b["prev_ranges"], b["prev_valid"], rate_prev, vel, *geo, sweep=sweeps[0])
+        src = deskew(b["cur_ranges"], b["cur_valid"], rate_cur, _rotate(vel, -x[:, 2]), *geo, sweep=sweeps[1])
         normal, nvalid = line_normals(tgt, b["prev_valid"], b["prev_ranges"], geo[3], cfg.planarity_max)
         target, t_normal, t_valid = (tgt, normal, nvalid) if local_map is None else local_map
         for it in range(first, first + iterations):
@@ -302,11 +341,16 @@ class IcpStream:
         rate_prev, rate_cur = b["w_prev"] - bg, b["w_cur"] - bg
         if not cfg.deskew:
             rate_prev, rate_cur = torch.zeros_like(rate_prev), torch.zeros_like(rate_cur)
+        sweeps = (None, None)
+        if cfg.deskew and cfg.deskew_profile:
+            f = torch.linspace(0.0, 1.0, b["prof_prev"].shape[-1], device=dt.device)
+            sweeps = ((b["prof_prev"] - (bg * dt)[:, None] * f, dt), (b["prof_cur"] - (bg * b["dt_next"])[:, None] * f, b["dt_next"]))
         sig_pt = cfg.model_sigma_m + self.lidar_sigma[:, :1] + self.lidar_sigma[:, 1:] * b["cur_ranges"]
         # 1) scan-to-scan registration (robust); 2) in submap mode, refined
         # against the local map from that solution, kept only if both agree.
-        reg = _register(cfg, b, x_prior, x_prior, lam, rate_prev, rate_cur, sig_pt, geo, dt, ridx, None)
+        reg = _register(cfg, b, x_prior, x_prior, lam, rate_prev, rate_cur, sig_pt, geo, dt, ridx, None, sweeps)
         map_used = torch.zeros(runs, device=dt.device)
+        map_diff = torch.full((runs, 2), float("nan"), device=dt.device)
         if kf:
             kf_pts, kf_nrm, kf_ok, kf_count = self.kf_pts, self.kf_nrm, self.kf_ok, self.kf_count
             c, s = rot(-pose[:, 2])
@@ -315,9 +359,11 @@ class IcpStream:
             map_nrm = torch.stack((c[:, None, None] * kf_nrm[..., 0] - s[:, None, None] * kf_nrm[..., 1], s[:, None, None] * kf_nrm[..., 0] + c[:, None, None] * kf_nrm[..., 1]), dim=-1)
             map_pts = torch.where(kf_ok[..., None], map_pts, torch.full_like(map_pts, 1.0e4)).reshape(runs, kf * map_pts.shape[2], 2)
             local_map = (map_pts, map_nrm.reshape(runs, -1, 2), kf_ok.reshape(runs, -1))
-            reg_map = _register(cfg, b, x_prior, reg["x"], lam, rate_prev, rate_cur, sig_pt, geo, dt, ridx, local_map)
+            reg_map = _register(cfg, b, x_prior, reg["x"], lam, rate_prev, rate_cur, sig_pt, geo, dt, ridx, local_map, sweeps)
             diff = reg_map["x"] - reg["x"]
-            agree = (kf_count > 0) & reg_map["enough"] & (torch.linalg.vector_norm(diff[:, :2], dim=1) < cfg.submap_agree_m) & (diff[:, 2].abs() < cfg.submap_agree_rad)
+            map_diff = torch.stack((torch.linalg.vector_norm(diff[:, :2], dim=1), diff[:, 2].abs()), dim=1)
+            agree_m = torch.clamp(cfg.submap_agree_rel * torch.linalg.vector_norm(reg["x"][:, :2], dim=1), min=cfg.submap_agree_m)
+            agree = (kf_count > 0) & reg_map["enough"] & (torch.linalg.vector_norm(diff[:, :2], dim=1) < agree_m) & (diff[:, 2].abs() < cfg.submap_agree_rad)
             # Disagreement: keep the scan-to-scan estimate and restart the local map.
             reset = act & (kf_count > 0) & ~agree
             self.kf_ok = torch.where(reset[:, None, None], torch.zeros_like(kf_ok), kf_ok)
@@ -367,6 +413,8 @@ class IcpStream:
         return {"pred": x, "sigma": torch.sqrt(torch.diagonal(cov, dim1=-2, dim2=-1)), "weak_sigma_m": eigs[:, 0].rsqrt(),
                 "eig_ratio": eigs[:, 0] / eigs[:, 1], "icp_yaw_sigma_rad": yaw_info.rsqrt(), "gyro_bias": self.bg,
                 "pairs": use.sum(-1).float(), "standstill": still.float(), "map_used": map_used,
+                "map_diff": map_diff,  # submap vs scan-to-scan solution (m, rad), diagnostic
+                "yaw_icp": yaw_icp, "yaw_info": yaw_info,  # LiDAR-only heading and its information (IMU time-offset calibration)
                 # de-skewed previous scan (base_link at the start of its sweep), for consumers such as a SLAM
                 "prev_points": tgt, "prev_points_valid": nvalid}
 
@@ -383,5 +431,6 @@ def _run_group(sd: StreamData, cfg: IcpConfig, group: Tensor, logs: dict[str, Te
         sel = ids[act]
         if cfg.submap_keyframes:
             logs["map_used"][sel] = out["map_used"][act]
-        for name in ("pred", "sigma", "weak_sigma_m", "eig_ratio", "icp_yaw_sigma_rad", "gyro_bias", "pairs", "standstill"):
+            logs["map_diff"][sel] = out["map_diff"][act]
+        for name in ("pred", "sigma", "weak_sigma_m", "eig_ratio", "icp_yaw_sigma_rad", "gyro_bias", "pairs", "standstill", "yaw_icp", "yaw_info"):
             logs[name][sel] = out[name][act]

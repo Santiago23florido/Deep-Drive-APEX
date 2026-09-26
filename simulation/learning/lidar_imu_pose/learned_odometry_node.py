@@ -51,8 +51,9 @@ import torch  # noqa: E402
 
 from live_odometry import Estimate, LidarCalibration, LiveOdometry  # noqa: E402
 from pose_dataset.sensors import load_sensor_profiles  # noqa: E402
+from sqlite_windows import imu_group_delay_s  # noqa: E402
 
-DEFAULT_CKPT = HERE.parent / "outputs" / "real2sim_v2" / "hybrid_submap" / "best_model.pt"
+DEFAULT_CKPT = HERE.parent / "outputs" / "real2sim_v2_fast" / "hybrid_submap_v3" / "best_model.pt"  # latest trained (fast-motion correction)
 
 
 def _stamp(t_ns: int) -> TimeMsg:
@@ -91,7 +92,8 @@ class LearnedOdometryNode(Node):
         torch.backends.cuda.matmul.allow_tf32 = True  # as in training / evaluation (the ICP forces FP32 itself)
         torch.backends.cudnn.allow_tf32 = True
         ckpt = str(gp("checkpoint"))
-        self.odo = LiveOdometry(ckpt, self.cal, device=str(gp("device")), imu_wait_s=float(gp("imu_wait_s")), imu_rate_hz=self.imu_rate)
+        self.odo = LiveOdometry(ckpt, self.cal, device=str(gp("device")), imu_wait_s=float(gp("imu_wait_s")), imu_rate_hz=self.imu_rate,
+                                imu_group_delay_s=imu_group_delay_s(prof["imu"]))
         self._warmup(ckpt)
         self.odom_frame, self.base_frame, self.laser_frame = str(gp("odom_frame")), str(gp("base_frame")), str(gp("laser_frame"))
         self.publish_tf = bool(gp("publish_tf"))

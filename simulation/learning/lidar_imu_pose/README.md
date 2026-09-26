@@ -7,7 +7,11 @@ IMU. This folder contains, in chronological order:
 2. a grid search of its three architectures on the multi-scenario dataset
    (`gridsearch_sqlite.py`);
 3. v2: rate-independent odometry metrics, a strong classical LiDAR-inertial
-   odometry and streaming / hybrid networks (`train_streaming.py`).
+   odometry and streaming / hybrid networks (`train_streaming.py`);
+4. real2sim: the car's real sensors in the dataset and the live node
+   (`live_odometry.py`, `learned_odometry_node.py`);
+5. fast motion: the gyro filter delay, the sweep heading profile and the
+   submap agreement (section 6).
 
 The [model catalogue](#model-catalogue) at the end lists every model, where
 its checkpoint lives and how it scores; the [references](#references) cover
@@ -408,6 +412,81 @@ Segment drift of the hybrid on the test track, by motion:
 - **Weakest case:** `slow_stop_and_go` on the test track (3.3 %). The distance between stops is short, so a few centimetres of error at every restart weigh a lot; the ICP alone is worse there too. `slow_variable` is the only case where the ICP alone is slightly better (0.54 % against 0.63 %).
 - **Live equivalence:** `tests/test_live_odometry.py` replays a v2 validation run through `LiveOdometry` with this checkpoint and matches the batch evaluation within 1e-5 m.
 
+## 6. Fast motion: gyro filter delay, sweep heading profile, submap agreement
+
+**The problem.** In closed loop at 3.3 m/s (`val_mixed`, `medium`), the error of the v2 hybrid grows with speed. It grows most in curves:
+
+- **Heading-rate error:** 0.13 °/s at 0.3–1.5 m/s, 0.69 °/s at 3.5–5 m/s (validation).
+- **Curve entries and exits:** it triples when the yaw acceleration exceeds 150 °/s² (0.26 → 0.76 °/s).
+
+Three causes were measured, each on the v2 validation split (`APEX_real`):
+
+| Hypothesis | Measurement | Effect |
+| --- | --- | --- |
+| **The gyro lags the motion.** The LSM6DS3 low-pass (2nd-order Butterworth, 33 Hz) delays the signal by its group delay, √2 / (2π f_c) = 6.8 ms. The stamp is the sampling instant, so every sample is 6.8 ms late. The heading error is then the yaw acceleration × the delay. | Raw gyro integral against the true heading, with the stamps shifted by 0–12 ms: the error is lowest at 7–8 ms, 0.62 → 0.37 °/s (1.54 → 0.62 °/s above 150 °/s²). | **Main cause** |
+| **The de-skew assumes a constant rate over the sweep.** A revolution lasts 77 ms, and the yaw rate changes during it in a curve. | De-skew from the gyro profile of each sweep: heading-rate error 0.437 → 0.427 °/s on the fast motions. | Small |
+| **The submap is rejected at speed.** The scan-to-scan and submap solutions disagree more when the step is larger. | At 3.5–5 m/s, 5 % of the refinements fell outside the fixed 5 cm agreement (all on translation). The local map then restarts. | Small (ICP translation) |
+
+**Changes.** All three are opt-in, and the defaults keep every result above reproducible.
+
+- **`imu_delay_comp`** (`sqlite_windows`, `sqlite_streams`, `live_odometry`): every IMU stamp is moved back by `imu_group_delay_s`, from the filter of the run's sensor profile.
+
+  - The same shift applies before the samples are assigned to intervals, integrated and used for the bias labels.
+  - It is a property of the chip configuration, not a fitted value: 6.8 ms for the LSM6DS3 at 33 Hz, and 11 ms for v1's `B_economic` at 20 Hz.
+  - A calibration from data without ground truth, against the LiDAR-only heading of the ICP (`yaw_icp`), points the same way but lands at 11 ms, because the de-skew with the late gyro biases that heading. The datasheet value is the one used.
+- **Sweep heading profile** (`sqlite_streams.gyro_profile`, 17 instants per interval): the gyro is integrated sample by sample over each sweep.
+
+  - `icp_odometry.deskew(sweep=...)` rotates every beam with it and carries the velocity along that heading.
+  - The network (`sweep_profile=True`) uses it to compensate the rotation of both scans.
+  - A constant rate is the linear special case.
+- **ICP variant `submap_v3`** (`ICP_VARIANTS`): the profile de-skew, plus submap agreement within 5 cm *or* 30 % of the step (`submap_agree_rel`, tuned on validation among 0.2 and 0.3).
+- **Report fix:** `report` now also works with a relative `--out`.
+
+```bash
+cd simulation/learning/lidar_imu_pose
+DB=../../data/multiscenario_pose/pose_dataset_v2.sqlite3 OUT=../outputs/real2sim_v2_fast
+PY="env -i HOME=$HOME PATH=/usr/bin:/bin ../.venv/bin/python"
+$PY train_streaming.py icp --icp submap_v3 --imu-delay-comp --db $DB --out $OUT
+$PY train_streaming.py train --hybrid --icp submap_v3 --sensors APEX_real --imu-delay-comp --sweep-profile --db $DB --out $OUT
+$PY train_streaming.py report --sensors APEX_real --imu-delay-comp --db $DB --out $OUT
+# closed loop with the new checkpoint (the live node reads the options from it):
+../../tools/sim/apex_real2sim_up.sh --checkpoint $PWD/../outputs/real2sim_v2_fast/hybrid_submap_v3/best_model.pt
+```
+
+The live node applies the IMU delay only when the checkpoint was trained with it. It computes the delay from `sensors.yaml`, so on the car the IMU profile must describe the chip's real filter.
+
+### Results (`outputs/real2sim_v2_fast/`)
+
+**Classical odometry alone** (validation, fast motions): the delay compensation is what matters.
+
+| ICP | Heading-rate error | Rotation drift | Speed error at 3.5–5 m/s | Heading rate at 3.5–5 m/s |
+| --- | --- | --- | --- | --- |
+| `submap` (v2) | 0.437 °/s | 0.064 °/m | 25.3 cm/s | 0.87 °/s |
+| + sweep profile + relative agreement | 0.427 °/s | 0.061 °/m | 24.2 cm/s | 0.85 °/s |
+| + IMU delay compensation (`submap_v3`) | **0.321 °/s** | **0.048 °/m** | **23.7 cm/s** | **0.54 °/s** |
+
+**Hybrid, retrained with the same recipe** (40 epochs, best epoch 38, one seed per network):
+
+| Split | Model | Speed error | Segment drift | Rotation drift | Heading-rate error | At 3.5–5 m/s (translation / heading rate) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Validation | v2 hybrid | **2.91 cm/s** | **0.76 %** | 0.050 °/m | 0.273 °/s | 7.73 cm/s / 0.69 °/s |
+| Validation | **v3 hybrid** | 3.01 cm/s | 0.80 % | **0.046 °/m** | **0.231 °/s** | **6.69 cm/s / 0.53 °/s** |
+| Test | v2 hybrid | 3.50 cm/s | 1.36 % | 0.044 °/m | 0.283 °/s | 6.91 cm/s / 0.73 °/s |
+| Test | **v3 hybrid** | **3.46 cm/s** | **1.21 %** | **0.040 °/m** | **0.234 °/s** | **5.86 cm/s / 0.53 °/s** |
+
+**Closed loop** (`val_mixed`, `medium`, seed 1, 2 laps; the v2 model was run twice to show the spread between runs):
+
+| Model | Speed error | Segment drift | Rotation drift | Heading-rate error | Heading rate > 2.5 m/s in curves (> 60 °/s²) | Latency p50 |
+| --- | --- | --- | --- | --- | --- | --- |
+| v2 hybrid (two runs) | 4.36 / 4.49 cm/s | 0.85 / 0.79 % | 0.041 / 0.039 °/m | 0.427 / 0.445 °/s | 0.58 / 0.62 °/s | 152 / 156 ms |
+| **v3 hybrid** | 4.55 cm/s | **0.74 %** | **0.028 °/m** | **0.331 °/s** | **0.43 °/s** | 161 ms |
+
+- **Heading:** better on every split and in closed loop: −15 to −24 % heading-rate error, −25 to −30 % at the highest speeds and in curves.
+- **Translation:** better at 3.5–5 m/s (−13 to −15 %). Elsewhere it is mixed: validation 0.76 → 0.80 % and slow motions worse; test 1.36 → 1.21 %. With one seed per network, differences of this size are not conclusive.
+- **The speed error at 3.3 m/s (~1.5 %) is not caused by these three effects.** It stays the same in closed loop.
+- **Latency:** +5–9 ms. A scan waits until the compensated IMU stamps cover its revolution.
+- **Test split:** evaluated once, after every choice was made on validation.
+
 ## Model catalogue
 
 All models are implemented in PyTorch [21]. Checkpoints and cached estimates
@@ -430,6 +509,8 @@ were trained on a different, single-track recording and are not comparable.
 | **Hybrid on scan-to-submap ICP (best)** | `streaming_model.py` (`hybrid=True`) | `streaming_v2/hybrid_submap/best_model.pt` | 488 753 | 40 epochs, best 34 | **4.26 cm/s / 0.95 %** | classical + network |
 | Classical odometry, scan-to-submap, v2 data (§5) | `icp_odometry.py` (`submap_keyframes=5`) | `real2sim_v2/icp_submap_{train,validation,test}.pt` | 0 | as above | 11.75 cm/s / 3.90 % (v2 test) | [2]–[10] |
 | **Hybrid on scan-to-submap ICP, real2sim v2 (live default)** | `streaming_model.py` (`hybrid=True`) | `real2sim_v2/hybrid_submap/best_model.pt` | 488 753 | 40 epochs on v2 `APEX_real`, best 38 | **3.51 cm/s / 1.36 %** (v2 test) | classical + network |
+| Classical odometry, scan-to-submap v3, v2 data (§6) | `icp_odometry.py` (`ICP_VARIANTS["submap_v3"]`), IMU delay compensated | `real2sim_v2_fast/icp_submap_v3_{train,validation,test}_imudelay.pt` | 0 | agreement fraction tuned on validation | 11.59 cm/s / 3.83 % (v2 test) | [2]–[10] |
+| **Hybrid on scan-to-submap v3, fast-motion options (§6)** | `streaming_model.py` (`hybrid=True`, `sweep_profile=True`), IMU delay compensated | `real2sim_v2_fast/hybrid_submap_v3/best_model.pt` | 488 753 | 40 epochs on v2 `APEX_real`, best 38 | **3.46 cm/s / 1.21 %** (v2 test) | classical + network |
 
 Discarded runs kept for traceability:
 - `streaming_v2/attempt1_free_bias/`: the gyro bias was a free integrator

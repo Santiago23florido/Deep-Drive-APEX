@@ -10,16 +10,13 @@ from __future__ import annotations
 
 import json
 import math
-import sys
 from typing import Any
 
-from .real_sensor_node import sim_root
+from ..core.sim_paths import ensure_tools_path
 
 
 def tools_path() -> None:
-    tools = str(sim_root() / "tools")
-    if tools not in sys.path:
-        sys.path.insert(0, tools)
+    ensure_tools_path()
 
 
 def run_setup(track_name: str, motion: str, seed: int, laps: float, v_ref: float = 0.0) -> dict[str, Any]:

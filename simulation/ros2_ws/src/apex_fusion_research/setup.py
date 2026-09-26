@@ -39,6 +39,8 @@ setup(
             f"sim_actuation_node = {PACKAGE}.nodes.sim_actuation_node:main",
             f"track_driver_node = {PACKAGE}.nodes.track_driver_node:main",
             f"run_referee_node = {PACKAGE}.nodes.run_referee_node:main",
+            f"race_driver_node = {PACKAGE}.nodes.race_driver_node:main",
+            f"replay_race_plan = {PACKAGE}.tools.replay_race_plan:main",
             f"plot_ins_drift = {PACKAGE}.tools.plot_ins_drift:main",
             f"allan_analysis = {PACKAGE}.tools.allan_analysis:main",
             f"lidar_noise_report = {PACKAGE}.tools.lidar_noise_report:main",

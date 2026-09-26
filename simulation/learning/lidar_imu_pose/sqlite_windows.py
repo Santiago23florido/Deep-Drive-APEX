@@ -16,12 +16,20 @@ turned into flat arrays with the input conventions of ``train_pose_fusion``:
 An interval without IMU samples (B_economic burst dropouts) receives the
 nearest sample, exactly like ``window_imu_at_lidar_intervals``.
 
+``imu_delay_comp``: an IMU stamp is the sampling instant, but the chip's
+low-pass filter makes the sampled signal lag the motion by its group delay
+(``imu_group_delay_s``: 6.8 ms for the LSM6DS3 gyro at 33 Hz). With the
+option, every IMU stamp is moved back by that delay, from the filter of the
+run's sensor profile, before the samples are assigned to intervals and
+integrated. Off by default (the historical caches and checkpoints).
+
 Windows never cross runs; splits come from the database (whole trajectories
 and whole tracks), never from a chronological cut.
 """
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 import sqlite3
@@ -45,7 +53,16 @@ def _wrap(a: np.ndarray) -> np.ndarray:
     return (a + np.pi) % (2.0 * np.pi) - np.pi
 
 
-def build_split(db_path: Path, split: str, max_imu: int = 40) -> dict[str, Any]:
+def imu_group_delay_s(imu_cfg: dict[str, Any]) -> float:
+    """Low-frequency group delay [s] of the gyro low-pass of an IMU profile
+    (``dlpf.gyro_hz``, or ``dlpf_hz`` for the v1 profiles; 2nd-order
+    Butterworth: sqrt(2) / (2 pi f_c)); 0 without a filter."""
+    dlpf = imu_cfg.get("dlpf")
+    f = float(dlpf.get("gyro_hz", 0.0)) if isinstance(dlpf, dict) else float(imu_cfg.get("dlpf_hz") or 0.0)
+    return math.sqrt(2.0) / (2.0 * math.pi * f) if f > 0.0 else 0.0
+
+
+def build_split(db_path: Path, split: str, max_imu: int = 40, imu_delay_comp: bool = False) -> dict[str, Any]:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     runs = conn.execute(
         "SELECT run_id, run_key, track_name, motion_profile, sensor_profile, seed FROM runs WHERE split = ? AND status = 'completed' ORDER BY run_id",
@@ -75,6 +92,11 @@ def build_split(db_path: Path, split: str, max_imu: int = 40) -> dict[str, Any]:
             dtype=np.float64,
         )
         imu_t = imu_rows[:, 0].astype(np.int64)
+        delay = 0.0
+        if imu_delay_comp:
+            cfg = conn.execute("SELECT noise_configuration_json FROM sensor_calibration WHERE run_id = ? AND sensor_name = 'imu'", (run_id,)).fetchone()
+            delay = imu_group_delay_s(json.loads(cfg[0])) if cfg else 0.0
+            imu_t = imu_t - int(round(delay * 1e9))
         imu_v = imu_rows[:, 1:].astype(np.float64)
         imu_norm = imu_v.copy()
         imu_norm[:, 2] -= G
@@ -116,7 +138,8 @@ def build_split(db_path: Path, split: str, max_imu: int = 40) -> dict[str, Any]:
         tgt_parts.append(target)
         pose_parts.append(pose)
         t_parts.append(t)
-        meta.append({"run_id": run_id, "run_key": run_key, "track": track, "motion": motion, "sensor": sensor, "seed": seed, "offset": offset, "n": n})
+        meta.append({"run_id": run_id, "run_key": run_key, "track": track, "motion": motion, "sensor": sensor, "seed": seed, "offset": offset, "n": n,
+                     "imu_delay_s": delay})
         offset += n
     conn.close()
     return {
@@ -133,13 +156,13 @@ def build_split(db_path: Path, split: str, max_imu: int = 40) -> dict[str, Any]:
     }
 
 
-def load_or_build(db_path: Path, cache_dir: Path, split: str) -> dict[str, Any]:
+def load_or_build(db_path: Path, cache_dir: Path, split: str, imu_delay_comp: bool = False) -> dict[str, Any]:
     cache_dir.mkdir(parents=True, exist_ok=True)
     stat = db_path.stat()
-    path = cache_dir / f"{split}_{int(stat.st_mtime)}_{stat.st_size}.pt"
+    path = cache_dir / f"{split}_{int(stat.st_mtime)}_{stat.st_size}{'_imudelay' if imu_delay_comp else ''}.pt"
     if path.exists():
         return torch.load(path, map_location="cpu", weights_only=False)
-    data = build_split(db_path, split)
+    data = build_split(db_path, split, imu_delay_comp=imu_delay_comp)
     torch.save(data, path)
     return data
 

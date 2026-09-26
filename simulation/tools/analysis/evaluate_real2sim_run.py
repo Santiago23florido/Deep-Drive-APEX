@@ -35,6 +35,7 @@ import numpy as np
 SIM = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SIM / "learning" / "lidar_imu_pose"))
 sys.path.insert(0, str(SIM / "tools"))
+sys.path.insert(0, str(SIM / "ros2_ws" / "src" / "apex_fusion_research"))
 
 import odometry_metrics as om  # noqa: E402
 
@@ -101,22 +102,115 @@ def odometry(run: Path) -> tuple[dict, dict]:
     return out, arrays
 
 
+def t_world_map(run: Path, cfg: dict) -> tuple[float, float, float]:
+    """Where the car's map frame lies in the world (evaluation only): the recorded alignment, or the true start."""
+    al = run / "slam" / "alignment.json"
+    if al.exists():
+        return tuple(json.loads(al.read_text())["learned"]["T_world_map"])
+    return tuple(cfg["spawn_true"])
+
+
+def driver_world(run: Path, cfg: dict) -> np.ndarray | None:
+    """(t, x, y, yaw) of the pose the driver used, in the world. The race driver logs its map frame."""
+    drv = _csv(run / "driver.csv")
+    if drv is None:
+        return None
+    drv = drv[drv["phase"] != "wait"]
+    if len(drv) == 0:
+        return None
+    if "x_map" in drv.dtype.names:
+        tx, ty, tyaw = t_world_map(run, cfg)
+        c, s = math.cos(tyaw), math.sin(tyaw)
+        x = tx + c * drv["x_map"] - s * drv["y_map"]
+        y = ty + s * drv["x_map"] + c * drv["y_map"]
+        return np.column_stack((drv["t"], x, y, drv["yaw_map"] + tyaw))
+    return np.column_stack((drv["t"], drv["x"], drv["y"], drv["yaw"]))
+
+
 def control_pose(run: Path, cfg: dict) -> dict:
     """Error of the pose the driver used (belief) against the truth, and the
     start placement error the format introduced."""
     s, n = cfg["spawn_true"], cfg["nominal_start"]
     out = {"start_pose": cfg.get("start_pose", "nominal"),
            "placement_error": {"xy_m": math.hypot(s[0] - n[0], s[1] - n[1]), "yaw_deg": math.degrees(s[2] - n[2])}}
-    drv, tr = _csv(run / "driver.csv"), _csv(run / "truth_track.csv")
-    if drv is None or tr is None:
-        return out
-    drv = drv[drv["phase"] != "wait"]
-    if len(drv) == 0:
+    dw, tr, drv = driver_world(run, cfg), _csv(run / "truth_track.csv"), _csv(run / "driver.csv")
+    if dw is None or tr is None:
         return out
     t = tr["t_ns"] * 1e-9
-    e = np.hypot(drv["x"] - np.interp(drv["t"], t, tr["x"]), drv["y"] - np.interp(drv["t"], t, tr["y"]))
+    e = np.hypot(dw[:, 1] - np.interp(dw[:, 0], t, tr["x"]), dw[:, 2] - np.interp(dw[:, 0], t, tr["y"]))
     out["belief_error_m"] = {"p50": float(np.median(e)), "p95": float(np.percentile(e, 95)), "max": float(e.max())}
-    out["pose_age_ms_p95"] = float(np.percentile(drv["pose_age_s"], 95) * 1e3)
+    out["pose_age_ms_p95"] = float(np.percentile(drv[drv["phase"] != "wait"]["pose_age_s"], 95) * 1e3)
+    return out
+
+
+def race_metrics(run: Path, cfg: dict, lap: dict) -> dict:
+    """The race driver against the truth: lap 1, lap closure, the planned line and the race laps."""
+    from scipy.spatial import cKDTree  # noqa: PLC0415
+
+    from apex_fusion_research.core.race_config import vehicle_limits  # noqa: PLC0415
+    from apex_fusion_research.core.race_eval import TrueTrack, load_truth_track, plan_truth_metrics  # noqa: PLC0415
+    from pose_dataset.vehicle import load_vehicle_config  # noqa: PLC0415
+
+    out: dict = {}
+    ev = json.loads((run / "race_events.json").read_text()) if (run / "race_events.json").exists() else {}
+    drv, tr = _csv(run / "driver.csv"), _csv(run / "truth_track.csv")
+    if drv is None or tr is None:
+        return {"error": "missing driver.csv or truth_track.csv"}
+    veh = vehicle_limits(load_vehicle_config())
+    tt = TrueTrack(load_truth_track(cfg["track"]), veh)
+    twm = t_world_map(run, cfg)
+    t_tr = tr["t_ns"] * 1e-9
+    # Phases (the car's own view) and the referee's true laps.
+    phases, t_d = drv["phase"], drv["t"]
+    change = np.nonzero(np.r_[True, phases[1:] != phases[:-1]])[0]
+    out["phases"] = [{"phase": str(phases[k]), "t_start": float(t_d[k])} for k in change]
+    laps = lap.get("lap_times_s", [])
+    out["true_lap_times_s"] = laps
+    out["lap_min_clearance_m"] = lap.get("lap_min_clearance_m", [])
+    if laps:
+        out["lap1"] = {"time_s": laps[0], "mean_speed_mps": lap.get("lap_len_m", float("nan")) / laps[0],
+                       "min_clearance_m": (lap.get("lap_min_clearance_m") or [float("nan")])[0]}
+    # Where the car really was when it believed it crossed its start line.
+    dw = driver_world(run, cfg)
+    cr = []
+    start = np.array([tr["x"][0], tr["y"][0]])
+    for c in ev.get("crossings", []):
+        k = int(np.clip(np.searchsorted(t_tr, c["t"]), 0, len(t_tr) - 1))
+        true_xy = np.array([tr["x"][k], tr["y"][k]])
+        b = int(np.clip(np.searchsorted(dw[:, 0], c["t"]), 0, len(dw) - 1)) if dw is not None else None
+        cr.append({"lap": c["lap"], "t": c["t"], "kind": c["kind"], "true_distance_to_start_m": float(np.hypot(*(true_xy - start))),
+                   "belief_error_m": float(np.hypot(dw[b, 1] - true_xy[0], dw[b, 2] - true_xy[1])) if b is not None else None})
+    out["crossings"] = cr
+    out["planning"] = ev.get("planning")
+    out["handover"] = ev.get("handover")
+    out["guard_events"] = len(ev.get("guard", []))
+    out["plan_error"] = ev.get("plan_error")
+    topics = ev.get("subscribed_topics", [])
+    out["knowledge_audit"] = {"subscribed_topics": topics, "no_truth": not any("/apex/sim/" in x or "ground_truth" in x for x in topics)}
+    rl, co = _csv(run / "plan" / "raceline.csv"), _csv(run / "plan" / "corridor.csv")
+    if rl is not None and co is not None:
+        plan_json = json.loads((run / "plan" / "plan.json").read_text())
+        out["plan"] = {k: plan_json.get(k) for k in ("mode", "race_length_m", "lap_ref_length_m", "max_kappa", "kappa_limit", "min_map_clearance_m",
+                                                      "t_lap_pred_s", "mean_width_m", "min_width_m", "forced_stations", "tightened_stations", "compute_s")}
+        xy = np.column_stack((rl["x"], rl["y"]))
+        out["plan_truth"] = plan_truth_metrics(xy, rl["heading"], np.column_stack((co["ref_x"], co["ref_y"])), np.column_stack((co["n_x"], co["n_y"])),
+                                               co["lo"], co["hi"], twm, tt, rl["curvature"])
+        # True deviation of the race laps from the planned line (truth mapped into the car's map frame).
+        in_race = np.isin(phases, ["race"])
+        if in_race.any():
+            t0, t1 = t_d[in_race][0], t_d[in_race][-1]
+            m = (t_tr >= t0) & (t_tr <= t1)
+            c, s = math.cos(twm[2]), math.sin(twm[2])
+            dx, dy = tr["x"][m] - twm[0], tr["y"][m] - twm[1]
+            local = np.column_stack((c * dx + s * dy, -s * dx + c * dy))
+            dense = np.vstack([xy[i] + u * (xy[(i + 1) % len(xy)] - xy[i]) for i in range(len(xy)) for u in (0.0, 0.5)])
+            dev = cKDTree(dense).query(local)[0]
+            out["race_true_deviation_m"] = {"p50": float(np.median(dev)), "p95": float(np.percentile(dev, 95)), "max": float(dev.max())}
+            lat = np.abs(drv["lat_race"][in_race])
+            lat = lat[np.isfinite(lat)]
+            if len(lat):
+                out["race_belief_lateral_m"] = {"p50": float(np.median(lat)), "p95": float(np.percentile(lat, 95))}
+            out["race_max_speed_mps"] = float(np.max(tr["speed"][m])) if "speed" in tr.dtype.names else None
     return out
 
 
@@ -209,9 +303,9 @@ def figure(run: Path, arrays: dict, result: dict) -> None:
     slam = _csv(run / "slam" / "slam_learned_trajectory.csv")
     if slam is not None:
         ax.plot(slam["x_world"], slam["y_world"], color="#e4572e", lw=1.2, ls="--", label="SLAM trajectory")
-    drv = _csv(run / "driver.csv")
-    if drv is not None:
-        ax.plot(drv["x"], drv["y"], color="#9467bd", lw=0.8, alpha=0.8, label="pose the driver used")
+    dw = driver_world(run, result["config"])
+    if dw is not None:
+        ax.plot(dw[:, 1], dw[:, 2], color="#9467bd", lw=0.8, alpha=0.8, label="pose the driver used")
     ax.set_aspect("equal")
     lap = result.get("lap", {})
     ax.set_title(f"{run.name}\nlap: {lap.get('status', '?')} {lap.get('failure_reason', '')}", fontsize=10)
@@ -244,6 +338,11 @@ def main() -> int:
         sm = json.loads((run / "slam_metrics.json").read_text())
         result["slam"] = sm.get("slams", {}).get("learned", sm)
     result["control"] = control_pose(run, result["config"])
+    if result["config"].get("driver") == "race":
+        try:
+            result["race"] = race_metrics(run, result["config"], result["lap"])
+        except Exception as exc:  # the rest of the evaluation stands on its own
+            result["race"] = {"error": repr(exc)}
     result["sensor_timing"] = sensor_timing(run)
     result["real_time"] = real_time(run)
     if args.offline_db is not None:
@@ -258,7 +357,9 @@ def main() -> int:
     print(json.dumps({"lap": {k: result["lap"].get(k) for k in ("status", "failure_reason", "progress_m", "planned_m", "max_lateral_error_m")},
                       "odometry": {k: o.get(k) for k in ("speed_err_cmps", "rpe_1s_cm", "segment_drift_pct", "heading_drift_degpm", "latency_ms", "compute_ms")},
                       "slam": {k: result.get("slam", {}).get(k) for k in ("anchored", "ate")}, "control": result["control"],
-                      "sensor_timing": result["sensor_timing"], "real_time": result["real_time"]}, indent=1, default=float))
+                      "sensor_timing": result["sensor_timing"], "real_time": result["real_time"],
+                      "race": {k: result.get("race", {}).get(k) for k in ("true_lap_times_s", "lap_min_clearance_m", "plan_truth", "race_true_deviation_m",
+                                                                           "guard_events", "knowledge_audit")}}, indent=1, default=float))
     return 0
 
 

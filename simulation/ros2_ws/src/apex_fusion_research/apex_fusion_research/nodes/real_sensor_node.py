@@ -27,7 +27,6 @@ from collections import deque
 import heapq
 import itertools
 import math
-import os
 from pathlib import Path
 import sys
 import threading
@@ -46,20 +45,10 @@ import yaml
 
 from ..core.imu_chip import ImuChip, chip_config_from_profile
 from ..core.lidar_rolling import RollingLidar, rolling_config_from_profile
+from ..core.sim_paths import sim_root  # noqa: F401 (re-exported)
 from ._common import json_msg
 
 RELIABLE = QoSProfile(depth=500, reliability=ReliabilityPolicy.RELIABLE)
-
-
-def sim_root() -> Path:
-    env = os.environ.get("APEX_SIM_ROOT", "").strip()
-    if env:
-        return Path(env)
-    here = Path(__file__).resolve()
-    for parent in here.parents:
-        if (parent / "tools" / "pose_dataset").is_dir():
-            return parent
-    raise RuntimeError("cannot locate simulation/ (set APEX_SIM_ROOT)")
 
 
 def load_profile(name: str, sensors_yaml: Path) -> dict:
@@ -132,7 +121,7 @@ class RealSensorNode(Node):
         dp("truth_rate_hz", 100.0)
         dp("status_topic", "/apex/sim/real_sensors/status")
         dp("publish_period_s", 0.002)
-        dp("truth_csv_dir", "")  # evaluation: truth track (100 Hz) and truth at every scan
+        dp("truth_csv_dir", "")  # evaluation: truth track (100 Hz), truth at every scan, and the published IMU samples and scans
         gp = lambda n: self.get_parameter(n).value  # noqa: E731
 
         self.profile = load_profile(str(gp("sensor_profile")), Path(gp("sensors_yaml")))
@@ -180,7 +169,9 @@ class RealSensorNode(Node):
             self._csv["ideal_points"] = (fh, w)
             for name, header in (("truth_track", ["t_ns", "x", "y", "z", "yaw", "speed"]),
                                  ("truth_scans", ["stamp_ns", "t_start_ns", "t_end_ns", "x", "y", "yaw", "valid_bins"]),
-                                 ("imu_raw", ["stamp_sec", "stamp_nanosec", "ax_mps2", "ay_mps2", "az_mps2", "gx_rps", "gy_rps", "gz_rps"])):
+                                 ("imu_raw", ["stamp_sec", "stamp_nanosec", "ax_mps2", "ay_mps2", "az_mps2", "gx_rps", "gy_rps", "gz_rps"]),
+                                 # the LaserScans as published (noisy, what the car receives): one row per revolution
+                                 ("lidar_scans", ["stamp_ns", "scan_time_s"] + [f"r{i}" for i in range(self.lidar.cfg.beams)])):
                 fh = open(out / f"{name}.csv", "w", newline="", encoding="utf-8")
                 w = csv.writer(fh)
                 w.writerow(header)
@@ -328,6 +319,9 @@ class RealSensorNode(Node):
         msg.ranges = rev.ranges.astype(float).tolist()
         self.scan_pub.publish(msg)
         self.counts["scans_out"] += 1
+        if "lidar_scans" in self._csv:  # empty = no return (+inf), 0 = below range_min (-inf)
+            self._csv["lidar_scans"][1].writerow([rev.stamp_ns, f"{rev.period_s:.6f}"]
+                                                 + [f"{r:.4f}" if np.isfinite(r) else ("" if r > 0 else "0") for r in rev.ranges])
         # Truth at the true first sample of the revolution (evaluation only).
         if self._track:
             tt = np.array([r[0] for r in self._track], dtype=np.float64)

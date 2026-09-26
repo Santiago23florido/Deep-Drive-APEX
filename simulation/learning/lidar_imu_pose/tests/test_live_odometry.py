@@ -25,6 +25,7 @@ from gridsearch_sqlite import DEFAULT_DB  # noqa: E402
 from icp_odometry import ICP_VARIANTS, run_icp  # noqa: E402
 from live_odometry import MAX_IMU, LidarCalibration, LiveOdometry  # noqa: E402
 from sqlite_streams import StreamData, load_split  # noqa: E402
+from sqlite_windows import imu_group_delay_s  # noqa: E402
 from streaming_model import load_checkpoint  # noqa: E402
 from train_streaming import CACHE, OUT, stream_predict  # noqa: E402
 from pose_dataset.blobs import decode_mask, decode_ranges  # noqa: E402
@@ -64,14 +65,28 @@ def _single_run(data: dict, run_key: str) -> dict:
     return out
 
 
+def _fast_motion_checkpoint(ckpt: Path, tmp: Path) -> Path:
+    """The same weights with the fast-motion options on (submap v3 ICP, gyro
+    profile in the network, IMU filter delay): the live and batch paths
+    must still agree."""
+    ck = torch.load(ckpt, map_location="cpu", weights_only=False)
+    ck["config"] = {**ck["config"], "icp_variant": "submap_v3", "sweep_profile": True, "imu_delay_comp": True}
+    path = tmp / "fast_motion.pt"
+    torch.save(ck, path)
+    return path
+
+
+@pytest.mark.parametrize("fast", [False, True], ids=["historical", "fast_motion_options"])
 @pytest.mark.parametrize("dbs,run_key,ckpts", CASES, ids=["v1_A_nominal", "v2_APEX_real"])
-def test_live_replay_matches_batch(dbs: tuple[Path, ...], run_key: str, ckpts: tuple[Path, ...]):
+def test_live_replay_matches_batch(dbs: tuple[Path, ...], run_key: str, ckpts: tuple[Path, ...], fast: bool, tmp_path: Path):
     db = _database_with(dbs, run_key)
     ckpt = next((c for c in ckpts if c.exists()), None)
     if db is None or ckpt is None:
         pytest.skip("needs a pose dataset with this run and the hybrid checkpoint")
+    if fast:
+        ckpt = _fast_motion_checkpoint(ckpt, tmp_path)
     dev = torch.device("cpu")
-    data = _single_run(load_split(db, CACHE, "validation"), run_key)
+    data = _single_run(load_split(db, CACHE, "validation", imu_delay_comp=fast), run_key)
     sd = StreamData(data, dev)
     # The IMU encoder convolves before masking the padding, so the last
     # samples of an interval see the zeros after it. The training splits pad
@@ -88,11 +103,14 @@ def test_live_replay_matches_batch(dbs: tuple[Path, ...], run_key: str, ckpts: t
     scans = conn.execute("SELECT timestamp_ns, beam_count, ranges_encoding, ranges_blob, valid_mask_blob FROM lidar_scans WHERE run_id = ? ORDER BY seq", (run_id,)).fetchall()
     imu = conn.execute("SELECT timestamp_ns, ax, ay, az, gx, gy, gz FROM imu_samples WHERE run_id = ? ORDER BY seq", (run_id,)).fetchall()
     ext, noise = conn.execute("SELECT extrinsic_translation, noise_configuration_json FROM sensor_calibration WHERE run_id = ? AND sensor_name = 'lidar'", (run_id,)).fetchone()
+    imu_cfg = json.loads(conn.execute("SELECT noise_configuration_json FROM sensor_calibration WHERE run_id = ? AND sensor_name = 'imu'", (run_id,)).fetchone()[0])
     conn.close()
     prof = json.loads(noise)
     prof["extrinsic"] = {"xyz": json.loads(ext)}
     cal = LidarCalibration.from_profile(prof)
-    live = LiveOdometry(ckpt, cal, device="cpu", imu_wait_s=10.0)
+    delay = imu_group_delay_s(imu_cfg)
+    live = LiveOdometry(ckpt, cal, device="cpu", imu_wait_s=10.0, imu_group_delay_s=delay)
+    lag = int(round(delay * 1e9)) if fast else 0  # a sample covers the revolution once its compensated stamp does
 
     stamps = [s[0] for s in scans]
     imu_t = np.array([m[0] for m in imu])
@@ -107,7 +125,7 @@ def test_live_replay_matches_batch(dbs: tuple[Path, ...], run_key: str, ckpts: t
         end = stamps[k + 1] if k + 1 < len(stamps) else t + int(scan_time * 1e9)
         # Deliver every IMU sample up to the end of this revolution (plus the
         # next one, needed to interpolate the gyro at the boundary).
-        while j < len(imu) and (j == 0 or imu_t[j - 1] <= end):
+        while j < len(imu) and (j == 0 or imu_t[j - 1] - lag <= end):
             m = imu[j]
             live.add_imu(m[0], np.array(m[4:7]), np.array(m[1:4]))
             j += 1

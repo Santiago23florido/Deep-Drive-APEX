@@ -254,3 +254,81 @@ def test_deskew_uses_per_beam_time():
     assert torch.allclose(pts[:, 0], expect_x, atol=1e-5)
     linear = deskew(*args)[0]
     assert not torch.allclose(linear[:, 0], expect_x, atol=1e-3)
+
+
+def test_gyro_profile_ends_at_the_interval_integral():
+    from sqlite_streams import PROFILE_KNOTS, gyro_profile
+    from sqlite_windows import _trapz
+
+    rng = np.random.default_rng(3)
+    t = np.cumsum(rng.uniform(0.008, 0.011, 40))
+    gz = np.sin(3.0 * t) + rng.normal(0.0, 0.01, 40)
+    a, b = t[5] + 0.003, t[14] - 0.002
+    ts = np.concatenate(([a], t[(t > a) & (t < b)], [b]))
+    prof = gyro_profile(t, gz, a, b)
+    assert prof.shape == (PROFILE_KNOTS + 1,) and prof[0] == 0.0
+    assert abs(prof[-1] - _trapz(np.interp(ts, t, gz), ts)) < 1e-12  # same interpolant as sqlite_windows
+    constant = gyro_profile(t, np.full_like(t, 0.7), a, b)
+    assert np.allclose(constant, 0.7 * (b - a) * np.linspace(0.0, 1.0, PROFILE_KNOTS + 1))
+
+
+def _rolling_sweep(yaw_rate0, yaw_accel, v, period=1.0 / 13.0):
+    """A2M8-like revolution of ROOM while the car turns with a changing yaw
+    rate: ranges, per-beam time, true beam endpoints in the sweep-start frame
+    and the exact heading profile."""
+    from sqlite_streams import PROFILE_KNOTS, bin_time_fraction
+
+    frac = bin_time_fraction(BEAMS, -math.pi, 2 * math.pi / BEAMS, "cw", math.radians(89.0))
+    tau = frac * period
+    theta = -math.pi + 2 * math.pi / BEAMS * np.arange(BEAMS)
+    fine = np.linspace(0.0, period, 2001)
+    psi_f = yaw_rate0 * fine + 0.5 * yaw_accel * fine**2
+    step = np.diff(fine)[:, None] * np.column_stack((np.cos(psi_f), np.sin(psi_f)))[:-1] * v  # body velocity along x
+    track = np.vstack((np.zeros((1, 2)), np.cumsum(step, axis=0)))
+    psi = yaw_rate0 * tau + 0.5 * yaw_accel * tau**2
+    origin = np.column_stack((np.interp(tau, fine, track[:, 0]), np.interp(tau, fine, track[:, 1])))
+    start = np.array([0.4, 0.3])
+    r = np.array([cast(ROOM, start + origin[i], np.array([psi[i] + theta[i]]), 12.0)[0] for i in range(BEAMS)])
+    true = origin + r[:, None] * np.column_stack((np.cos(psi + theta), np.sin(psi + theta)))
+    knots = np.linspace(0.0, period, PROFILE_KNOTS + 1)
+    return r, tau, true, yaw_rate0 * knots + 0.5 * yaw_accel * knots**2, period
+
+
+def test_deskew_profile_follows_a_changing_yaw_rate():
+    """Entering a curve: the yaw rate ramps up during the sweep. The heading
+    profile straightens the scan; a constant (mean) rate leaves it bent."""
+    from icp_odometry import deskew
+
+    r, tau, true, profile, period = _rolling_sweep(0.0, 30.0, 3.0)
+    ok = np.isfinite(r)
+    f32 = lambda a: torch.tensor(np.asarray(a), dtype=torch.float32)  # noqa: E731
+    args = (f32(np.where(ok, r, 0.0))[None], torch.tensor(ok)[None], f32([profile[-1] / period]), f32([[3.0, 0.0]]),
+            f32([period / BEAMS]), torch.zeros(1, 2), f32([-math.pi]), f32([2 * math.pi / BEAMS]))
+    constant = deskew(*args, beam_time=f32(tau)[None])[0].numpy()
+    follow = deskew(*args, beam_time=f32(tau)[None], sweep=(f32(profile)[None], f32([period])))[0].numpy()
+    err_c = np.linalg.norm(constant[ok] - true[ok], axis=1)
+    err_p = np.linalg.norm(follow[ok] - true[ok], axis=1)
+    assert np.percentile(err_p, 95) < 0.003
+    assert np.percentile(err_c, 95) > 5 * np.percentile(err_p, 95)
+    # A linear profile is the constant-rate de-skew (up to the chord of the arc).
+    linear = deskew(*args, beam_time=f32(tau)[None], sweep=(f32(profile[-1] * np.linspace(0, 1, len(profile)))[None], f32([period])))[0].numpy()
+    assert np.abs(linear[ok] - constant[ok]).max() < 1e-3
+
+
+def test_pair_channels_linear_profile_matches_constant_rate():
+    from sqlite_streams import PROFILE_KNOTS, bin_time_fraction
+    from streaming_model import pair_channels
+
+    rng = np.random.default_rng(5)
+    frac = torch.tensor(bin_time_fraction(BEAMS, -math.pi, 2 * math.pi / BEAMS, "cw", math.radians(89.0)), dtype=torch.float32)
+    r = torch.tensor(scan(ROOM, np.array([0.4, 0.3, 0.1]), 12.0), dtype=torch.float32)
+    valid = torch.isfinite(r)
+    r = torch.where(valid, r, torch.zeros_like(r))
+    dt, dt_next = torch.tensor([[0.0767]]), torch.tensor([[0.0771]])
+    gyro, gyro_next = torch.tensor([[0.09]]), torch.tensor([[0.12]])
+    lin = torch.linspace(0.0, 1.0, PROFILE_KNOTS + 1)
+    batch = {"prev_ranges": r[None, None], "prev_valid": valid[None, None], "cur_ranges": r[None, None], "cur_valid": valid[None, None],
+             "w_prev": gyro / dt, "w_cur": gyro_next / dt_next, "time_increment": torch.tensor([[1.0 / 13.0 / BEAMS]]), "beam_frac": frac[None, None],
+             "gyro_integral": gyro, "dt": dt, "prof_prev": gyro[..., None] * lin, "prof_cur": gyro_next[..., None] * lin, "dt_next": dt_next}
+    a, b = pair_channels(batch), pair_channels(batch, profile=True)
+    assert rng is not None and torch.allclose(a, b, atol=2e-4)

@@ -13,11 +13,14 @@ trained. Every scan interval is assembled with the rules of the training data
 * IMU normalisation [ax/G, ay/G, (az - G)/G, gx, gy, gz] and the ranges as
   range / range_max, both rounded to float16 like the stored dataset;
 * dt between the reported stamps and the trapezoidal gyro-z integral over the
-  interval (interpolated at both ends);
+  interval (interpolated at both ends), and its heading profile over the
+  sweeps of scans k-1 and k (``sqlite_streams.gyro_profile``);
 * yaw rate during the sweep of scan k-1 (= the interval itself) and of scan
   k, the revolution that follows its stamp: the scan is processed once the
   IMU covers that revolution (``scan_time``), or after ``imu_wait_s`` (sim or
   robot clock) with what arrived;
+* IMU stamps moved back by the chip filter delay (``imu_group_delay_s``)
+  when the checkpoint was trained with ``imu_delay_comp``;
 * per-beam firing time from the LiDAR calibration (rotation direction and
   sync angle), mean specific force, specific-force spread;
 * the classical odometry in full FP32 and the network with its persistent
@@ -43,7 +46,7 @@ import numpy as np
 import torch
 
 from icp_odometry import ICP_VARIANTS, IcpStream, deskew, fp32_matmul
-from sqlite_streams import bin_time_fraction, icp_features, imu_interval_stats
+from sqlite_streams import bin_time_fraction, gyro_profile, icp_features, imu_interval_stats
 from sqlite_windows import G, _trapz
 from streaming_model import load_checkpoint
 
@@ -109,11 +112,14 @@ class Estimate:
 
 class LiveOdometry:
     def __init__(self, checkpoint: str | Path, lidar: LidarCalibration, device: str = "cuda", imu_wait_s: float = 0.03,
-                 imu_rate_hz: float | None = None) -> None:
+                 imu_rate_hz: float | None = None, imu_group_delay_s: float = 0.0) -> None:
         self.device = torch.device(device if (device != "cuda" or torch.cuda.is_available()) else "cpu")
         self.model, ck = load_checkpoint(checkpoint, self.device)
         self.hybrid = bool(self.model.hybrid)
         self.icp_cfg = ICP_VARIANTS[ck["config"].get("icp_variant", "scan")] if self.hybrid else None
+        # IMU stamps moved back by the chip filter delay of the sensor profile
+        # (sqlite_windows.imu_group_delay_s), as in training.
+        self.imu_delay_ns = int(round(imu_group_delay_s * 1e9)) if ck["config"].get("imu_delay_comp", False) else 0
         self.lidar = lidar
         self.imu_wait_ns = int(imu_wait_s * 1e9)
         self.imu_rate_hz = imu_rate_hz
@@ -152,10 +158,11 @@ class LiveOdometry:
         """One raw IMU sample: angular rate [rad/s] and specific force
         [m/s^2, gravity included] in the sensor frame."""
         with self.lock:
-            if self._imu_t and stamp_ns <= self._imu_t[-1]:
+            t = int(stamp_ns) - self.imu_delay_ns
+            if self._imu_t and t <= self._imu_t[-1]:
                 self.health.count("imu_out_of_order")
                 return
-            self._imu_t.append(int(stamp_ns))
+            self._imu_t.append(t)
             self._imu_v.append(np.array([accel[0], accel[1], accel[2], gyro[0], gyro[1], gyro[2]], dtype=np.float64))
             self.health.imu(int(stamp_ns))
             horizon = int(stamp_ns) - 3_000_000_000  # keep 3 s
@@ -222,6 +229,11 @@ class LiveOdometry:
         ts = np.concatenate(([a], inner, [b]))
         return float(_trapz(np.interp(ts, t, gz), ts))
 
+    def _gyro_profile(self, t0: int, t1: int) -> np.ndarray:
+        t = np.fromiter(self._imu_t, dtype=np.int64, count=len(self._imu_t)) * 1e-9
+        gz = np.array([v[5] for v in self._imu_v])
+        return gyro_profile(t, gz, t0 * 1e-9, t1 * 1e-9).astype(np.float32)
+
     def _scan(self, stamp: int, r: np.ndarray, scan_time: float) -> Estimate | None:
         cur_r, cur_v = self._metric(r)
         with self.lock:
@@ -238,6 +250,7 @@ class LiveOdometry:
             sweep_end = stamp + int(round(scan_time * 1e9))
             dt_next = np.float32(max(scan_time, 1e-4))
             gyro_next = np.float32(self._gyro_integral(stamp, sweep_end))
+            prof_prev, prof_cur = self._gyro_profile(t_prev, stamp), self._gyro_profile(stamp, sweep_end)
             raw = self._imu_between(t_prev, stamp)
         dev = self.device
         w_prev, w_cur = float(gyro / dt), float(gyro_next / dt_next)
@@ -256,6 +269,7 @@ class LiveOdometry:
             "prev_ranges": prev_r[None, None], "prev_valid": prev_v[None, None], "cur_ranges": cur_r[None, None], "cur_valid": cur_v[None, None],
             "w_prev": f(w_prev), "w_cur": f(w_cur), "time_increment": self.t_inc[None], "imu": imu, "imu_lengths": lengths,
             "accel": accel, "accel_std": accel_std, "gyro_integral": f(gyro), "dt": f(dt),
+            "prof_prev": torch.tensor(prof_prev, device=dev)[None, None], "prof_cur": torch.tensor(prof_cur, device=dev)[None, None], "dt_next": f(dt_next),
         }
         if self.beam_frac is not None:
             batch["beam_frac"] = self.beam_frac[None, None]
