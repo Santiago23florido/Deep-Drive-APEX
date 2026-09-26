@@ -582,7 +582,8 @@ Gazebo (track world, car with suspension, gpu_lidar capture 26 Hz, 1 kHz IMU wit
         TF odom_learned -> base_link at every scan stamp, /apex/odometry/learned (sigma -> covariance),
         /apex/odometry/learned_predicted (IMU-propagated, for control), /apex/learned_odometry/scan_deskewed
   -> slam_toolbox (config/slam/slam_toolbox_learned.yaml): /map, TF map -> odom_learned
-  -> track_driver_node  T_world_map (start pose) * map->odom * predicted pose -> pure pursuit + speed plan
+  -> race_driver_node   (default, §13.1) lap 1 reactive on the LiDAR, then a race line planned on its own map
+     or track_driver_node (--driver format) T_world_map (start pose) * map->odom * predicted pose -> pure pursuit + speed plan
   -> /apex/cmd_vel_track (Twist, the real car's interface) -> sim_actuation_node (dataset ESC / servo) -> Gazebo
 run_referee_node (truth only): lap completed / collision / off-track -> run_result.json, real walls for the map evaluation
 ```
@@ -602,8 +603,9 @@ run_referee_node (truth only): lap completed / collision / off-track -> run_resu
 - **Clock:** every node runs on the simulation clock.
 
 ```bash
-./simulation/tools/sim/apex_real2sim_up.sh --track val_mixed --motion medium --seed 1 --laps 2
-# --checkpoint <file>           default: learning/outputs/real2sim_v2/hybrid_submap/best_model.pt (trained on APEX_real)
+./simulation/tools/sim/apex_real2sim_up.sh --track val_mixed --motion medium --seed 1 --laps 2 --driver format
+# --checkpoint <file>           default: learning/outputs/real2sim_v2_fast/hybrid_submap_v3/best_model.pt (the last trained)
+# --driver race|format          race (default): explore, map and race (§13.1); format: follow the dataset format
 # --motion slow_variable        real-car speeds
 # --sensor APEX_real_compat     A2M8 in the 2 kHz protocol
 # --drive truth                 drive on the exact pose (diagnostic: estimator without the closed loop)
@@ -647,6 +649,132 @@ run_referee_node (truth only): lap completed / collision / off-track -> run_resu
 - clockwise order, blind sector and stamps.
 
 `tools/pose_dataset/tests/test_suspension.py` checks the sprung-body response.
+
+### 13.1 Race mode: explore, map, race
+
+**Goal.** Emulate the real car on a track it has never seen, with sensor draws it has never seen. On lap 1 it has no map, so it cannot follow an ideal path: it drives reactively on the LiDAR while `slam_toolbox` builds the map. It detects the end of its lap itself. From then on it races a line planned on its own map. The only pose it has is the learned odometry (`--checkpoint`, default the last trained model), corrected by the SLAM with the noisy LiDAR.
+
+```
+/lidar/scan_raw + /apex/imu/data_raw (noisy, real2sim layer)
+  -> learned_odometry_node: odom_learned -> base_link, predicted pose, de-skewed scan
+  -> slam_toolbox: /map, map -> odom_learned, pose graph (/slam_toolbox/graph_visualization)
+  -> race_driver_node (50 Hz)
+       WAIT      estimator ready, 1.5 s static, map -> odom known: the start line is fixed in `map`
+       EXPLORE   lap 1, reactive: local cloud (2 s / 3 m of de-skewed scans in odom_learned), wall
+                 tracker L/R/BOTH/NONE, wall-relative (Frenet) or two-arc candidates, 3-circle
+                 footprint, pure pursuit
+       CLOSING   first crossing of its own start line: 6 m more so the SLAM closes the loop
+       PLANNING  fresh /map: lap-1 path from the optimized graph -> corridor -> race line
+                 (separate process; the car keeps driving reactively)
+       RACE      pure pursuit on the line with its speed profile; a live LiDAR guard hands over to
+                 the reactive planner (guided by the line) when the line ahead is blocked by something
+                 the map did not have
+       FINAL / DONE   brake after `laps` crossings. REACTIVE_ONLY if the planning fails
+  -> /apex/cmd_vel_track (the real car's interface)
+```
+
+**What the car knows (knowledge firewall).**
+- **Parameters:** `laps`, the lane-width prior `w_min`, its own limits (`vehicle.yaml`: `model`, `esc`, `servo`, `controller` only), the driver margins and speeds, the nominal sensor calibration and the odometry checkpoint.
+- **Topics:** the learned odometry (`/apex/odometry/learned{,_predicted}`, `/apex/learned_odometry/{scan_deskewed,status}`), `/map`, the SLAM graph, `/tf`, `/tf_static`, `/clock`.
+- **Never:** the track (`run_setup`, `load_track*`), `speed_calibration.json`, any `/apex/sim/*` topic, or the `track` / `motion` / `seed` parameters. `test/test_knowledge_firewall.py` checks the code; every run writes the subscribed topics to `race_events.json` and the evaluation audits them.
+- **Simulator side:** track, motion and seed still build the world, the spawn, the mount and actuator draws, and the referee.
+
+**Lane-width prior.** Curbs (7 cm) sit below the LiDAR plane (12 cm): the car cannot see them but hits them. It assumes every lane is at least `w_min` = 1.5 m wide:
+- **Lap 1:** it follows the visible wall at 0.75 m, never farther than `w_min − W/2 − 0.10` = 1.24 m, or the centre when it sees both walls.
+- **Race:** the corridor is bounded by the mapped walls and obstacles; on a blind side (curb) the bound is `w_min` minus the distance to the opposite wall. Where no wall is recognised on either side (a wall mapped in short pieces), the nearest mapped boundary plays that role, and the corridor is also capped at ±0.25 m around the lap-1 path.
+- **Limitation:** a stretch with curbs on both sides has no wall to follow. The car holds its heading for 2 m at 0.8 m/s and stops. `w_min` must not be larger than the narrowest lane.
+
+**Local cloud.** The real A2M8 (and the realism layer) gives returns that are not obstacles, and the reactive planner and the guard must not react to them:
+- **Spurious returns** (dust, cross-talk: isolated beams): a return is kept if a neighbour up to two beams away agrees with it, or if it lies between its two neighbours (a wall at grazing incidence changes range fast from beam to beam).
+- **The car's own wheel** (~0.15 m at ~98°): returns inside the body box are dropped. The de-skewing moves those hits with the car's motion between the sample and the stamp (up to one revolution: 0.27 m at 3.5 m/s), so the box is extended forward by speed × 77 ms. Nothing real can be there without a collision.
+- **The floor**: braking pitches the sprung body ~0.6° per m/s², and the laser plane (12 cm high) then hits the floor 4–5 m ahead. Each new revolution carves the stored points it sees through (its beam and both neighbours return farther). No return also carves, but only closer than 4 m and within ±120° of the front, because the chassis hides the rear sector.
+
+**Sharp turns on lap 1.** When the reference wall recedes faster than the car can turn (a sharp turn of the lane), no path keeps the `w_min` bound. Rather than stopping, and then taking the longest free path, which may cross a curb, the car keeps the paths that break the bound least, following the wall as closely as it can, at `v_blind` (0.8 m/s).
+
+**Race line.** The lap-1 path (optimized SLAM graph, cut at the start line) is smoothed into a closed reference. A corridor is ray-cast along its normals, then eroded. The line minimizes the linearized curvature κ_ref + κ_ref²α + α'' inside the corridor (box-constrained least squares, ADMM). The footprint clearance is then verified; where it is short, the bounds are tightened toward the side with more room (`--race-line centre` gives a centred path). The speed profile uses `min(v_max, √(a_lat/κ), 1.2 + 5·width)` with forward/backward acceleration limits.
+
+```bash
+./simulation/tools/sim/apex_real2sim_up.sh --track test_unseen --seed 6 --laps 3
+# --w-min 1.5  --v-explore 1.5  --race-line min_curvature|centre  --v-max-race 3.5  --a-lat 3.0
+```
+
+**Guard.** The race line ahead (braking distance + 0.5 m) is checked against the live cloud with the same 3-circle footprint. It hands over to the reactive planner (guided by the line, at least 1 s) only when the clearance is < 6 cm **and** 18 cm below the map clearance the plan expected there. A new or moved obstacle does that; the few centimetres of disagreement between the live cloud and the map do not.
+
+**Referee in race mode.** It fails on a collision (walls, curbs, pillars), a lane excess > 0.30 m, a roll-over, a stop > 8 s, or a timeout of `laps·L/0.4 + 60 s`. It does not use the 0.60 m rule of the seeded path (there is none). It records the true lap times and the clearance per lap.
+
+**Outputs** (in addition to §13):
+- `plan/`: `map_snapshot.pgm/.yaml`, `lap1_path.csv`, `wall_log.csv`, `corridor.csv`, `raceline.csv`, `plan.json` (source of the lap path, seam, corridor, timing).
+- `race_events.json`: crossings, planning and handover times, guard events, subscribed topics, the full configuration.
+- `driver.csv` (in `map`): phase, raw and applied SLAM correction, reactive state, race state.
+- `evaluation.json["race"]` and `carrera.png`: phases, true lap times, crossing accuracy, safety of the planned line against the real walls and curbs (clearance, % inside the lane, corridor soundness), true deviation from the line, knowledge audit. The planned line is taken to the world with one rigid transform (the true start pose), so the non-rigid distortion of the SLAM map (up to ~0.2 m far from the start) shows up as lost clearance. The true clearance of the car during the race laps (`run_result.json`) is what the car actually had.
+
+**Offline tools.**
+- `ros2 run apex_fusion_research replay_race_plan <run> [--mode] [--w-min] [--truth]` plans again on a recorded map.
+- `tools/analysis/race_harness_2d.py --track test_unseen --seeds 6 7 8 9` runs the same car-side modules in a 2D closed loop (ray-cast LiDAR with the blind sector, noise, dropouts, spurious returns and the car's own hits; odometry drift; SLAM at 5 Hz) in ~20 s per run. It is the place to tune margins and weights.
+
+**Validation** (Gazebo closed loop, `test_unseen`, a track never seen in training, seeds 6–9: new sensor-mount and noise draws, both directions; `APEX_real`, default checkpoint, 3 laps, CPU).
+
+| Seed (direction) | Referee | Lap times [s], lap 1 = explore | Min true clearance, lap 1 / race [cm] | Guard hand-overs | Planned line vs the real track: min / p5 clearance [cm], inside the lane | True deviation from the line, p50 / p95 [m] | Lap-closure error [m] |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 6 (reversed) | completed | 50.5, 22.0, 23.3 | 13 / 17 | 0 | 3 / 19, 100 % | 0.06 / 0.24 | 0.40 |
+| 7 (CCW) | completed | 49.7, 21.4, 24.1 | 13 / 10 | 2 | 18 / 23, 100 % | 0.05 / 0.20 | 0.65 |
+| 8 (reversed) | completed | 48.5, 23.4, 23.2 | 15 / 15 | 0 | 14 / 21, 100 % | 0.08 / 0.19 | 0.52 |
+| 9 (CCW) | completed | 44.1, 21.8, 23.7 | 24 / 16 | 0 | 16 / 22, 100 % | 0.04 / 0.19 | 0.28 |
+
+- **Laps 2+ take about 47 % of the time of lap 1** (the same ratio as the 2D harness). Lap 1 runs at 0.3–1.5 m/s; the race line reaches the 3.5 m/s cap on the straights.
+- **Knowledge audit:** in every run the lap path came from the SLAM graph, and the driver subscribed to no `/apex/sim/*` topic.
+- **Planning:** 0.4–0.5 s in a separate process, submitted 5–7 s after the first crossing (6 m of overlap, then a fresh map).
+- **The planned line against the real track.** It lies 100 % inside the real lane. The 3 cm minimum of seed 6 comes from the rigid anchoring at the S bend (see *Outputs*); the car there kept ≥ 17 cm.
+- **Lap closure:** 0.3–0.65 m, the SLAM pose error at the start line after one lap of learned odometry. It is inside the 1.5 m lateral tolerance of the crossing test.
+- **Regression.** The format driver (`--driver format --track val_mixed --seed 1 --laps 2`) still completes both laps with the new default checkpoint: 103.4 m, max lateral error 0.31 m.
+- **2D harness** (same modules): `test_unseen` 6–9, `val_mixed` 1–2 and `zs_real_track_replica` 1–2 all completed, with laps 2+ at 50–57 % of lap 1 (down to 35 % from lap 3 on the replica of the real track).
+
+### 13.2 Videos, the odometry model and what worked
+
+**Videos** of one run (`test_unseen`, seed 7, 3 laps: 48.5 s exploring, then 22.5 s and 23.4 s on the planned line, no collision), sped up. The Gazebo and RViz clips are screen recordings of the running simulation. The last two are drawn from the run's logs (`tools/analysis/animate_race_run.py <run>`), and there the LiDAR is placed where the car *believes* it is.
+
+| Lap 1: reactive, no map | Laps 2–3: the planned line |
+| --- | --- |
+| ![Gazebo, lap 1](doc/images/race/gazebo_vuelta1.gif) | ![Gazebo, race laps](doc/images/race/gazebo_carrera.gif) |
+| Gazebo, camera following the car (x8). The orange strips are the curbs, 7 cm tall: below the LiDAR plane, so the car cannot see them. | The same camera on laps 2–3 (x8). The car follows the line it planned on its own map, up to 3.5 m/s. |
+| ![RViz, map building](doc/images/race/rviz_mapa_vuelta1.gif) | ![RViz, race laps](doc/images/race/rviz_carrera.gif) |
+| RViz (x10): the slam_toolbox map (grey) grows as the car drives, from the noisy LiDAR and the learned odometry only. | RViz (x8): after closing the lap, the race line and the corridor edges appear, and the car follows the line. |
+| ![Lap 1 from the logs](doc/images/race/anim_vuelta1.gif) | ![Race laps from the logs](doc/images/race/anim_carrera.gif) |
+| From the logs (x5): the true footprint, the LiDAR revolution placed with the car's own pose estimate (it lands on the walls), and the lap-1 path. | From the logs (x5): the planned line (dashed) and the race laps (green) against the real walls and curbs. |
+
+Result figures of the same run (`plot_real2sim_sensors.py`):
+
+![Race summary, seed 7](doc/images/race/carrera_s7.png)
+
+![Car's map against the real track, seed 7](doc/images/race/mapa_s7.png)
+
+**The odometry model in use** (`learning/outputs/real2sim_v2_fast/hybrid_submap_v3/best_model.pt`, the default checkpoint). It is a hybrid: classical scan-to-submap ICP (v3) with a neural network (488 753 parameters) that corrects it, using the LiDAR and the IMU. It was trained 40 epochs on the v2 `APEX_real` dataset, and the checkpoint of epoch 38 was kept (best validation segment drift). Details: `learning/lidar_imu_pose/README.md`.
+
+![Training curves](doc/images/odometry_model/training_curves.png)
+
+*Training loss and validation metrics per epoch; the dotted line is the checkpoint kept.*
+
+![Hybrid against classical ICP](doc/images/odometry_model/comparison_test.png)
+
+*Against the classical ICP alone, on validation and on the test split (unseen track and unseen sensor/speed combinations). Speed error on test: 3.46 against 11.6 cm/s; segment drift (2–40 m): 1.21 % against 3.83 %.*
+
+![Error against horizon](doc/images/odometry_model/error_vs_horizon.png)
+
+*Test error against the time horizon and the segment length: the hybrid's translation error grows much more slowly; the heading error is the same for both (it comes from the IMU).*
+
+![Seen against unseen runs](doc/images/odometry_model/seen_vs_unseen.png)
+
+*The same metrics on training, validation and test runs: the error on unseen runs is close to that on training runs (no overfitting).*
+
+**What worked in the simulated tests.**
+- **All runs on the unseen track completed.** Gazebo, `test_unseen`, seeds 6–9, both directions: 3 laps each with no collision (see the table in §13.1). The recorded demonstration runs of seed 7 also completed: 48.5 / 22.5 / 23.4 s and 49.4 / 21.0 / 23.6 s.
+- **Lap 1 without a map.** The reactive driver follows the visible wall, or the centre when it sees both, at 0.3–1.5 m/s. It keeps a minimum true clearance of 12–24 cm, including the two pillars, and the S bend where walls end and continue as curbs.
+- **The car closes its own lap.** It crosses its own start line in its SLAM map 0.3–0.65 m from the true start.
+- **Planning.** The line is planned in 0.4–0.5 s, on the optimized SLAM graph, while the car keeps driving.
+- **Race laps.** They take about 47 % of the time of lap 1. The true deviation from the line is p50 4–8 cm, p95 19–24 cm; the true clearance stays ≥ 10 cm; the planned line is 100 % inside the real lane.
+- **The pose.** The car only ever used the network's pose, corrected by the SLAM, and the noisy sensors. The knowledge audit of every run is clean (no `/apex/sim/*` topic).
+- **Robust to the real sensor's artefacts.** Spurious returns, the car's own wheel in the scan, and the floor seen while braking no longer stop the car or trigger the guard (0–2 hand-overs per run, down from 5–34 before these fixes).
+- **Tests.** 80 unit tests plus a closed-loop test pass. The 2D harness completes all 8 runs on three tracks (`test_unseen`, `val_mixed`, the replica of the real track).
 
 ## References
 
