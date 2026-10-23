@@ -106,8 +106,32 @@ def _replay(mode: str, hold: bool, seconds: float = 180.0, imu: str = "real", ch
             j += 1
         live.add_scan(stamp, r, st)
         for est in live.process(end):
-            rows.append(sd.row(est, stamp * 1e-9))
+            row = sd.row(est, stamp * 1e-9)
+            prediction = live.predict()
+            row["pred_speed"] = float(np.linalg.norm(prediction[2]))
+            rows.append(row)
     return live, {k: np.array([r[k] for r in rows]) for k in rows[0]}
+
+
+@needs_data
+def test_confirmed_standstill_also_holds_the_fast_prediction():
+    """The controller must not integrate IMU tilt between held scan poses.
+
+    On the parked car this sawtooth accumulated ten fictitious metres even
+    though the scan-stamped pose stayed within millimetres of the origin.
+    """
+    live, _ = _replay("parked", hold=True, seconds=5.0, imu="real")
+    assert live.hold.holding
+    pose_at_scan = live.pose.copy()
+    start = live._imu_t[-1]
+    for i in range(1, 21):
+        live.add_imu(start + live.imu_delay_ns + i * 10_000_000,
+                     np.array([0.0, 0.0, 0.01]), np.array([-0.7, -0.2, 9.8]))
+        stamp, pose, velocity, rate = live.predict()
+        assert stamp == start + i * 10_000_000, "prediction stopped publishing fresh IMU stamps"
+        np.testing.assert_array_equal(pose, pose_at_scan)
+        np.testing.assert_array_equal(velocity, np.zeros(2))
+        assert rate == 0.0
 
 
 @needs_data
@@ -142,6 +166,8 @@ def test_no_driving_revolution_is_held():
     flagged = a["still"][held] > 0.5
     assert flagged.mean() > 0.95, f"{100 * (1 - flagged.mean()):.1f} % of held revolutions were not flagged still"
     assert live.hold.entries <= 3, live.hold.status()
+    assert np.all(a["pred_speed"][held] == 0.0), "fast prediction moved during the held prefix"
+    assert a["pred_speed"][~held & (step > 0.03)].max() > 0.1, "prediction failed to resume during recorded motion"
 
 
 # ------------------------------------------------------- the cured weights

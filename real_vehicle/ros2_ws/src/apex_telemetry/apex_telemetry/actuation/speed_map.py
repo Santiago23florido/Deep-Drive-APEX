@@ -104,6 +104,9 @@ def steer_deg_from_twist(
     wheelbase_m: float,
     max_steering_deg: float,
     v_min_mps: float = 0.02,
+    *,
+    max_left_deg: float = 0.0,
+    max_right_deg: float = 0.0,
 ) -> tuple[float | None, bool]:
     """``(steering angle [deg] or None, saturated)`` from a Twist.
 
@@ -125,5 +128,6 @@ def steer_deg_from_twist(
         return None, False
     deg = math.degrees(math.atan(float(wheelbase_m) * float(yaw_rate_rps) / v))
     limit = abs(float(max_steering_deg))
-    clamped = max(-limit, min(limit, deg))
-    return clamped, abs(deg) > limit + 1e-9
+    left, right = abs(float(max_left_deg)) or limit, abs(float(max_right_deg)) or limit
+    clamped = max(-right, min(left, deg))
+    return clamped, abs(deg - clamped) > 1e-9

@@ -103,7 +103,10 @@ class RaceDriverNode(Node):
             ensure_tools_path()
             from pose_dataset.vehicle import load_vehicle_config  # noqa: PLC0415
 
-            cfg.vehicle = vehicle_limits(load_vehicle_config(Path(yaml_path)), cfg.vehicle.steer_plan_deg)
+            configured = cfg.vehicle
+            cfg.vehicle = vehicle_limits(load_vehicle_config(Path(yaml_path)), configured.steer_plan_deg)
+            for name in ("steer_max_left_deg", "steer_max_right_deg", "steer_plan_left_deg", "steer_plan_right_deg"):
+                setattr(cfg.vehicle, name, getattr(configured, name))
         self.cfg = cfg
         self.frames = {k: str(gp(f"{k}_frame")) for k in ("map", "odom", "base", "laser")}
         self.max_age = float(gp("max_pose_age_s"))
@@ -238,7 +241,7 @@ class RaceDriverNode(Node):
         now = self._pose_now(t_now)
         if now is None:
             return
-        if self.inputs is not None and self.core.phase in ("wait", "explore", "closing"):
+        if self.inputs is not None and self.core.phase not in ("final", "done"):
             vals = (*pose, *now[0], now[1], self.core.travel, *self.base_to_laser)
             self.inputs.writerow([stamp, t_now, self.core.phase, f"{m.angle_min:.9f}", f"{m.angle_increment:.9f}", *(f"{v:.6f}" for v in vals),
                                   *(f"{r:.4f}" for r in m.ranges)])
@@ -316,12 +319,18 @@ class RaceDriverNode(Node):
     def _save_plan(self) -> None:
         self.plan_saved = True
         plan = self.core.plan
-        self._publish_path(self.line_pub, plan.path.xy, self.frames["map"], closed=True)
+        direct = plan.diag.get("direct_tracking_allowed", True)
+        published = plan.path if direct or plan.route is None else plan.route
+        self._publish_path(self.line_pub, published.xy, self.frames["map"], closed=True)
         n = plan.ref.normal
         for pub, bound in zip(self.cor_pub, (plan.cor.hi, plan.cor.lo)):
             self._publish_path(pub, plan.ref.xy + bound[:, None] * n, self.frames["map"], closed=True)
-        self.get_logger().info(f"race line ready: {plan.path.length:.1f} m, predicted lap {plan.t_lap_pred:.1f} s, "
-                               f"map clearance >= {100 * plan.diag['min_map_clearance_m']:.0f} cm (from the {self.core.events['planning']['lap_path_source']})")
+        if direct:
+            self.get_logger().info(f"race line ready: {plan.path.length:.1f} m, predicted lap {plan.t_lap_pred:.1f} s, "
+                                   f"map clearance >= {100 * plan.diag['min_map_clearance_m']:.0f} cm (from the {self.core.events['planning']['lap_path_source']})")
+        else:
+            self.get_logger().info("SLAM route ready; live LiDAR local planning retained: forward candidate rejected for "
+                                   + ", ".join(plan.diag.get("direct_tracking_rejection", [])))
         if self.out_dir is not None:
             grid, loop, side = self.core.plan_inputs
             save_plan(plan, grid, loop, side, self.out_dir, {"planning": self.core.events.get("planning"), "start_map": self.core.events.get("start_map")})

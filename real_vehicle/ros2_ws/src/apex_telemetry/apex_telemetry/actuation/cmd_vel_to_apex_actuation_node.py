@@ -28,11 +28,14 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 import time
 from typing import Any
 
 import rclpy
 from geometry_msgs.msg import Twist
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Float64, String
 
@@ -62,6 +65,8 @@ class CmdVelToApexActuationNode(Node):
         self.declare_parameter("decode_v_min_mps", 0.02)  # below this the servo holds its angle
         self.declare_parameter("wheelbase_m", 0.30)
         self.declare_parameter("max_steering_deg", 18.0)
+        self.declare_parameter("max_steering_left_deg", 0.0)
+        self.declare_parameter("max_steering_right_deg", 0.0)
         self.declare_parameter("max_linear_speed_mps", 0.55)
         self.declare_parameter("min_effective_speed_pct", 40.0)
         self.declare_parameter("max_speed_pct", 55.0)
@@ -114,6 +119,11 @@ class CmdVelToApexActuationNode(Node):
         )
         self._wheelbase_m = max(1e-3, float(self.get_parameter("wheelbase_m").value))
         self._max_steering_deg = max(1.0, float(self.get_parameter("max_steering_deg").value))
+        self._max_steering_left_deg = float(self.get_parameter("max_steering_left_deg").value) or self._max_steering_deg
+        self._max_steering_right_deg = float(self.get_parameter("max_steering_right_deg").value) or self._max_steering_deg
+        if not all(0.0 < v < 89.0 for v in (self._max_steering_left_deg, self._max_steering_right_deg)):
+            raise ValueError("steering limits must be positive and below 89 degrees")
+        self._asymmetric_steering = self._max_steering_left_deg != self._max_steering_right_deg
         self._max_linear_speed_mps = max(0.05, float(self.get_parameter("max_linear_speed_mps").value))
         self._min_effective_speed_pct = max(
             0.0, min(100.0, float(self.get_parameter("min_effective_speed_pct").value))
@@ -220,21 +230,36 @@ class CmdVelToApexActuationNode(Node):
             backend=self._actuation_backend,
             node=self,
             publish_topic=self._sim_steering_pwm_topic,
+            asymmetric_limits=self._asymmetric_steering,
         )
+        if self._asymmetric_steering:
+            authority = self._steering.get_state()
+            if (self._max_steering_left_deg > authority["authority_left_deg"] + 1e-9
+                    or self._max_steering_right_deg > authority["authority_right_deg"] + 1e-9):
+                raise ValueError("directional steering limits exceed the configured servo PWM window")
         self._steering.center()
         self._motor.hold_neutral(disable_pwm=False)
 
-        self.create_subscription(Twist, self._cmd_vel_topic, self._cmd_cb, 20)
+        # Command reception must keep running while PWM I/O or status delivery
+        # waits. The race bridge uses two executor threads, with short coherent
+        # input snapshots; actuator operations still serialize on one group.
+        self._command_lock = threading.RLock()
+        self._command_group = MutuallyExclusiveCallbackGroup() if self._affine else None
+        self._actuation_group = MutuallyExclusiveCallbackGroup() if self._affine else None
+        self.create_subscription(Twist, self._cmd_vel_topic, self._observed_cmd_cb, 20,
+                                 callback_group=self._command_group)
         self.create_subscription(
             String,
             self._manual_control_status_topic,
             self._manual_status_cb,
             20,
+            callback_group=self._command_group,
         )
         self._speed_pub = self.create_publisher(Float64, self._applied_speed_topic, 20)
         self._steering_pub = self.create_publisher(Float64, self._applied_steering_topic, 20)
         self._status_pub = self.create_publisher(String, self._status_topic, 20)
-        self.create_timer(1.0 / self._control_rate_hz, self._control_step)
+        self.create_timer(1.0 / self._control_rate_hz, self._control_step,
+                          callback_group=self._actuation_group)
 
         self._cmd_linear_x_mps = 0.0
         self._cmd_angular_z_rps = 0.0
@@ -254,6 +279,7 @@ class CmdVelToApexActuationNode(Node):
         self._launch_boost_until_monotonic = 0.0
         self._cmd_seq = 0
         self._cmd_gap_ms_max = 0.0
+        self._previous_cmd_info: dict[str, int] | None = None
         self._steering_held = False
 
         self.get_logger().info(
@@ -268,17 +294,40 @@ class CmdVelToApexActuationNode(Node):
             )
         )
 
+    def _observed_cmd_cb(self, msg: Twist, info: dict) -> None:
+        """Keep DDS timing evidence when the existing command deadline fails."""
+        callback_ns = time.time_ns()
+        previous = self._previous_cmd_info
+        current = {
+            "source_timestamp": int(info.get("source_timestamp", 0)),
+            "received_timestamp": int(info.get("received_timestamp", 0)),
+            "callback_timestamp": callback_ns,
+        }
+        last_cmd = self._last_cmd_monotonic
+        self._cmd_cb(msg)
+        self._previous_cmd_info = current
+        gap_ms = 1e3 * (self._last_cmd_monotonic - last_cmd) if last_cmd > 0.0 else 0.0
+        if gap_ms >= 100.0 and previous is not None:
+            self.get_logger().warning("command delivery gap: " + json.dumps({
+                "cmd_seq": self._cmd_seq,
+                "callback_gap_ms": round(gap_ms, 3),
+                "source_gap_ms": round((current["source_timestamp"] - previous["source_timestamp"]) / 1e6, 3),
+                "receive_gap_ms": round((current["received_timestamp"] - previous["received_timestamp"]) / 1e6, 3),
+                "source_to_receive_ms": round((current["received_timestamp"] - current["source_timestamp"]) / 1e6, 3),
+                "receive_to_callback_ms": round((callback_ns - current["received_timestamp"]) / 1e6, 3),
+                "desired_linear_x_mps": self._cmd_linear_x_mps,
+            }, separators=(",", ":")))
+
     def _cmd_cb(self, msg: Twist) -> None:
-        self._cmd_linear_x_mps = float(msg.linear.x)
-        self._cmd_angular_z_rps = float(msg.angular.z)
-        now = time.monotonic()
-        # How steady the driver's 50 Hz stream really is, measured where it
-        # matters: a gap approaching command_timeout_s means the bridge is about
-        # to cut to neutral. The race pre-flight gates on this.
-        if self._last_cmd_monotonic > 0.0:
-            self._cmd_gap_ms_max = max(self._cmd_gap_ms_max, 1.0e3 * (now - self._last_cmd_monotonic))
-        self._cmd_seq += 1
-        self._last_cmd_monotonic = now
+        with self._command_lock:
+            self._cmd_linear_x_mps = float(msg.linear.x)
+            self._cmd_angular_z_rps = float(msg.angular.z)
+            now = time.monotonic()
+            # Measure actual reception gaps, independently of PWM/status work.
+            if self._last_cmd_monotonic > 0.0:
+                self._cmd_gap_ms_max = max(self._cmd_gap_ms_max, 1.0e3 * (now - self._last_cmd_monotonic))
+            self._cmd_seq += 1
+            self._last_cmd_monotonic = now
 
     def _manual_status_cb(self, msg: String) -> None:
         try:
@@ -287,8 +336,9 @@ class CmdVelToApexActuationNode(Node):
             return
         if not isinstance(payload, dict):
             return
-        self._last_manual_status = payload
-        self._last_manual_status_monotonic = time.monotonic()
+        with self._command_lock:
+            self._last_manual_status = payload
+            self._last_manual_status_monotonic = time.monotonic()
 
     def _manual_status_is_fresh(self, now_monotonic: float) -> bool:
         if self._last_manual_status_monotonic <= 0.0:
@@ -298,9 +348,10 @@ class CmdVelToApexActuationNode(Node):
     def _direct_manual_steering_deg(self, now_monotonic: float) -> float | None:
         if not self._use_direct_manual_steering:
             return None
-        if not self._manual_status_is_fresh(now_monotonic):
-            return None
-        status = self._last_manual_status
+        with self._command_lock:
+            if not self._manual_status_is_fresh(now_monotonic):
+                return None
+            status = self._last_manual_status.copy()
         if not bool(status.get("bridge_connected", False)):
             return None
         if not bool(status.get("controller_connected", False)):
@@ -311,7 +362,7 @@ class CmdVelToApexActuationNode(Node):
             steering_deg = float(status.get("steering_deg", 0.0))
         except Exception:
             return None
-        return max(-self._max_steering_deg, min(self._max_steering_deg, steering_deg))
+        return max(-self._max_steering_right_deg, min(self._max_steering_left_deg, steering_deg))
 
     def _map_linear_speed_to_pct(self, linear_x_mps: float) -> float:
         if self._speed_map is not None:
@@ -336,11 +387,13 @@ class CmdVelToApexActuationNode(Node):
         """
         v_min = self._decode_v_min_mps if self._affine else 1.0e-4
         deg, saturated = steer_deg_from_twist(
-            linear_x_mps, angular_z_rps, self._wheelbase_m, self._max_steering_deg, v_min
+            linear_x_mps, angular_z_rps, self._wheelbase_m, self._max_steering_deg, v_min,
+            max_left_deg=self._max_steering_left_deg, max_right_deg=self._max_steering_right_deg,
         )
         if saturated:
             self.get_logger().warning(
-                "steering request beyond %.1f deg, clamped" % self._max_steering_deg,
+                "steering request beyond left/right %.1f/%.1f deg, clamped"
+                % (self._max_steering_left_deg, self._max_steering_right_deg),
                 throttle_duration_sec=5.0,
             )
         if deg is None:
@@ -415,6 +468,13 @@ class CmdVelToApexActuationNode(Node):
         return current_value + math.copysign(max_delta, delta)
 
     def _publish_state(self, *, timed_out: bool) -> None:
+        with self._command_lock:
+            command_state = {
+                "cmd_seq": self._cmd_seq,
+                "cmd_gap_ms_max": round(self._cmd_gap_ms_max, 2),
+                "desired_linear_x_mps": self._cmd_linear_x_mps,
+                "desired_angular_z_rps": self._cmd_angular_z_rps,
+            }
         speed_msg = Float64()
         speed_msg.data = float(self._last_applied_speed_pct)
         self._speed_pub.publish(speed_msg)
@@ -431,15 +491,14 @@ class CmdVelToApexActuationNode(Node):
                 "actuation_profile": self._actuation_profile,
                 "speed_map": self._speed_map.describe() if self._speed_map is not None else None,
                 "max_steering_deg": self._max_steering_deg,
+                "max_steering_left_deg": self._max_steering_left_deg,
+                "max_steering_right_deg": self._max_steering_right_deg,
                 "steering_authority_deg": self._steering.authority_deg,
                 "steering_held": self._steering_held,
                 "decode_v_min_mps": self._decode_v_min_mps,
-                "cmd_seq": self._cmd_seq,
-                "cmd_gap_ms_max": round(self._cmd_gap_ms_max, 2),
+                **command_state,
                 "motor_state": self._motor.get_state(),
                 "timed_out": bool(timed_out),
-                "desired_linear_x_mps": self._cmd_linear_x_mps,
-                "desired_angular_z_rps": self._cmd_angular_z_rps,
                 "desired_speed_pct": self._last_desired_speed_pct,
                 "desired_steering_deg": self._last_desired_steering_deg,
                 "requested_steering_deg": self._last_requested_steering_deg,
@@ -468,13 +527,14 @@ class CmdVelToApexActuationNode(Node):
         now_monotonic = time.monotonic()
         dt_s = max(1.0 / self._control_rate_hz, now_monotonic - self._last_control_monotonic)
         self._last_control_monotonic = now_monotonic
-        timed_out = (now_monotonic - self._last_cmd_monotonic) > self._command_timeout_s
-        if timed_out:
-            desired_linear_x_mps = 0.0
-            desired_angular_z_rps = 0.0
-        else:
-            desired_linear_x_mps = self._cmd_linear_x_mps
-            desired_angular_z_rps = self._cmd_angular_z_rps
+        with self._command_lock:
+            timed_out = (now_monotonic - self._last_cmd_monotonic) > self._command_timeout_s
+            if timed_out:
+                desired_linear_x_mps = 0.0
+                desired_angular_z_rps = 0.0
+            else:
+                desired_linear_x_mps = self._cmd_linear_x_mps
+                desired_angular_z_rps = self._cmd_angular_z_rps
 
         desired_steering_deg = self._compute_steering_deg(
             desired_linear_x_mps,
@@ -572,11 +632,18 @@ class CmdVelToApexActuationNode(Node):
 def main() -> None:
     rclpy.init()
     node = CmdVelToApexActuationNode()
+    executor = MultiThreadedExecutor(num_threads=2) if node._affine else None
     try:
-        rclpy.spin(node)
+        if executor is None:
+            rclpy.spin(node)
+        else:
+            executor.add_node(node)
+            executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        if executor is not None:
+            executor.shutdown()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

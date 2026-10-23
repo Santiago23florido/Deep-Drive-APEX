@@ -243,6 +243,26 @@ def test_pipeline_publishes_complete_revolutions_stamped_at_their_first_sample()
     assert np.allclose(periods, 0.1, atol=3e-4)
 
 
+def test_express_clock_recovers_after_sample_rate_change():
+    """A changed sample-clock slope must not leave seconds of stale timing."""
+    lidar = FakeA2M8(seed=19)
+    # The reported sample period stays 250 us; the actual oscillator changes
+    # by 0.5 % after 8 s, within the Express mapper's allowed drift. The
+    # independent sample_time is the time truth, including across a lost packet.
+    lidar.sample_time = lambda n: lidar.t0 + n * lidar.ts + 0.005 * max(0.0, n * lidar.ts - 8.0)
+    pipeline = ExpressScanPipeline(lidar.ts, lidar.baud)
+    revs = feed_in_chunks(pipeline, lidar.stream(125 * 18, corrupt={1000}), seed=19)
+    settled = [r for r in revs if r.revolution.first_index * lidar.ts > 12.0]
+    error = np.array([
+        (r.stamp_ns - BASE_NS) * 1e-9 - lidar.sample_time(r.revolution.first_index)
+        for r in settled
+    ])
+    assert len(settled) > 50
+    assert pipeline.counters.dropped_incomplete == 1
+    assert np.max(np.abs(error - 2e-4)) < 5e-4
+    assert all(b.stamp_ns > a.stamp_ns for a, b in zip(revs, revs[1:]))
+
+
 def test_scan_raw_layout_matches_the_simulation():
     lidar = FakeA2M8()
     pipeline = ExpressScanPipeline(lidar.ts, lidar.baud)
@@ -267,16 +287,22 @@ def test_bin_revolution_rep117():
     assert ranges[180 + 87] == pytest.approx(1.5)  # nearest return kept
 
 
-def test_lost_capsule_drops_only_its_revolution():
+@pytest.mark.parametrize("legacy_clock", [False, True])
+def test_lost_capsule_drops_only_its_revolution(legacy_clock):
     lidar = FakeA2M8(seed=4)
-    pipeline = ExpressScanPipeline(lidar.ts, lidar.baud)
+    mapper = DeviceClockMapper(max_drift=0.03) if legacy_clock else None
+    pipeline = ExpressScanPipeline(lidar.ts, lidar.baud, mapper=mapper)
     revs = feed_in_chunks(pipeline, lidar.stream(125 * 20, corrupt={1000}), seed=4)
     assert pipeline.stream.checksum_errors == 1
     assert pipeline.counters.dropped_incomplete == 1
     assert len(revs) >= 194
     late = [r for r in revs if r.revolution.first_index > 32 * 1100]
     err = [(r.stamp_ns - BASE_NS) * 1e-9 - lidar.sample_time(r.revolution.first_index) for r in late]
-    assert np.all(np.abs(np.asarray(err) - 2e-4) < 3e-4)
+    # A shorter envelope has fewer minimum-latency observations: permit
+    # 0.5 ms absolute error, still below APEX_real's 1 ms timestamp jitter.
+    # Retain the previous 0.3 ms accuracy bound for the injected 10 s mapper.
+    accuracy_s = 3e-4 if legacy_clock else 5e-4
+    assert np.all(np.abs(np.asarray(err) - 2e-4) < accuracy_s)
 
 
 def test_missing_capsule_bytes_are_counted_and_the_clock_stays_right():
@@ -444,6 +470,37 @@ def test_supply_guard_holds_the_ramp_while_under_voltage(tmp_path):
     always = FakeClockSupply(tmp_path, low_at=[(0.0, 1e9)]).guard(hold_max_s=2.0)
     always.ramp_wait(0.1)  # bounded: a step never waits more than step + hold_max_s
     assert always._clock() == pytest.approx(2.1, abs=0.06)
+    always.ramp_wait(0.1)
+    assert always._clock() == pytest.approx(2.2, abs=0.06)  # budget is shared across steps
+
+
+def test_supply_guard_total_ramp_hold_does_not_multiply_by_sixty_steps(tmp_path):
+    supply = FakeClockSupply(tmp_path, low_at=[(0.0, 1e9)])
+    guard = supply.guard(hold_max_s=10.0)
+    for _ in range(60):
+        guard.ramp_wait(0.1)
+    assert supply.t == pytest.approx(16.0, abs=0.06)
+
+
+@pytest.mark.parametrize("flags, expected", [("0x50000", False), ("0x50005", True)])
+def test_supply_guard_uses_current_bit_from_fresh_host_status(tmp_path, flags, expected):
+    from datetime import datetime, timezone
+    supply = FakeClockSupply(tmp_path, low_at=[(0.0, 1e9)])  # latched hwmon alarm
+    status = tmp_path / "power.csv"
+    stamp = datetime.fromtimestamp(1000, timezone.utc).isoformat()
+    status.write_text("utc_iso,lcrit_alarm,throttled,temp_c,freq_khz\n"
+                      f"{stamp},1,{flags},52.0,1500000\n")
+    guard = supply.guard(status_path=str(status), wall_clock=lambda: 1001.0)
+    assert guard.undervoltage() is expected
+    stale = supply.guard(status_path=str(status), wall_clock=lambda: 1004.0)
+    assert stale.undervoltage() is True  # stale host data cannot clear the alarm
+
+
+def test_supply_guard_incomplete_host_status_preserves_alarm(tmp_path):
+    supply = FakeClockSupply(tmp_path, low_at=[(0.0, 1e9)])
+    status = tmp_path / "power.csv"
+    status.write_text("utc_iso,lcrit_alarm,throttled,temp_c,freq_khz\n2026-10-")
+    assert supply.guard(status_path=str(status)).undervoltage() is True
 
 
 def test_supply_guard_without_a_flag_is_a_plain_wait(tmp_path):

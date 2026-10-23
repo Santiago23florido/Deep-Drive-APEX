@@ -54,17 +54,12 @@ RUNS_HOST="${APEX_ROOT}/ros2_ws/apex_race"
 LAST_RUN_FILE="${RUNS_HOST}/.last_run"
 
 new_run_dir() {
-  # One run id, known on both sides: the container writes its artifacts there
-  # and the host writes the power log beside them.
-  local id
-  id="$(date +%Y%m%d_%H%M%S)"
-  # The container writes into this tree as root, so the host may not own it.
-  if ! mkdir -p "${RUNS_HOST}/${id}" 2>/dev/null; then
-    sudo mkdir -p "${RUNS_HOST}/${id}"
-    sudo chown -R "$(id -u):$(id -g)" "${RUNS_HOST}"
-  fi
-  echo "${id}" > "${LAST_RUN_FILE}"
-  echo "${id}"
+  # Always restart the processes which own odometry/SLAM/adaptive state.
+  # Send cleanup output to stderr: stdout is the new run id only.
+  stop_power_log
+  ./tools/core/apex_core_down.sh >&2
+  sudo python3 "${SCRIPT_DIR}/race_fresh_start.py" --root "${APEX_ROOT}" \
+    --container "${CONTAINER}" --uid "$(id -u)" --gid "$(id -g)"
 }
 
 start_power_log() {
@@ -157,6 +152,7 @@ start_stack() {
   APEX_NANO_PREFLIGHT="${APEX_NANO_PREFLIGHT:-1}" \
   APEX_NANO_AUTOFLASH="${APEX_NANO_AUTOFLASH:-0}" \
   APEX_BRIDGE_PROFILE="${APEX_BRIDGE_PROFILE:-affine}" \
+  FASTDDS_BUILTIN_TRANSPORTS="${FASTDDS_BUILTIN_TRANSPORTS:-UDPv4}" \
   APEX_BRIDGE_MAX_SPEED_PCT="${APEX_BRIDGE_MAX_SPEED_PCT:-45.0}" \
   APEX_BRIDGE_MAX_REVERSE_SPEED_PCT="${APEX_BRIDGE_MAX_REVERSE_SPEED_PCT:-33.0}" \
   APEX_BRIDGE_MAX_STEERING_DEG="${APEX_BRIDGE_MAX_STEERING_DEG:-12.5}" \

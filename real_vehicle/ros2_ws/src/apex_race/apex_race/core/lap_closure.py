@@ -76,10 +76,15 @@ class LapCounter:
             if self.closest is None or d < self.closest[0]:
                 self.closest = (d, t, pose[0], pose[1], travel)
             return None
-        if self.closest is not None:  # left the start region without crossing the line: closest approach
-            _, tc, xc, yc, trc = self.closest
-            lat = float((np.array([xc, yc]) - self.p0) @ self.n0)
-            return self._count(tc, np.array([xc, yc]), trc, lat, head, "radius")
+        if self.closest is not None and d > self.cfg.return_radius_m:
+            closest, self.closest = self.closest, None
+            # Turning or reversing while still approaching the start does not
+            # finish a lap. A drift fallback must actually leave the region
+            # past the start plane, travelling in the original direction.
+            if u >= 0.0 and head <= self.cfg.heading_tol_deg:
+                _, tc, xc, yc, trc = closest
+                lat = float((np.array([xc, yc]) - self.p0) @ self.n0)
+                return self._count(tc, np.array([xc, yc]), trc, lat, head, "radius")
         return None
 
 

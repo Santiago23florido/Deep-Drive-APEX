@@ -33,7 +33,9 @@ drift, so a sample's stamp is ``mapper.map(index * Ts)``.
 from __future__ import annotations
 
 from collections import deque
+import csv
 from dataclasses import dataclass
+from datetime import datetime
 import glob
 import math
 import os
@@ -436,8 +438,13 @@ class ExpressScanPipeline:
         self.drop_incomplete = bool(drop_incomplete)
         self.regularity_tol = float(regularity_tol)
         # The LiDAR's sample period may be off its nominal value by up to a
-        # few percent: allow a wide drift.
-        self.mapper = mapper or DeviceClockMapper(max_drift=0.03)
+        # few percent: allow a wide drift. Use a shorter envelope here than
+        # the IMU mapper: a 10 s history retained timing offsets for seconds
+        # after Express packet losses in real captures. Keep the sample-clock
+        # model and whole-revolution drops; only recover its fit sooner.
+        self.mapper = mapper if mapper is not None else DeviceClockMapper(
+            window_s=3.0, chunks=6, refit_every_s=0.25, max_drift=0.03,
+        )
         self.stream = CapsuleStream()
         self.decoder = ExpressDecoder(self.sample_period_s)
         self.assembler = RevolutionAssembler()
@@ -566,7 +573,7 @@ def motor_ramp(start_pwm: int, target_pwm: int, ramp_s: float, step_s: float = 0
 
 
 def find_undervoltage_alarm(pattern: str = "/sys/class/hwmon/hwmon*") -> Optional[str]:
-    """The Raspberry Pi's live under-voltage flag (hwmon ``rpi_volt``), or None off a Pi."""
+    """Find the rpi_volt alarm; it can reflect latched rather than current faults."""
     for hwmon in sorted(glob.glob(pattern)):
         try:
             with open(os.path.join(hwmon, "name"), encoding="ascii") as fh:
@@ -586,9 +593,10 @@ class SupplyGuard:
     The car's Pi 5 supply sits at the under-voltage limit and the Pi has
     reset while the LiDAR motor started. Before the start, ``wait_clear``
     waits for a moment without under-voltage; during the ramp, ``ramp_wait``
-    holds the PWM where it is while the flag is up. Both give up after their
-    limit, so a supply that is always marginal delays the start but never
-    blocks it. Without the flag (not a Pi) both are plain waits.
+    holds the PWM where it is while the flag is up. A fresh host power log
+    supplies the current get_throttled bit, since hwmon can retain an alarm.
+    The ramp has one shared hold budget, not a fresh budget for every step.
+    The separate pre-arm power check still decides whether driving is allowed.
     """
 
     def __init__(
@@ -599,6 +607,8 @@ class SupplyGuard:
         wait_max_s: float = 20.0,
         hold_max_s: float = 10.0,
         poll_s: float = 0.05,
+        status_path: Optional[str] = None,
+        wall_clock: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -607,11 +617,27 @@ class SupplyGuard:
         self.wait_max_s = wait_max_s
         self.hold_max_s = hold_max_s
         self.poll_s = poll_s
+        self.status_path = status_path
+        self._wall_clock = wall_clock
+        self.hold_spent_s = 0.0
         self._sleep = sleep
         self._clock = clock
         self.alarms = 0  # polls that saw the flag up
 
     def undervoltage(self) -> Optional[bool]:
+        if self.status_path:
+            try:
+                with open(self.status_path, encoding="ascii") as fh:
+                    rows = list(csv.DictReader(fh))
+                last = rows[-1]
+                stamp = datetime.fromisoformat(last["utc_iso"].replace("Z", "+00:00")).timestamp()
+                age = self._wall_clock() - stamp
+                if 0.0 <= age <= 3.0:
+                    low = bool(int(last["throttled"], 16) & 0x1)
+                    self.alarms += int(low)
+                    return low
+            except (OSError, ValueError, KeyError, IndexError, TypeError):
+                pass  # missing, incomplete or stale host status: use the alarm
         if not self.alarm_path:
             return None
         try:
@@ -638,11 +664,13 @@ class SupplyGuard:
             self._sleep(self.poll_s)
 
     def ramp_wait(self, step_s: float) -> None:
-        """One ramp step: ``step_s``, then up to ``hold_max_s`` more while the flag is up."""
+        """Wait one step, sharing at most ``hold_max_s`` extra across the ramp."""
         self._sleep(step_s)
         start = self._clock()
-        while self.undervoltage() and self._clock() - start < self.hold_max_s:
-            self._sleep(self.poll_s)
+        remaining = max(0.0, self.hold_max_s - self.hold_spent_s)
+        while self.undervoltage() and self._clock() - start < remaining:
+            self._sleep(max(0.0, min(self.poll_s, remaining - (self._clock() - start))))
+        self.hold_spent_s += max(0.0, self._clock() - start)
 
 
 # --- scan layout ---------------------------------------------------------------

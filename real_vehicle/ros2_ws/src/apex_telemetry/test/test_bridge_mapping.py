@@ -19,6 +19,8 @@ import json
 import math
 from pathlib import Path
 import sys
+import threading
+import time
 
 import pytest
 
@@ -176,6 +178,32 @@ def test_the_servo_authority_is_the_symmetric_angle(fake_pwm):
     # -> up 1.8 % = 12.96 deg, down 3.2 % = 23.04 deg; the symmetric one wins.
     assert servo.authority_deg == pytest.approx(1.8 / (2.5 / 18.0), abs=1e-9)
     assert servo.authority_deg == pytest.approx(12.96, abs=0.01)
+
+
+@pytest.mark.parametrize('sign', [-1.0, 1.0])
+def test_asymmetric_servo_uses_existing_window_without_changing_centre(fake_pwm, sign):
+    servo = actuation_mod.SteeringServo(channel=1, frequency_hz=50.0, logger=FakeLogger(),
+                                       **{**SERVO, 'direction_sign': sign}, asymmetric_limits=True)
+    expected_left, expected_right = (23.04, 12.96) if sign < 0 else (12.96, 23.04)
+    assert servo.get_state()['authority_left_deg'] == pytest.approx(expected_left)
+    assert servo.get_state()['authority_right_deg'] == pytest.approx(expected_right)
+    for request, expected in ((100.0, expected_left), (-100.0, -expected_right), (0.0, 0.0)):
+        servo.set_angle_deg(request)
+        state = servo.get_state()
+        assert state['applied_deg'] == pytest.approx(expected)
+        assert 5.0 <= state['pwm_dc'] <= 10.0
+    assert servo.get_state()['pwm_dc'] == pytest.approx(8.2)
+
+
+def test_directional_twist_round_trip_preserves_left_authority_and_right_limit():
+    for v in (.2, -.2):
+        for request in (-45.0, -12.5, 0.0, 12.5, 22.5, 45.0):
+            angle, saturated = steer_deg_from_twist(
+                v, v * math.tan(math.radians(request)) / .3, .3, 12.5,
+                max_left_deg=22.5, max_right_deg=12.5)
+            expected = max(-12.5, min(22.5, request))
+            assert angle == pytest.approx(expected)
+            assert saturated == (request != expected)
 
 
 def test_the_servo_never_reports_an_angle_it_did_not_take(fake_pwm):
@@ -368,6 +396,25 @@ def test_the_node_clamps_the_computed_steering(bridge):
     assert bridge._last_applied_steering_deg == pytest.approx(12.5, abs=0.01)
 
 
+@pytest.mark.parametrize('bridge', [
+    {'max_steering_left_deg': 22.5, 'max_steering_right_deg': 12.5},
+    {'max_steering_left_deg': 22.5, 'max_steering_right_deg': 12.96},
+], indirect=True)
+def test_node_delivers_directional_limits_and_holds_them_at_zero_speed(bridge):
+    for request, expected in ((40, 22.5), (-40, -bridge._max_steering_right_deg)):
+        _command(bridge, .2, request)
+        for _ in range(60):
+            bridge._control_step()
+        status = _status(bridge)
+        assert status['applied_steering_deg'] == pytest.approx(expected)
+        assert status['steering_servo_state']['asymmetric_limits']
+        assert 5 <= status['steering_servo_state']['pwm_dc'] <= 10
+        _command(bridge, 0, 0)
+        bridge._control_step()
+        assert _status(bridge)['applied_steering_deg'] == pytest.approx(expected)
+        assert bridge._last_applied_speed_pct == 0
+
+
 def test_the_servo_holds_its_angle_at_a_stop(bridge):
     _command(bridge, 0.50, 10.0)
     for _ in range(40):
@@ -398,6 +445,68 @@ def test_the_command_gap_is_measured(bridge):
     _command(bridge, 0.5, 0.0)
     assert bridge._cmd_gap_ms_max >= 200.0
     assert bridge._cmd_seq == 2
+
+
+def test_command_reception_continues_during_blocked_actuator_status(bridge):
+    """Reproduce the recorded bridge-dispatch stall without PWM hardware."""
+    import rclpy
+    from geometry_msgs.msg import Twist
+    from rclpy.executors import MultiThreadedExecutor
+
+    source = rclpy.create_node('bridge_dispatch_test_source')
+    pub = source.create_publisher(Twist, bridge._cmd_vel_topic, 20)
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(bridge)
+    blocked, release, block_next, stop = (threading.Event() for _ in range(4))
+    original = bridge._status_pub.publish
+
+    def delayed_status(message):
+        if block_next.is_set():
+            block_next.clear()
+            blocked.set()
+            release.wait(timeout=2.)
+        original(message)
+
+    def send_commands():
+        message = Twist()
+        message.linear.x = .2
+        while not stop.is_set():
+            pub.publish(message)
+            stop.wait(.01)
+
+    def await_condition(predicate, seconds=3.):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if predicate():
+                return True
+            time.sleep(.005)
+        return False
+
+    bridge._status_pub.publish = delayed_status
+    receiver = threading.Thread(target=executor.spin)
+    sender = threading.Thread(target=send_commands)
+    receiver.start()
+    sender.start()
+    try:
+        assert await_condition(lambda: bridge._cmd_seq >= 5)
+        block_next.set()
+        assert blocked.wait(timeout=1.)
+        seq = bridge._cmd_seq
+        assert await_condition(lambda: bridge._cmd_seq >= seq + 8, seconds=.5)
+        assert not release.is_set()  # actuator/status callback still blocked
+        release.set()
+        stop.set()
+        sender.join(timeout=1.)
+        # A real command loss must still trigger the unchanged watchdog.
+        assert await_condition(lambda: bridge._last_applied_speed_pct == 0., seconds=2.)
+        assert bridge._motor.get_state()['pwm_dc'] == pytest.approx(7.5)
+    finally:
+        stop.set()
+        release.set()
+        sender.join(timeout=1.)
+        executor.shutdown(timeout_sec=3.)
+        receiver.join(timeout=3.)
+        source.destroy_node()
 
 
 @pytest.mark.parametrize("bridge", [{"actuation_profile": "legacy"}], indirect=True)

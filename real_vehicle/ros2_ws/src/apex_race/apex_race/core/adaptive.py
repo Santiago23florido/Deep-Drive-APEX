@@ -67,6 +67,8 @@ class Envelope:
     lookahead_add_s: float
     kappa_limit: float
     confidence: float
+    kappa_limit_left: float = 0.0
+    kappa_limit_right: float = 0.0
 
 
 class AdaptiveShaper:
@@ -94,9 +96,18 @@ class AdaptiveShaper:
         lerp = lambda floor: floor + (1.0 - floor) * c  # noqa: E731
         # The usable saturation is the identified one, in command space, and
         # never more than the nominal steering limit allows.
-        nominal = math.tan(math.radians(veh.steer_max_deg)) / veh.wheelbase_m
-        limit = min(nominal, model.kappa_sat / max(model.gain_at(0.0, 0.0), 0.2))
+        nominal = min(veh.curvature_limit(True), veh.curvature_limit(False))
+        # _saturation() already divides measured curvature by the identified
+        # gain. Dividing again here would shrink wheel command authority just
+        # because a better identified gain became larger than one.
+        limit = min(nominal, model.kappa_sat)
         limit *= a.sat_cmd_frac + (1.0 - a.sat_cmd_frac) * c
+        common = max(a.sat_floor_frac * nominal, limit)
+        # Saturation is stored in the conservative side's command units.
+        # Scale that conservative estimate to each configured side; never
+        # manufacture extra command authority from a larger desired angle.
+        left = min(veh.curvature_limit(True), common * veh.curvature_limit(True, planning=True) / veh.kappa_max)
+        right = min(veh.curvature_limit(False), common * veh.curvature_limit(False, planning=True) / veh.kappa_max)
         return Envelope(
             v_max_mps=self.cfg.race.v_max_mps * lerp(a.v_floor_frac),
             a_lat_mps2=self.cfg.race.a_lat_mps2 * lerp(a.a_lat_floor_frac),
@@ -106,8 +117,10 @@ class AdaptiveShaper:
             soft_margin_add_m=a.soft_margin_add_m * (1.0 - c),
             lookahead_add_m=a.lookahead_add_m * (1.0 - c),
             lookahead_add_s=a.lookahead_add_s * (1.0 - c),
-            kappa_limit=max(a.sat_floor_frac * nominal, limit),
+            kappa_limit=common,
             confidence=c,
+            kappa_limit_left=left,
+            kappa_limit_right=right,
         )
 
     # --------------------------------------------------------------- shape
@@ -131,9 +144,11 @@ class AdaptiveShaper:
             self.k_rate += alpha * (rate - self.k_rate)
         else:
             self.k_smooth, self.k_rate = kappa_des, 0.0
-        self.lead = max(-self.a.lead_max, min(self.a.lead_max, model.tau_steer_s * self.k_rate))
+        lead_limit = min(self.a.lead_max, abs(kappa_des)) if self.a.lead_preserve_turn else self.a.lead_max
+        self.lead = max(-lead_limit, min(lead_limit, model.tau_steer_s * self.k_rate))
         kappa_cmd = model.kappa_in(kappa_des + self.lead, abs(speed))
-        return max(-env.kappa_limit, min(env.kappa_limit, kappa_cmd))
+        return max(-(env.kappa_limit_right or env.kappa_limit),
+                   min(env.kappa_limit_left or env.kappa_limit, kappa_cmd))
 
     def _speed(self, t: float, dt: float, v_des: float, speed: float, model: PlantModel) -> float:
         a = self.a

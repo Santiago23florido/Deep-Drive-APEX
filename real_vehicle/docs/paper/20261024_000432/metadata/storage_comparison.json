@@ -1,0 +1,23 @@
+{
+  "previous_sd_run": "20261023_233948",
+  "current_ram_run": "20261024_000432",
+  "driver_command_max_gap_ms": {
+    "previous_sd": 309.55,
+    "current_ram": 42.0
+  },
+  "control_core_lock_hold_max_ms": {
+    "previous_sd": 301.5,
+    "current_ram": 22.4
+  },
+  "stop_reason": {
+    "previous_sd": "actuator_command_gap",
+    "current_ram": "driver_done"
+  },
+  "onboard_completed_laps": {
+    "previous_sd": 1,
+    "current_ram": 2
+  },
+  "same_controller_config_weights": true,
+  "controlled_randomized_ablation": false,
+  "interpretation": "RAM capture avoided the previous command-gap interruption in this repeat. Different physical starts, adaptation, recovery sequences and maps prevent assigning all behavior changes exclusively to storage. Actual SD write duration was not instrumented."
+}

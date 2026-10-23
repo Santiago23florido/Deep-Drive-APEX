@@ -1,0 +1,482 @@
+{
+  "verified_utc": "2026-10-23T23:16:36.611842+00:00",
+  "all_matched": true,
+  "verified_files": 95,
+  "files": [
+    {
+      "path": "diagnostics/after.txt",
+      "size_bytes": 1578,
+      "sha256": "beb8f0b08dba4557e0911cd7e6413fc5316cf3e2f3e4a677abcd690bb734ff6f"
+    },
+    {
+      "path": "diagnostics/after_parameter_status.txt",
+      "size_bytes": 1379,
+      "sha256": "e92c1659008e385326b9d8f46f7807a1efb4257c3c47f4acff02b044d8e12aca"
+    },
+    {
+      "path": "diagnostics/arm.log",
+      "size_bytes": 8353,
+      "sha256": "f29b290461de67ffa5c6f017d8e462ee0d1573d733d856f61c5828681070a08c"
+    },
+    {
+      "path": "diagnostics/arm_helper_check.log",
+      "size_bytes": 486,
+      "sha256": "995db7c3b486013904fad34efb3e26d36702a8c6fce8c3ee8db37f748d6f3902"
+    },
+    {
+      "path": "diagnostics/arm_result.json",
+      "size_bytes": 2140,
+      "sha256": "a6c95bc7ed0b1faf9d428f91acb4bd3950367fcd02db296fff4dcc37329749d1"
+    },
+    {
+      "path": "diagnostics/arm_until_done.py",
+      "size_bytes": 4496,
+      "sha256": "f7c6f043ec93c5cbe5046536e3c7cf95cf75db913945f82a28188e9e32c45a29"
+    },
+    {
+      "path": "diagnostics/before.json",
+      "size_bytes": 1653,
+      "sha256": "32b8b121063e61acd2ae8228d1ae7a0c978611aacd7ea2c94475124a6156d353"
+    },
+    {
+      "path": "diagnostics/bridge.jsonl",
+      "size_bytes": 16930345,
+      "sha256": "45af68b90e0f5820f679b8eb200bd982ec2b6ea7560b53815557f2e20602233e"
+    },
+    {
+      "path": "diagnostics/bridge_before.json",
+      "size_bytes": 2386,
+      "sha256": "5634a71f2ce7ad8693d59070e28262e2aba6944daca903438ffc9c8309ee7b0e"
+    },
+    {
+      "path": "diagnostics/check.json",
+      "size_bytes": 4100,
+      "sha256": "1003ba2ec4e77cc76dd22d7f0c9bca13ab9da769aea9fd12ca734592d65b226b"
+    },
+    {
+      "path": "diagnostics/check.log",
+      "size_bytes": 3311,
+      "sha256": "83f655a96d800381fdba407fcb8cdb8e2ca2d3ab60f63793c9884e5749628ea4"
+    },
+    {
+      "path": "diagnostics/container.log",
+      "size_bytes": 23512,
+      "sha256": "02cdb0142bf644377d7a3038133afdb6ef736d4879638b5d681002c81f50f932"
+    },
+    {
+      "path": "diagnostics/corridor.csv",
+      "size_bytes": 4216,
+      "sha256": "35ce5267f4296b779e8b47f20c7f121d0380c547bf5c8dd20c415b578fc0085c"
+    },
+    {
+      "path": "diagnostics/driver.csv",
+      "size_bytes": 380824,
+      "sha256": "441636ade3dc5333b4f3f3fb6d50302086289b5faf4b3ebc9391f905d4fd764b"
+    },
+    {
+      "path": "diagnostics/driver_inputs.csv",
+      "size_bytes": 3636336,
+      "sha256": "1d87c0b5ab212f4ca918c84f8ba9d7197bc869fbcc135e4505ccffb0658cafda"
+    },
+    {
+      "path": "diagnostics/estimator.csv",
+      "size_bytes": 340418,
+      "sha256": "ea33acf2166062dba32831994f98813ca6a084f871257417b232e1ca99b5df53"
+    },
+    {
+      "path": "diagnostics/fresh_map_check.json",
+      "size_bytes": 67,
+      "sha256": "6a2dddecf875d3316e96fc4de92fa89a75cbdb2766402b7bee65023083756de1"
+    },
+    {
+      "path": "diagnostics/fresh_start.json",
+      "size_bytes": 713,
+      "sha256": "537c67b7f257065ebf72f72c7ce756eab6114872ba302ba741f510eaf7e0e700"
+    },
+    {
+      "path": "diagnostics/host_resources.csv",
+      "size_bytes": 290151,
+      "sha256": "09b80ed7c751e3c6f79c199a07716760b23a255dd77145ce06f77658b449c3bd"
+    },
+    {
+      "path": "diagnostics/lap1_path.csv",
+      "size_bytes": 12025,
+      "sha256": "3e9d21b63d652d301200df2198ed5991555d399c067bfccca127d9713dc04353"
+    },
+    {
+      "path": "diagnostics/map_route.csv",
+      "size_bytes": 4068,
+      "sha256": "f9454ef40b172152daa1de550164fd5c3fc40ebceb04c434c1c468536f306943"
+    },
+    {
+      "path": "diagnostics/map_snapshot.pgm",
+      "size_bytes": 7501,
+      "sha256": "29e9e36b20f9691e58c8e4cf7e4f8470a8c92b4c404a36ab64595a95dcefbef6"
+    },
+    {
+      "path": "diagnostics/map_snapshot.yaml",
+      "size_bytes": 150,
+      "sha256": "948ee085f368ca0063dda4d546cf71703f047ba76e7b9081d623d52f25730f39"
+    },
+    {
+      "path": "diagnostics/parameter_check.log",
+      "size_bytes": 24,
+      "sha256": "fd487f10d8abc5382b315eabeb16ca6fe833acb7a5583304ca6f0eb19876aa35"
+    },
+    {
+      "path": "diagnostics/plan.json",
+      "size_bytes": 1084,
+      "sha256": "3f3e7123ab4164f9f02897e32011be3b5fbf3d507f645fa20d46753b12d7474e"
+    },
+    {
+      "path": "diagnostics/power.csv",
+      "size_bytes": 9126,
+      "sha256": "2c75d98fa936a2efe594153a22d2ef5e7eedda3074411e04ea3012eb328f615a"
+    },
+    {
+      "path": "diagnostics/power_before.json",
+      "size_bytes": 189,
+      "sha256": "582511d9de6dd44bd2dbe7f0a3f8fae0977c0ceaf60cf279b818f23e1b390222"
+    },
+    {
+      "path": "diagnostics/power_settling.jsonl",
+      "size_bytes": 1622,
+      "sha256": "3366cc2fe5b50a1364e26ee0747711e6452c05006067204875b3fb06067240ea"
+    },
+    {
+      "path": "diagnostics/race_events.json",
+      "size_bytes": 16552,
+      "sha256": "01637ce4db46e31350206232172fa44019f8e64c0e483a618489393f81bc16b6"
+    },
+    {
+      "path": "diagnostics/raceline.csv",
+      "size_bytes": 2427,
+      "sha256": "88199b7ccc8adde49829d9fb1792e83184cdb8cdc562215795092c1b4924d179"
+    },
+    {
+      "path": "diagnostics/ram_storage_preflight.json",
+      "size_bytes": 302,
+      "sha256": "dc702511cc4294c5e237046526ebd5ad3e1d48bebf396c9d7b7c076e23182655"
+    },
+    {
+      "path": "diagnostics/resource_probe.log",
+      "size_bytes": 135,
+      "sha256": "bfb5ee1eae29cdf83cf663dfa9b40648894bc9d9e4b356bc7c690612673ebbea"
+    },
+    {
+      "path": "diagnostics/resource_probe_source.py",
+      "size_bytes": 3648,
+      "sha256": "fe15b3a621865bdffedf96985159f6430190a422d6c361a7e514cbbc0572b495"
+    },
+    {
+      "path": "diagnostics/run_id.txt",
+      "size_bytes": 16,
+      "sha256": "f36e1dd4c635e7bd7030bc125790810e8ba7de9c1917855e269fc5ab92adb712"
+    },
+    {
+      "path": "diagnostics/save_final_map.log",
+      "size_bytes": 261,
+      "sha256": "e2c7d3ca5ff4ea70d5a3f5781a651444f02846e656f04fe8e1fd11d3cccd3ece"
+    },
+    {
+      "path": "diagnostics/save_final_map.py",
+      "size_bytes": 2314,
+      "sha256": "a5d08934e470fcb8d133f88ab1cf5085ca38a8517b10703b93dd95108a147ea0"
+    },
+    {
+      "path": "diagnostics/sensor_capture.log",
+      "size_bytes": 398,
+      "sha256": "f34abc6e845c5738a2bed564b458e72192b8359fa0f1bab4db6cba476b5321ad"
+    },
+    {
+      "path": "diagnostics/sensor_capture.pid",
+      "size_bytes": 4,
+      "sha256": "4b6ea96fb508b6dfc3238c5d4fdff89fc81a27836f2dcd65f4e0d6967696dd6b"
+    },
+    {
+      "path": "diagnostics/sensors/capture_meta.json",
+      "size_bytes": 521,
+      "sha256": "c70267f5352a072e173eebe454b9f7a01df00258778a7acd82d4fa0627437e0c"
+    },
+    {
+      "path": "diagnostics/sensors/imu_raw.csv",
+      "size_bytes": 1254894,
+      "sha256": "5bd3cd486c15a36c56d3aade1186d80c8226263124981c58bd3efa3ea8c43995"
+    },
+    {
+      "path": "diagnostics/sensors/lidar_scans.csv",
+      "size_bytes": 3533510,
+      "sha256": "258090a2b18325f81e604749ed14d1ce17d8def48fbb73de0bb226886573a728"
+    },
+    {
+      "path": "diagnostics/sensors/sensor_receipt_timing.csv",
+      "size_bytes": 1031789,
+      "sha256": "69ffe95ed016c0c24960ee677b7a70b1db0161304476504e4810a2b09157f6a5"
+    },
+    {
+      "path": "diagnostics/slam_map_final.json",
+      "size_bytes": 307,
+      "sha256": "91a53f3a95b5a544ddabacf060e83d3025e29855ba2bc4f3afdae0a62b5d901b"
+    },
+    {
+      "path": "diagnostics/slam_map_final.npz",
+      "size_bytes": 2435,
+      "sha256": "995ea2c7659bc4218046439e1d09e69911e6abbcb7c55090bde1b8745c601580"
+    },
+    {
+      "path": "diagnostics/source_manifest.json",
+      "size_bytes": 3382,
+      "sha256": "b9cee43c8a3792bfabd907846c43a703009b89a13485c14919e8e66a8bd23abf"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/__init__.py",
+      "size_bytes": 681,
+      "sha256": "9632bca3285d47a8eda3aadf4b56db79a013c1f86f878b15405bbb054168b617"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/__init__.py",
+      "size_bytes": 84,
+      "sha256": "9c96ae8abe56ac3883bc75ed471046375385fd76f6fccb2cd80a19d8acc836b8"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/adaptive.py",
+      "size_bytes": 8696,
+      "sha256": "acaca5f8cf5144d13b135f1df54e0baeb0bf0b33c2678516e570ec0cae54cc46"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/config_io.py",
+      "size_bytes": 3534,
+      "sha256": "8fdbf32ae6433109d8e3c291a8ff94f34472730300ff1348e1756ff69376c55b"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/lap_closure.py",
+      "size_bytes": 5627,
+      "sha256": "4574a63d24b8d63808deafc1cc15eb108da05f6c9dbf594c43533c86a34fef70"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/local_cloud.py",
+      "size_bytes": 9127,
+      "sha256": "1bbddd85da326a597520764eee19f11becac064775bc9d51f6743e137fa575b4"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/map_metrics.py",
+      "size_bytes": 6673,
+      "sha256": "d05d553ed3a5c48cfeb3e0ece296bc73d4c1d961272407152c657c86b690b567"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/occupancy.py",
+      "size_bytes": 4304,
+      "sha256": "cd67d49b7161b36a842342c837cd6d383686fa7cabb2faaf5992cc2a08d1ffba"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/plant_id.py",
+      "size_bytes": 32793,
+      "sha256": "df2dff868ec34fff5e25d841eb460716118694f96d48ff11954508343617f14a"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/pose_correction.py",
+      "size_bytes": 2086,
+      "sha256": "2237bcce7ea11dfc152b759dd39557b16e02971528c1b38b56798a2761ad2de9"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/race_config.py",
+      "size_bytes": 21328,
+      "sha256": "ae3a64b6d9a574f5815484dda519b51fddb2a89fc01c1cae1a7a6905481173b6"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/race_driver.py",
+      "size_bytes": 44604,
+      "sha256": "6281ab3c8ff0bafbb0c85b4e5a6217de8cc53cef46c0208c9f7d1329c6d265ed"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/race_planner.py",
+      "size_bytes": 25016,
+      "sha256": "43704154aa438ff35b571ad611af8421bbc4f0b8338824edc2ccda980fcdae24"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/reactive.py",
+      "size_bytes": 38833,
+      "sha256": "a0de2eca399cd146d39901c074160b237964fde847200b69f23ab9934763ed41"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/recovery.py",
+      "size_bytes": 6666,
+      "sha256": "2cb745e9daacb38915d18851e1a7b3994cafae4462a9daeb59d3bdc8b788894c"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/sim_paths.py",
+      "size_bytes": 1304,
+      "sha256": "7467f9fbefb13e87161acbb4d6341eeabc656e372634846d10f83a22accb3dae"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/core/vehicle_io.py",
+      "size_bytes": 875,
+      "sha256": "f0e98e25622e76feefdfcab868b50ef6c524272c69feee8093e1927a68de4c63"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/nodes/__init__.py",
+      "size_bytes": 37,
+      "sha256": "a7cd1298b482350bf2a8cac06b3e0762fb9760789c6c18f5524951f6ba181282"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/nodes/_common.py",
+      "size_bytes": 4397,
+      "sha256": "8aa226bd8f81523cff54ef9491ba1ea146e8bcec4c6b319364bd2277047db28f"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/nodes/estimator_health.py",
+      "size_bytes": 3098,
+      "sha256": "c22b8936d4fa019458e2d253a35a8c1527ef54dc5b40627729877cff416f52b2"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/nodes/race_driver_node.py",
+      "size_bytes": 33075,
+      "sha256": "a609a495d83ad02f02110c0b564b516505cce865c01d4cfecc23f10d30356bce"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/vendor/__init__.py",
+      "size_bytes": 288,
+      "sha256": "3d5efa0841bcaf71dde8bcea4d8c07f41edcece901c54528fa7e0cc4d7130651"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/vendor/pose_dataset/__init__.py",
+      "size_bytes": 304,
+      "sha256": "5fc520a62fbbcd554e8c8fd39d770743c4ec2bc2af0ed25c1196e525d53a044a"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/vendor/pose_dataset/controller.py",
+      "size_bytes": 3380,
+      "sha256": "8a06fbb7a4fe18bda28f9cc110b05c89858f76d3424216496112957cb76faadb"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/apex_race/vendor/pose_dataset/tracks.py",
+      "size_bytes": 2661,
+      "sha256": "167c99790b20b9d975942b263fa62d858b858af5ed4e79e1a2e21ad32715c83c"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/config/race_oval.yaml",
+      "size_bytes": 3688,
+      "sha256": "feecf61663952bbda123962cbccc3102f0cc56758f4504908a1d1f029f1f9f7b"
+    },
+    {
+      "path": "diagnostics/source_snapshot/ros2_ws/src/apex_race/config/vehicle_real.yaml",
+      "size_bytes": 3093,
+      "sha256": "c46dfd627d0519d9b8764f76afabae5e83c9e5b28a7a84206be447220e2a037a"
+    },
+    {
+      "path": "diagnostics/startup.log",
+      "size_bytes": 782,
+      "sha256": "d1e96f120f3b188ab523a34b002a43a189262d1cc3f4b67e7f158349b8e86b98"
+    },
+    {
+      "path": "diagnostics/startup_status.txt",
+      "size_bytes": 1388,
+      "sha256": "6c60107f926ad2267d056e31be6b2b357652f4e9f05c3c9164300ef7a16a62e4"
+    },
+    {
+      "path": "diagnostics/status.jsonl",
+      "size_bytes": 402309,
+      "sha256": "09fb47a7ba244eade70a63a87219b561f25d96cf4ff6a6d5ea10cece2842be55"
+    },
+    {
+      "path": "diagnostics/wall_log.csv",
+      "size_bytes": 14136,
+      "sha256": "06ae4b66c77d51ffc843abccabe2a10ae560d18a0c23818c1af59bef301f8c52"
+    },
+    {
+      "path": "ros_run/driver.csv",
+      "size_bytes": 380824,
+      "sha256": "441636ade3dc5333b4f3f3fb6d50302086289b5faf4b3ebc9391f905d4fd764b"
+    },
+    {
+      "path": "ros_run/driver_inputs.csv",
+      "size_bytes": 3636336,
+      "sha256": "1d87c0b5ab212f4ca918c84f8ba9d7197bc869fbcc135e4505ccffb0658cafda"
+    },
+    {
+      "path": "ros_run/estimator.csv",
+      "size_bytes": 340418,
+      "sha256": "ea33acf2166062dba32831994f98813ca6a084f871257417b232e1ca99b5df53"
+    },
+    {
+      "path": "ros_run/fresh_start.json",
+      "size_bytes": 713,
+      "sha256": "537c67b7f257065ebf72f72c7ce756eab6114872ba302ba741f510eaf7e0e700"
+    },
+    {
+      "path": "ros_run/plan/corridor.csv",
+      "size_bytes": 4216,
+      "sha256": "35ce5267f4296b779e8b47f20c7f121d0380c547bf5c8dd20c415b578fc0085c"
+    },
+    {
+      "path": "ros_run/plan/lap1_path.csv",
+      "size_bytes": 12025,
+      "sha256": "3e9d21b63d652d301200df2198ed5991555d399c067bfccca127d9713dc04353"
+    },
+    {
+      "path": "ros_run/plan/map_route.csv",
+      "size_bytes": 4068,
+      "sha256": "f9454ef40b172152daa1de550164fd5c3fc40ebceb04c434c1c468536f306943"
+    },
+    {
+      "path": "ros_run/plan/map_snapshot.pgm",
+      "size_bytes": 7501,
+      "sha256": "29e9e36b20f9691e58c8e4cf7e4f8470a8c92b4c404a36ab64595a95dcefbef6"
+    },
+    {
+      "path": "ros_run/plan/map_snapshot.yaml",
+      "size_bytes": 150,
+      "sha256": "948ee085f368ca0063dda4d546cf71703f047ba76e7b9081d623d52f25730f39"
+    },
+    {
+      "path": "ros_run/plan/plan.json",
+      "size_bytes": 1084,
+      "sha256": "3f3e7123ab4164f9f02897e32011be3b5fbf3d507f645fa20d46753b12d7474e"
+    },
+    {
+      "path": "ros_run/plan/raceline.csv",
+      "size_bytes": 2427,
+      "sha256": "88199b7ccc8adde49829d9fb1792e83184cdb8cdc562215795092c1b4924d179"
+    },
+    {
+      "path": "ros_run/plan/wall_log.csv",
+      "size_bytes": 14136,
+      "sha256": "06ae4b66c77d51ffc843abccabe2a10ae560d18a0c23818c1af59bef301f8c52"
+    },
+    {
+      "path": "ros_run/power.csv",
+      "size_bytes": 9126,
+      "sha256": "2c75d98fa936a2efe594153a22d2ef5e7eedda3074411e04ea3012eb328f615a"
+    },
+    {
+      "path": "ros_run/race_events.json",
+      "size_bytes": 16552,
+      "sha256": "01637ce4db46e31350206232172fa44019f8e64c0e483a618489393f81bc16b6"
+    },
+    {
+      "path": "cpu_wrapper/after.json",
+      "size_bytes": 118,
+      "sha256": "f253b774663dbfd19ceb2ffeb2df32666079704e1058fe9ffdf5a970c750ae1e"
+    },
+    {
+      "path": "cpu_wrapper/before.json",
+      "size_bytes": 118,
+      "sha256": "82702d3d44026189e6e8f42ba56c7ff4779b047e93fd8f06b8452535a2a5e6c3"
+    },
+    {
+      "path": "cpu_wrapper/requested_max_khz.txt",
+      "size_bytes": 8,
+      "sha256": "f5bbc9df805e66180e1640add85a5de00bf2e13d1f5415e22278318f2d82d5d1"
+    },
+    {
+      "path": "cpu_wrapper/trial_exit.txt",
+      "size_bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "diagnostics/ram_storage_postflight.json",
+      "size_bytes": 18490,
+      "sha256": "05c5b0ece185acb7bb78ca1a435852b0a5a9e25635115fdd90670878d952c72d"
+    }
+  ]
+}

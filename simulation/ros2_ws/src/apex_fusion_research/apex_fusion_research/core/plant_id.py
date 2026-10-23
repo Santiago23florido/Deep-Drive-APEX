@@ -462,13 +462,17 @@ class PlantIdentifier:
         kappa = curvature_measurement(dx, dyaw, arm)
         self.kappa_meas, self.kappa_meas_t = kappa, self.t_cmd or 0.0
         u = float(eff[self.i_steer])
-        self._sign_check(u, kappa)
-        if abs(u) >= a.sat_frac * self.kappa_sat:
-            self._saturation(kappa, speed)
-            self._refuse("saturated")
-            return kappa
+        # Parked pose noise has a curvature but cannot establish its sign.
+        # Apply the measured-speed gate before voting or learning saturation,
+        # just as for the steering gains below.
         if abs(speed) < a.v_min_steer_mps:
             self._refuse("slow")
+            return kappa
+        self._sign_check(u, kappa)
+        side_scale = self.cfg.vehicle.curvature_limit(u >= 0.0, planning=True) / self.kappa_nom
+        if abs(u) >= a.sat_frac * self.kappa_sat * side_scale:
+            self._saturation(kappa, speed)
+            self._refuse("saturated")
             return kappa
         if spread > a.transient_max * dt:
             # A command that moved a lot inside the interval: the lag model
@@ -505,7 +509,8 @@ class PlantIdentifier:
     def _saturation(self, kappa: float, speed: float) -> None:
         gain = self.steer.x[GAIN_R] if kappa < 0.0 else self.steer.x[GAIN_L]
         eff = float(gain) + float(self.steer.x[SLIP]) * (speed * speed - self.v2_ref)  # noqa: PLW2901
-        self.sat_seen.append(abs(kappa) / max(eff, 0.2))
+        side_scale = self.cfg.vehicle.curvature_limit(kappa >= 0.0, planning=True) / self.kappa_nom
+        self.sat_seen.append(abs(kappa) / max(eff, 0.2) / side_scale)
         if len(self.sat_seen) > self.a.sat_window:
             self.sat_seen.pop(0)
         if len(self.sat_seen) >= self.a.sat_window // 2:

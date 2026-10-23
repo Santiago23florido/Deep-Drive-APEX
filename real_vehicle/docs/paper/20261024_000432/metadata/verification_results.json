@@ -1,0 +1,17 @@
+{
+  "tests": {
+    "command": "python -m pytest -q real_vehicle/ros2_ws/src/apex_telemetry/test/test_ram_trial_storage.py real_vehicle/ros2_ws/src/apex_telemetry/test/test_race_fresh_start.py real_vehicle/tools/pc/test_audit_real_run.py",
+    "passed": 12,
+    "duration_s": 0.73
+  },
+  "actual_pi_storage_only_selftests_passed": 2,
+  "physical_trial_confirmed_by_operator": true,
+  "physical_completed_laps": 2,
+  "contact_with_track": "not reported",
+  "packaged_geometry_test": {
+    "passed": 1,
+    "duration_s": 0.6
+  },
+  "six_english_figures_visually_inspected": true,
+  "offline_reproduction_from_packaged_data_and_scripts": "passed; no ROS or vehicle connection required"
+}

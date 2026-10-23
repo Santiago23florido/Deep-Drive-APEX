@@ -1,0 +1,231 @@
+{
+  "run_id": "20261024_000432",
+  "definitions": {
+    "driver_durations": "Zero-order hold of rounded driver CSV rows, clipped to lap/execution boundaries; includes held commands during core-busy callbacks.",
+    "forward_reverse_threshold_mps": 0.005,
+    "near_zero_band_mps": 0.02,
+    "bridge_distributions": "All saved bridge snapshots, including pre/post-motion samples; no timestamps, not time-weighted. Positive/negative subsets selected separately.",
+    "esc_percent": "Normalized signed ESC command scale, not duty-cycle percent or measured electrical/mechanical power.",
+    "motor_pulse": "Snapshot of software PWM readback; reverse handshake/braking/neutral phases may differ from requested ESC command.",
+    "speed_estimate": "Onboard odometry speed, not external motion truth."
+  },
+  "intervals": [
+    {
+      "interval": "lap_1",
+      "duration_s": 83.82346320152283,
+      "forward_command_s": 26.827767848968506,
+      "reverse_command_s": 30.356900215148926,
+      "zero_or_deadband_command_s": 26.638795137405396,
+      "near_zero_command_abs_le_0_02_s": 32.46466279029846,
+      "reverse_recovery_mode_s": 30.356900215148926,
+      "forward_command_mps": {
+        "n": 242,
+        "mean": 0.049518161133429044,
+        "p50": 0.036,
+        "p95": 0.11,
+        "min": 0.005,
+        "max": 0.188
+      },
+      "reverse_command_magnitude_mps": {
+        "n": 293,
+        "mean": 0.2214530031195183,
+        "p50": 0.212,
+        "p95": 0.4,
+        "min": 0.064,
+        "max": 0.4
+      },
+      "onboard_speed_magnitude_during_forward_mps": {
+        "n": 242,
+        "mean": 0.11004498920557385,
+        "p50": 0.095,
+        "p95": 0.273,
+        "min": 0.0,
+        "max": 0.513
+      },
+      "forward_command_with_estimated_speed_below_0_03_s": 3.7555994987487793,
+      "driver_update_interval_s": {
+        "n": 774,
+        "mean": 0.11710202837390182,
+        "p50": 0.11999988555908203,
+        "p95": 0.1399998664855957,
+        "min": 0.01009988784790039,
+        "max": 0.15980005264282227
+      },
+      "phase_duration_s": {
+        "explore": 83.82346320152283
+      }
+    },
+    {
+      "interval": "lap_2",
+      "duration_s": 42.77300977706909,
+      "forward_command_s": 26.095809936523438,
+      "reverse_command_s": 9.379799842834473,
+      "zero_or_deadband_command_s": 7.297399997711182,
+      "near_zero_command_abs_le_0_02_s": 10.576009750366211,
+      "reverse_recovery_mode_s": 9.379799842834473,
+      "forward_command_mps": {
+        "n": 215,
+        "mean": 0.03634042832333946,
+        "p50": 0.034,
+        "p95": 0.072,
+        "min": 0.006,
+        "max": 0.172
+      },
+      "reverse_command_magnitude_mps": {
+        "n": 84,
+        "mean": 0.21088340078672693,
+        "p50": 0.1,
+        "p95": 0.4,
+        "min": 0.058,
+        "max": 0.4
+      },
+      "onboard_speed_magnitude_during_forward_mps": {
+        "n": 215,
+        "mean": 0.0939510492193233,
+        "p50": 0.086,
+        "p95": 0.157,
+        "min": 0.0,
+        "max": 0.209
+      },
+      "forward_command_with_estimated_speed_below_0_03_s": 1.8874998092651367,
+      "driver_update_interval_s": {
+        "n": 369,
+        "mean": 0.1243202032336324,
+        "p50": 0.12019991874694824,
+        "p95": 0.14339995384216309,
+        "min": 0.01739978790283203,
+        "max": 0.16009998321533203
+      },
+      "phase_duration_s": {
+        "closing": 3.0794999599456787,
+        "explore": 0.017132043838500977,
+        "map_guided": 35.455477714538574,
+        "planning": 4.220900058746338
+      }
+    },
+    {
+      "interval": "entire_execution",
+      "duration_s": 126.82021021842957,
+      "forward_command_s": 52.94700002670288,
+      "reverse_command_s": 39.7367000579834,
+      "zero_or_deadband_command_s": 34.136510133743286,
+      "near_zero_command_abs_le_0_02_s": 43.26440978050232,
+      "reverse_recovery_mode_s": 39.7367000579834,
+      "forward_command_mps": {
+        "n": 456,
+        "mean": 0.0430102382648477,
+        "p50": 0.035,
+        "p95": 0.1,
+        "min": 0.005,
+        "max": 0.188
+      },
+      "reverse_command_magnitude_mps": {
+        "n": 377,
+        "mean": 0.2189580613111831,
+        "p50": 0.206,
+        "p95": 0.4,
+        "min": 0.058,
+        "max": 0.4
+      },
+      "onboard_speed_magnitude_during_forward_mps": {
+        "n": 456,
+        "mean": 0.10212695908434226,
+        "p50": 0.093,
+        "p95": 0.194,
+        "min": 0.0,
+        "max": 0.513
+      },
+      "forward_command_with_estimated_speed_below_0_03_s": 5.643099308013916,
+      "driver_update_interval_s": {
+        "n": 1152,
+        "mean": 0.11939050114946682,
+        "p50": 0.11999988555908203,
+        "p95": 0.14030003547668457,
+        "min": 0.01009988784790039,
+        "max": 0.16009998321533203
+      },
+      "phase_duration_s": {
+        "closing": 3.0794999599456787,
+        "done": 1.5020370483398438e-05,
+        "explore": 83.84059524536133,
+        "final": 0.20029997825622559,
+        "map_guided": 35.47889995574951,
+        "planning": 4.220900058746338
+      }
+    }
+  ],
+  "bridge": {
+    "speed_map": {
+      "esc_zero_pct": 15.0,
+      "pct_per_mps": 33.0,
+      "max_pct": 28.2,
+      "esc_zero_rev_pct": 18.0,
+      "rev_pct_per_mps": 33.0,
+      "max_rev_pct": 31.2,
+      "full_scale_mps": 0.4,
+      "full_scale_reverse_mps": 0.4
+    },
+    "snapshot_count": 7695,
+    "forward_requested_esc_pct": {
+      "n": 3163,
+      "mean": 16.42049741275774,
+      "p50": 16.14550256381774,
+      "p95": 18.3,
+      "min": 15.169136310702857,
+      "max": 21.1875
+    },
+    "reverse_requested_esc_magnitude_pct": {
+      "n": 2370,
+      "mean": 25.21765359858965,
+      "p50": 24.799814344400957,
+      "p95": 31.2,
+      "min": 19.9014566926432,
+      "max": 31.2
+    },
+    "forward_pwm_pulse_us": {
+      "n": 3163,
+      "mean": 1581.2548441353147,
+      "p50": 1580.716,
+      "p95": 1591.5,
+      "min": 1500.0,
+      "max": 1605.938
+    },
+    "reverse_request_pwm_pulse_us": {
+      "n": 2370,
+      "mean": 1383.7231371308017,
+      "p50": 1392.953,
+      "p95": 1500.0,
+      "min": 1344.0,
+      "max": 1500.0
+    },
+    "forward_request_at_ceiling_snapshots": 0,
+    "forward_request_below_legacy_minimum_fraction": 0.7635156496996522,
+    "minimum_parameter_note": "min_effective_speed_pct is a legacy-profile parameter; affine profile does not impose this minimum. Its presence in status does not establish the current physical motor threshold.",
+    "reverse_phase_snapshot_counts": {
+      "brake": 136,
+      "exit": 158,
+      "fwd": 5167,
+      "neutral": 135,
+      "rev": 2099
+    }
+  },
+  "adaptation_final": {
+    "v_gain": 0.8799033213485705,
+    "v_offset": 0.13432548695621466,
+    "dead_mps": 0.041963063995409305,
+    "dead_rev_mps": 0.31547369378541174,
+    "confidence": 0.0,
+    "n": {
+      "lever": 26,
+      "steer": 15,
+      "long": 1,
+      "dead": 14
+    }
+  },
+  "interpretation": [
+    "Recorded maneuvers and small forward commands contribute to elapsed time; increasing a ceiling alone does not increase commands below that ceiling.",
+    "Affine mapping permits commands below the former legacy minimum. Physical breakaway threshold may vary with battery/load, but is not measured here.",
+    "Longitudinal adaptation sample count is reported; do not interpret a single accepted update as a well-identified motor model.",
+    "Use timing/resource metrics to inspect computation. Pi supply flags do not measure motor voltage/current, and command telemetry cannot prove battery health."
+  ]
+}

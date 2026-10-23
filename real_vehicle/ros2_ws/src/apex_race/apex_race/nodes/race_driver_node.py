@@ -43,6 +43,7 @@ Output: ``geometry_msgs/Twist`` on ``/apex/cmd_vel_track``. Logs: ``driver.csv``
 from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
+from collections import deque
 from contextlib import contextmanager
 import csv
 import json
@@ -69,7 +70,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 from ..core.race_config import RaceDriverConfig, vehicle_limits
-from ..core.race_driver import DONE, LOG_COLUMNS, RaceDriverCore
+from ..core.race_driver import DONE, FINAL, LOG_COLUMNS, RaceDriverCore
 from ..core.race_planner import Grid, save_plan
 from ..core.vehicle_io import load_vehicle_config
 from ._common import LATCHED_QOS, ConfigParameters, json_msg
@@ -80,6 +81,9 @@ MAP_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability
 # queue of stale scans to plan on. Best-effort so it never back-pressures the
 # estimator, which publishes reliably.
 SCAN_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+# Predicted poses are a latest-value channel, not a measurement history.
+# Reading them must remain possible while a scan occupies the sensor group.
+PREDICTED_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
 # The arm is deliberately not TRANSIENT_LOCAL: a latched `true` must not
 # survive the death of whoever published it.
 ARM_QOS = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.VOLATILE)
@@ -142,7 +146,10 @@ class RaceDriverNode(Node):
         cfg = self.params.config
         yaml_path = str(gp("vehicle_yaml"))
         if yaml_path:
-            cfg.vehicle = vehicle_limits(load_vehicle_config(Path(yaml_path)), cfg.vehicle.steer_plan_deg)
+            configured = cfg.vehicle
+            cfg.vehicle = vehicle_limits(load_vehicle_config(Path(yaml_path)), configured.steer_plan_deg)
+            for name in ("steer_max_left_deg", "steer_max_right_deg", "steer_plan_left_deg", "steer_plan_right_deg"):
+                setattr(cfg.vehicle, name, getattr(configured, name))
         self.cfg = cfg
         self.frames = {k: str(gp(f"{k}_frame")) for k in ("map", "odom", "base", "laser")}
         self.max_age = float(gp("max_pose_age_s"))
@@ -178,6 +185,13 @@ class RaceDriverNode(Node):
         # The core is touched by the sensor callbacks and by the control timer,
         # which run on two executor threads: the control tick never waits for it.
         self._core_lock = threading.Lock()
+        # A run of scan/odom/map callbacks must leave a turn for a control
+        # tick that already missed the lock. The sensor thread waits outside
+        # the lock; control itself always remains nonblocking.
+        self._control_served = threading.Event()
+        self._control_served.set()
+        self._handoff_timeout_s = min(self.core_busy_stop, 2.0 / float(gp("rate_hz")))
+        self._fallback_commands = deque()
         # Who holds the core, and for how long. The control tick cannot run
         # while one of these is in progress, so this is the budget that decides
         # whether the command stream stays alive.
@@ -195,10 +209,12 @@ class RaceDriverNode(Node):
         self.estimator_ok = False  # until the health report says the rates are right
         self.estimator_reason = "no health report"
         self.armed = not self.require_arm
+        self._mission_deadline_s = None
+        self._mission_time_stop = False
         self.arm_ns: int | None = None
         self.plan_saved = False
-        # Two groups, two threads: everything that touches the core serialises in
-        # `sensors`, and the control timer gets its own thread in `control`.
+        # Heavy core inputs serialize in sensors. Latest predicted pose and
+        # health updates share the short control group, never the scan queue.
         sensors = MutuallyExclusiveCallbackGroup()
         control = MutuallyExclusiveCallbackGroup()
         self.cmd_pub = self.create_publisher(Twist, str(gp("cmd_topic")), 20)
@@ -206,10 +222,10 @@ class RaceDriverNode(Node):
         self.local_pub = self.create_publisher(PathMsg, "/apex/race_driver/local_path", 5)
         self.line_pub = self.create_publisher(PathMsg, "/apex/race_driver/race_line", LATCHED_QOS)
         self.cor_pub = [self.create_publisher(PathMsg, f"/apex/race_driver/corridor_{s}", LATCHED_QOS) for s in ("left", "right")]
-        self.create_subscription(Odometry, str(gp("predicted_topic")), self._on_pred, 50, callback_group=sensors)
+        self.create_subscription(Odometry, str(gp("predicted_topic")), self._on_pred, PREDICTED_QOS, callback_group=control)
         self.create_subscription(Odometry, str(gp("odom_topic")), self._on_odom, 50, callback_group=sensors)
         self.create_subscription(LaserScan, str(gp("scan_topic")), self._on_scan, SCAN_QOS, callback_group=sensors)
-        self.create_subscription(String, str(gp("estimator_status_topic")), self._on_status, 10, callback_group=sensors)
+        self.create_subscription(String, str(gp("estimator_status_topic")), self._on_status, 1, callback_group=control)
         self.create_subscription(OccupancyGrid, str(gp("map_topic")), self._on_map, MAP_QOS, callback_group=sensors)
         self.create_subscription(MarkerArray, str(gp("graph_topic")), self._on_graph, 2, callback_group=sensors)
         self.create_subscription(Bool, str(gp("arm_topic")), self._on_arm, ARM_QOS, callback_group=control)
@@ -237,10 +253,12 @@ class RaceDriverNode(Node):
     @contextmanager
     def _core(self, what: str):
         """Hold the core lock, and record how long for."""
+        self._control_served.wait(timeout=self._handoff_timeout_s)
         t0 = time.perf_counter()
         with self._core_lock:
             wait = (time.perf_counter() - t0) * 1e3
             try:
+                self._flush_fallback_commands()
                 yield
             finally:
                 held = (time.perf_counter() - t0) * 1e3 - wait
@@ -248,6 +266,17 @@ class RaceDriverNode(Node):
                 row[0] += 1.0
                 row[1] += held
                 row[2] = max(row[2], held)
+
+    def _flush_fallback_commands(self) -> None:
+        """Under the core lock, teach identification what was really sent.
+
+        Holds and watchdog zeros happen outside core.control(). Omitting them
+        makes pauses look like a motor or steering response to an old command.
+        The control callback is the only producer; deque transfers are atomic.
+        """
+        while self._fallback_commands:
+            t, curvature, speed = self._fallback_commands.popleft()
+            self.core.ident.push_command(t, curvature, speed)
 
     def hold_report(self) -> dict[str, dict[str, float]]:
         return {k: {"n": int(n), "mean_ms": round(total / n, 1) if n else 0.0, "max_ms": round(worst, 1)}
@@ -301,11 +330,12 @@ class RaceDriverNode(Node):
 
     def _pose_now(self, now: int) -> tuple[tuple[float, float, float], float, float] | None:
         """Predicted odometry pose advanced by its age (constant twist), speed, age [s]."""
-        if self.pred is None:
+        pred = self.pred  # one atomic snapshot across the sensor/control groups
+        if pred is None:
             return None
-        age = max(0.0, (now - self.pred[0]) * 1e-9)
-        v, w = self.pred[2], self.pred[3]
-        x, y, yaw = self.pred[1]
+        age = max(0.0, (now - pred[0]) * 1e-9)
+        v, w = pred[2], pred[3]
+        x, y, yaw = pred[1]
         mid = yaw + 0.5 * w * age
         return (x + v * age * math.cos(mid), y + v * age * math.sin(mid), yaw + w * age), v, age
 
@@ -339,7 +369,7 @@ class RaceDriverNode(Node):
         now = self._pose_now(t_now)
         if now is None:
             return
-        if self.inputs is not None and self.core.phase in ("wait", "explore", "closing"):
+        if self.inputs is not None and self.core.phase not in (FINAL, DONE):
             vals = (*pose, *now[0], now[1], self.core.travel, *self.base_to_laser)
             self.inputs.writerow([stamp, t_now, self.core.phase, f"{m.angle_min:.9f}", f"{m.angle_increment:.9f}", *(f"{v:.6f}" for v in vals),
                                   *(f"{r:.4f}" for r in m.ranges)])
@@ -387,16 +417,40 @@ class RaceDriverNode(Node):
 
     def _control(self) -> None:
         now = self._now()
+        steady_now = time.monotonic()
         if self._arm_reason(now):
             self.counters["disarmed"] += 1
             self._publish_cmd(0.0, 0.0)
+            self._control_served.set()
+            return
+        if self._mission_deadline_s is not None and steady_now >= self._mission_deadline_s:
+            self._mission_time_stop = True
+        if self._mission_time_stop:
+            # The deadline must cut the command even while perception owns
+            # the core lock. Latch the core's DONE event once it is available.
+            self._publish_cmd(0.0, 0.0)
+            if self._core_lock.acquire(blocking=False):
+                try:
+                    self._flush_fallback_commands()
+                    if self.core.phase != DONE:
+                        self.core._stop_mission(now * 1e-9, "duration")
+                    if not getattr(self, "_done_written", False):
+                        self._done_written = True
+                        self._write_events()
+                finally:
+                    self._core_lock.release()
+                    self._control_served.set()
+            else:
+                self._control_served.clear()
             return
         if not self._core_lock.acquire(blocking=False):
+            self._control_served.clear()
             self._hold_command(now)  # a reactive step or the map is in the core
             return
         t_lock = time.perf_counter()
         try:
             self._busy_since = None
+            self._flush_fallback_commands()
             pose = self._pose_now(now)
             if pose is None or (pose[2] > self.max_age and self.core.phase not in ("wait",)):
                 self.counters["pose_age_stop"] += 1
@@ -409,7 +463,9 @@ class RaceDriverNode(Node):
                 self._publish_cmd(0.0, 0.0)
                 return
             v, steer, row = self.core.control(now * 1e-9, pose[0], pose[1], self._map_odom(), self.ready, pose[2])
-            self._publish_cmd(v, self.core.steer_command(steer))
+            if self.cfg.mission.enabled and self.core.mission_started_t is not None and self._mission_deadline_s is None:
+                self._mission_deadline_s = steady_now + self.cfg.mission.max_duration_s
+            self._publish_cmd(v, self.core.steer_command(steer), record_fallback=False)
             if self.log is not None and row is not None:
                 self.log.writerow(row)
             if self.core.plan is not None and not self.plan_saved:
@@ -425,6 +481,7 @@ class RaceDriverNode(Node):
             row[1] += held
             row[2] = max(row[2], held)
             self._core_lock.release()
+            self._control_served.set()
 
     def _hold_command(self, now: int) -> None:
         """The core is busy: hold the last command briefly, then stop the car.
@@ -444,13 +501,19 @@ class RaceDriverNode(Node):
         self.counters["core_busy_hold"] += 1
         self._publish_cmd(*self._last_cmd)
 
-    def _publish_cmd(self, v: float, steer: float) -> None:
+    def _publish_cmd(self, v: float, steer: float, *, record_fallback: bool = True) -> None:
         msg = Twist()
         msg.linear.x = float(v)
         msg.angular.z = float(v * math.tan(steer) / self.cfg.vehicle.wheelbase_m)
+        publish_start = time.monotonic()
         self.cmd_pub.publish(msg)
+        publish_ms = (time.monotonic() - publish_start) * 1e3
+        if publish_ms >= 100.0:
+            self.get_logger().warning(f"command publish blocked: {publish_ms:.3f} ms, v={v:.3f} m/s")
         self._last_cmd = (float(v), float(steer))
         now = self._now()
+        if record_fallback:
+            self._fallback_commands.append((now * 1e-9, math.tan(steer) / self.cfg.vehicle.wheelbase_m if v else 0.0, float(v)))
         if self._last_cmd_ns is not None:
             self._cmd_gap_max_ms = max(self._cmd_gap_max_ms, (now - self._last_cmd_ns) * 1e-6)
         self._last_cmd_ns = now
@@ -472,12 +535,18 @@ class RaceDriverNode(Node):
     def _save_plan(self) -> None:
         self.plan_saved = True
         plan = self.core.plan
-        self._publish_path(self.line_pub, plan.path.xy, self.frames["map"], closed=True)
+        direct = plan.diag.get("direct_tracking_allowed", True)
+        published = plan.path if direct or plan.route is None else plan.route
+        self._publish_path(self.line_pub, published.xy, self.frames["map"], closed=True)
         n = plan.ref.normal
         for pub, bound in zip(self.cor_pub, (plan.cor.hi, plan.cor.lo)):
             self._publish_path(pub, plan.ref.xy + bound[:, None] * n, self.frames["map"], closed=True)
-        self.get_logger().info(f"race line ready: {plan.path.length:.1f} m, predicted lap {plan.t_lap_pred:.1f} s, "
-                               f"map clearance >= {100 * plan.diag['min_map_clearance_m']:.0f} cm (from the {self.core.events['planning']['lap_path_source']})")
+        if direct:
+            self.get_logger().info(f"race line ready: {plan.path.length:.1f} m, predicted lap {plan.t_lap_pred:.1f} s, "
+                                   f"map clearance >= {100 * plan.diag['min_map_clearance_m']:.0f} cm (from the {self.core.events['planning']['lap_path_source']})")
+        else:
+            self.get_logger().info("SLAM route ready; live LiDAR local planning retained: forward candidate rejected for "
+                                   + ", ".join(plan.diag.get("direct_tracking_rejection", [])))
         if self.out_dir is not None:
             grid, loop, side = self.core.plan_inputs
             save_plan(plan, grid, loop, side, self.out_dir, {"planning": self.core.events.get("planning"), "start_map": self.core.events.get("start_map")})
@@ -488,6 +557,7 @@ class RaceDriverNode(Node):
             return
         ev = {k: v for k, v in self.core.events.items() if k != "config"}
         ev["scan_age_stops"] = getattr(self, "scan_age_stops", 0)  # control ticks stopped by max_scan_age_s
+        ev["mission_time_stop"] = self._mission_time_stop
         ev["counters"] = dict(self.counters)
         ev["cmd_gap_max_ms"] = round(self._cmd_gap_max_ms, 2)
         ev["core_hold_ms"] = self.hold_report()
@@ -498,17 +568,20 @@ class RaceDriverNode(Node):
 
     def _publish_status(self) -> None:
         now = self._now()
+        pose = self._pose_now(now)
         with self._core("status"):
             status = self.core.status()
         self.status_pub.publish(json_msg({
             **status,
             "scan_age_stops": self.scan_age_stops,
+            "mission_time_stop": self._mission_time_stop,
             "counters": dict(self.counters),
             "cmd_gap_max_ms": round(self._cmd_gap_max_ms, 2),
             "core_hold_ms": self.hold_report(),
             "armed": bool(self.armed) and not self._arm_reason(now),
             "arm_age_s": None if self.arm_ns is None else round((now - self.arm_ns) * 1e-9, 2),
             "estimator_usable": self.estimator_ok,
+            "predicted_pose_age_s": None if pose is None else pose[2],
             "estimator_reason": self.estimator_reason,
         }))
 

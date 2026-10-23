@@ -1303,6 +1303,20 @@ launch argument of the real2sim stack (`--standstill-hold false` reproduces the
 drift). It is a property of the *deployed* estimator: `stream_predict`, the
 training and evaluation path, is unchanged.
 
+**Integration correction, 2026-10-22:** those parked drift measurements covered
+the scan-stamped pose. They did not cover the 100 Hz IMU prediction consumed by
+the controller. On the real Pi with v7e and the hold enabled, that pose stayed
+within millimetres while `predict()` still integrated accelerometer tilt and
+residual bias between corrections. The controller saw a repeated centimetre
+excursion, accumulated 10.88 m and counted two fictitious laps. The hold now
+also applies to `predict()`: it returns the held scan pose, zero velocity and
+zero yaw rate, stamped at the latest IMU sample. The scan commits the prediction
+hold together with its pose under the same lock, and moving scan geometry
+releases it. Scan freshness remains a separate control gate. Regression tests
+now cover tilted IMU samples during a hold and prediction resuming on the
+recorded moving run. The real 120 s check passed with predicted speed exactly
+zero and no fictitious laps; see `real_vehicle/docs/race_stack.md` section 5f.
+
 Open: this treats the symptom of an extrapolation, not its cause. The cure at
 the weights would be stationary segments of tens of seconds in the training
 stream, with `age` scaled to match -- a fine-tune of the two offending heads
