@@ -33,7 +33,6 @@ rsync -av \
   --exclude 'ros2_ws/apex_recognition_tour/' \
   --exclude 'ros2_ws/apex_race/' \
   --exclude 'data/real2sim_capture/' \
-  --exclude 'docs/paper/' \
   --exclude 'ros2_ws/build/' \
   --exclude 'ros2_ws/install/' \
   --exclude 'ros2_ws/log/' \
