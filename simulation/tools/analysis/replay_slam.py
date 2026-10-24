@@ -21,7 +21,10 @@ only used to score.
             CycloneDDS (Fast DDS takes ~40 s in WSL to deliver the first
             lifecycle request). /clock follows the scans. Output
             ``<run>/slam_replay/<tag>.npz``: the SLAM ``/pose`` (base_link in
-            the map frame at every processed scan).
+            the map frame at every accepted map update), observed incoming
+            scans, map->odom transforms and map-content hashes. At rest the
+            motion gate deliberately skips new map updates; /pose count is
+            not a received-scan count.
             ``--set key=value`` overrides slam_toolbox parameters;
             ``--perturb yaw_rw_deg_rtm=, scale=, seed=`` adds errors to the
             odometry (a worse car, or with a tiny ``yaw_rw`` another
@@ -65,6 +68,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor
+import hashlib
 import json
 import math
 import os
@@ -198,7 +202,8 @@ def replay_one(run: str, tag: str, overrides: dict, domain: int, perturb: dict, 
         TransformStamped,
     )
     from lifecycle_msgs.srv import ChangeState  # noqa: PLC0415
-    from rclpy.qos import DurabilityPolicy, QoSProfile  # noqa: PLC0415
+    from nav_msgs.msg import OccupancyGrid  # noqa: PLC0415
+    from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy  # noqa: PLC0415
     from rosgraph_msgs.msg import Clock  # noqa: PLC0415
     from sensor_msgs.msg import LaserScan  # noqa: PLC0415
     from tf2_msgs.msg import TFMessage  # noqa: PLC0415
@@ -219,6 +224,9 @@ def replay_one(run: str, tag: str, overrides: dict, domain: int, perturb: dict, 
     static_pub = node.create_publisher(TFMessage, "/tf_static", QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
     scan_pub = node.create_publisher(LaserScan, str(params["scan_topic"]), 100)
     got: list[tuple[int, float, float, float]] = []
+    observed_scans: list[int] = []
+    map_odom: list[tuple[int, float, float, float]] = []
+    maps: list[dict] = []
 
     def on_pose(m: PoseWithCovarianceStamped) -> None:
         q = m.pose.pose.orientation
@@ -226,6 +234,32 @@ def replay_one(run: str, tag: str, overrides: dict, domain: int, perturb: dict, 
                     2.0 * math.atan2(q.z, q.w)))
 
     node.create_subscription(PoseWithCovarianceStamped, "/pose", on_pose, 1000)
+
+    def on_tf(m: TFMessage) -> None:
+        for t in m.transforms:
+            if t.header.frame_id == params["map_frame"] and t.child_frame_id == params["odom_frame"]:
+                q = t.transform.rotation
+                map_odom.append((t.header.stamp.sec * 1_000_000_000 + t.header.stamp.nanosec,
+                                 t.transform.translation.x, t.transform.translation.y,
+                                 math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))))
+
+    def on_map(m: OccupancyGrid) -> None:
+        maps.append(dict(stamp_ns=m.header.stamp.sec * 1_000_000_000 + m.header.stamp.nanosec,
+                         width=m.info.width, height=m.info.height, resolution=m.info.resolution,
+                         origin=[m.info.origin.position.x, m.info.origin.position.y],
+                         data_sha256=hashlib.sha256(bytes((v + 1) & 0xFF for v in m.data)).hexdigest()))
+
+    def on_scan(m: LaserScan) -> None:
+        observed_scans.append(m.header.stamp.sec * 1_000_000_000 + m.header.stamp.nanosec)
+
+    # /pose counts accepted map updates. At rest the configured motion gate
+    # intentionally admits only the first scan; record transport observations
+    # and map->odom separately instead of treating that as lost input.
+    best_effort = QoSProfile(depth=1000, reliability=ReliabilityPolicy.BEST_EFFORT)
+    node.create_subscription(TFMessage, "/tf", on_tf, best_effort)
+    node.create_subscription(LaserScan, str(params["scan_topic"]), on_scan, best_effort)
+    node.create_subscription(OccupancyGrid, "/map", on_map,
+                             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
 
     def stamp(ns: int):  # noqa: ANN202
         from builtin_interfaces.msg import Time  # noqa: PLC0415
@@ -307,13 +341,16 @@ def replay_one(run: str, tag: str, overrides: dict, domain: int, perturb: dict, 
             os.killpg(proc.pid, signal.SIGKILL)
         log.close()
     g = np.array(got, dtype=float).reshape(-1, 4)
+    mt = np.array(map_odom, dtype=float).reshape(-1, 4)
     np.savez_compressed(rd / "slam_replay" / f"{tag}.npz", stamp_ns=g[:, 0].astype(np.int64), pose=g[:, 1:], odom_stamp_ns=stamps, odom=pose,
                         params=json.dumps(params), perturb=json.dumps(perturb), cpu_s=cpu_s,
+                        observed_scan_stamp_ns=np.asarray(observed_scans, dtype=np.int64),
+                        map_odom_stamp_ns=mt[:, 0].astype(np.int64), map_odom=mt[:, 1:], maps=json.dumps(maps),
                         duration_s=(int(stamps[-1]) - int(stamps[0])) * 1e-9)
-    if len(g) == 0:
-        shutil.copy(tmp / "slam.log", rd / "slam_replay" / f"{tag}.log")
+    shutil.copy(tmp / "slam.log", rd / "slam_replay" / f"{tag}.log")
     shutil.rmtree(tmp, ignore_errors=True)
-    return {"run": rd.name, "tag": tag, "poses": len(g), "cpu_s": round(cpu_s, 2)}
+    return {"run": rd.name, "tag": tag, "poses": len(g), "observed_scans": len(observed_scans),
+            "map_odom_transforms": len(mt), "maps": len(maps), "cpu_s": round(cpu_s, 2)}
 
 
 def slam_cpu_s(pgid: int) -> float:

@@ -1,5 +1,19 @@
 # Multi-scenario LiDAR–IMU pose dataset
 
+## Publication status, October 24, 2026
+
+This is the simulation dataset generator, not the real sensor archive. The
+[approved real capture](../../../real_vehicle/docs/paper/20261024_005311/README.md)
+preserves its own raw data and exact deployed weights. Historical dataset counts
+below belong to the named presets/versions and should not be substituted for a
+manifest of the final paper dataset.
+
+Before the preprint, freeze dataset and checkpoint hashes, audit split isolation
+and publish the evaluation artifacts described in the
+[readiness report](../../../docs/reports/preprint_readiness_20261024.md).
+[Held-out variants](ZERO_SHOT.md) are excluded from training; a variant already
+used for controller development is not an untouched system-level test.
+
 Headless Gazebo campaign that produces a supervised dataset for LiDAR–IMU
 pose estimation on the APEX 1/10 car. The car drives many tracks, speeds and
 motion styles with its normal actuators. Realistic noisy LiDAR and IMU

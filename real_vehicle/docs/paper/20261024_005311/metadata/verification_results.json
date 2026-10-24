@@ -1,0 +1,19 @@
+{
+  "controller_tests": {
+    "passed": 221,
+    "ros_skips": 3,
+    "slow_deselections": 3,
+    "duration_s": 6.22
+  },
+  "regression_from_archived_source": {
+    "passed": 4,
+    "duration_s": 0.15
+  },
+  "offline_figures_reproduced_from_packaged_data": true,
+  "raw_pi_files_verified": 95,
+  "raw_ram_published_files_verified": 94,
+  "runtime_pc_pi_files_match": 138,
+  "diff_check": "passed",
+  "physical_confirmation": "Operator confirmed both-lap success at desired original-like speed and selected this version; contact not reported.",
+  "six_figures_visually_inspected": true
+}

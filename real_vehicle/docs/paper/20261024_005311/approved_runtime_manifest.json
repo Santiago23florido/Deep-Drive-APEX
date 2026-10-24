@@ -1,0 +1,978 @@
+{
+  "run_id": "20261024_005311",
+  "diagnostic_id": "20261024_005311",
+  "source_archive_sha256": "cdcda4bf8d42be5b5ab841ccaa8c70922119a268e8fce094cbc143ffacaf2721",
+  "operator_approved": true,
+  "controller_change": "Confidence-gated application of the longitudinal gain/offset; minimum confidence0.5 and consistent residuals. Raw identification and launch/deadband learning continue.",
+  "files": [
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/package.xml",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/package.xml",
+      "sha256": "5064e2a81c2073b33084af5afbb864d4a137b5b347d4784f7c6d05d6911ca322",
+      "remote_sha256": "5064e2a81c2073b33084af5afbb864d4a137b5b347d4784f7c6d05d6911ca322",
+      "approved_baseline_sha256": "5064e2a81c2073b33084af5afbb864d4a137b5b347d4784f7c6d05d6911ca322"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/setup.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/setup.py",
+      "sha256": "74f6e238321e62004371b291d5e40dcff1a4370566a80ce1d41e2d6309863ee1",
+      "remote_sha256": "74f6e238321e62004371b291d5e40dcff1a4370566a80ce1d41e2d6309863ee1",
+      "approved_baseline_sha256": "74f6e238321e62004371b291d5e40dcff1a4370566a80ce1d41e2d6309863ee1"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/config/slam_toolbox_race.yaml",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/config/slam_toolbox_race.yaml",
+      "sha256": "7bab2457409c2186f3a46b5dcfad6c380280d6b727fbe1a4ac608b661fe7aeb6",
+      "remote_sha256": "7bab2457409c2186f3a46b5dcfad6c380280d6b727fbe1a4ac608b661fe7aeb6",
+      "approved_baseline_sha256": "7bab2457409c2186f3a46b5dcfad6c380280d6b727fbe1a4ac608b661fe7aeb6"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/config/vehicle_real.yaml",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/config/vehicle_real.yaml",
+      "sha256": "c46dfd627d0519d9b8764f76afabae5e83c9e5b28a7a84206be447220e2a037a",
+      "remote_sha256": "c46dfd627d0519d9b8764f76afabae5e83c9e5b28a7a84206be447220e2a037a",
+      "approved_baseline_sha256": "c46dfd627d0519d9b8764f76afabae5e83c9e5b28a7a84206be447220e2a037a"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/config/race_oval.yaml",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/config/race_oval.yaml",
+      "sha256": "feecf61663952bbda123962cbccc3102f0cc56758f4504908a1d1f029f1f9f7b",
+      "remote_sha256": "feecf61663952bbda123962cbccc3102f0cc56758f4504908a1d1f029f1f9f7b",
+      "approved_baseline_sha256": "feecf61663952bbda123962cbccc3102f0cc56758f4504908a1d1f029f1f9f7b"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/config/race_driver.yaml",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/config/race_driver.yaml",
+      "sha256": "22125fd28f6e88ab73f51b6231530ab83dc730847f4cec567b32dc9da9e8427f",
+      "remote_sha256": "22125fd28f6e88ab73f51b6231530ab83dc730847f4cec567b32dc9da9e8427f",
+      "approved_baseline_sha256": "22125fd28f6e88ab73f51b6231530ab83dc730847f4cec567b32dc9da9e8427f"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/config/race_segment.yaml",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/config/race_segment.yaml",
+      "sha256": "b811db1c3941d5d40bd20512b3174a8a06b71a41cf39af38752a5e1aa49c2ccf",
+      "remote_sha256": "b811db1c3941d5d40bd20512b3174a8a06b71a41cf39af38752a5e1aa49c2ccf",
+      "approved_baseline_sha256": "b811db1c3941d5d40bd20512b3174a8a06b71a41cf39af38752a5e1aa49c2ccf"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/__init__.py",
+      "sha256": "9632bca3285d47a8eda3aadf4b56db79a013c1f86f878b15405bbb054168b617",
+      "remote_sha256": "9632bca3285d47a8eda3aadf4b56db79a013c1f86f878b15405bbb054168b617",
+      "approved_baseline_sha256": "9632bca3285d47a8eda3aadf4b56db79a013c1f86f878b15405bbb054168b617"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/nodes/race_driver_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/nodes/race_driver_node.py",
+      "sha256": "a609a495d83ad02f02110c0b564b516505cce865c01d4cfecc23f10d30356bce",
+      "remote_sha256": "a609a495d83ad02f02110c0b564b516505cce865c01d4cfecc23f10d30356bce",
+      "approved_baseline_sha256": "a609a495d83ad02f02110c0b564b516505cce865c01d4cfecc23f10d30356bce"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/nodes/_common.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/nodes/_common.py",
+      "sha256": "8aa226bd8f81523cff54ef9491ba1ea146e8bcec4c6b319364bd2277047db28f",
+      "remote_sha256": "8aa226bd8f81523cff54ef9491ba1ea146e8bcec4c6b319364bd2277047db28f",
+      "approved_baseline_sha256": "8aa226bd8f81523cff54ef9491ba1ea146e8bcec4c6b319364bd2277047db28f"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/nodes/estimator_health.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/nodes/estimator_health.py",
+      "sha256": "c22b8936d4fa019458e2d253a35a8c1527ef54dc5b40627729877cff416f52b2",
+      "remote_sha256": "c22b8936d4fa019458e2d253a35a8c1527ef54dc5b40627729877cff416f52b2",
+      "approved_baseline_sha256": "c22b8936d4fa019458e2d253a35a8c1527ef54dc5b40627729877cff416f52b2"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/nodes/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/nodes/__init__.py",
+      "sha256": "a7cd1298b482350bf2a8cac06b3e0762fb9760789c6c18f5524951f6ba181282",
+      "remote_sha256": "a7cd1298b482350bf2a8cac06b3e0762fb9760789c6c18f5524951f6ba181282",
+      "approved_baseline_sha256": "a7cd1298b482350bf2a8cac06b3e0762fb9760789c6c18f5524951f6ba181282"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/vehicle_io.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/vehicle_io.py",
+      "sha256": "f0e98e25622e76feefdfcab868b50ef6c524272c69feee8093e1927a68de4c63",
+      "remote_sha256": "f0e98e25622e76feefdfcab868b50ef6c524272c69feee8093e1927a68de4c63",
+      "approved_baseline_sha256": "f0e98e25622e76feefdfcab868b50ef6c524272c69feee8093e1927a68de4c63"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/adaptive.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/adaptive.py",
+      "sha256": "acaca5f8cf5144d13b135f1df54e0baeb0bf0b33c2678516e570ec0cae54cc46",
+      "remote_sha256": "acaca5f8cf5144d13b135f1df54e0baeb0bf0b33c2678516e570ec0cae54cc46",
+      "approved_baseline_sha256": "acaca5f8cf5144d13b135f1df54e0baeb0bf0b33c2678516e570ec0cae54cc46"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/lap_closure.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/lap_closure.py",
+      "sha256": "4574a63d24b8d63808deafc1cc15eb108da05f6c9dbf594c43533c86a34fef70",
+      "remote_sha256": "4574a63d24b8d63808deafc1cc15eb108da05f6c9dbf594c43533c86a34fef70",
+      "approved_baseline_sha256": "4574a63d24b8d63808deafc1cc15eb108da05f6c9dbf594c43533c86a34fef70"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/pose_correction.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/pose_correction.py",
+      "sha256": "2237bcce7ea11dfc152b759dd39557b16e02971528c1b38b56798a2761ad2de9",
+      "remote_sha256": "2237bcce7ea11dfc152b759dd39557b16e02971528c1b38b56798a2761ad2de9",
+      "approved_baseline_sha256": "2237bcce7ea11dfc152b759dd39557b16e02971528c1b38b56798a2761ad2de9"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/race_config.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/race_config.py",
+      "sha256": "ae3a64b6d9a574f5815484dda519b51fddb2a89fc01c1cae1a7a6905481173b6",
+      "remote_sha256": "ae3a64b6d9a574f5815484dda519b51fddb2a89fc01c1cae1a7a6905481173b6",
+      "approved_baseline_sha256": "ae3a64b6d9a574f5815484dda519b51fddb2a89fc01c1cae1a7a6905481173b6"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/reactive.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/reactive.py",
+      "sha256": "a0de2eca399cd146d39901c074160b237964fde847200b69f23ab9934763ed41",
+      "remote_sha256": "a0de2eca399cd146d39901c074160b237964fde847200b69f23ab9934763ed41",
+      "approved_baseline_sha256": "a0de2eca399cd146d39901c074160b237964fde847200b69f23ab9934763ed41"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/local_cloud.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/local_cloud.py",
+      "sha256": "1bbddd85da326a597520764eee19f11becac064775bc9d51f6743e137fa575b4",
+      "remote_sha256": "1bbddd85da326a597520764eee19f11becac064775bc9d51f6743e137fa575b4",
+      "approved_baseline_sha256": "1bbddd85da326a597520764eee19f11becac064775bc9d51f6743e137fa575b4"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/plant_id.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/plant_id.py",
+      "sha256": "09e58cbca71e72373ea4e7463f338a86e419f0812a1c0e5829f795654fc62bc9",
+      "remote_sha256": "09e58cbca71e72373ea4e7463f338a86e419f0812a1c0e5829f795654fc62bc9",
+      "approved_baseline_sha256": "df2dff868ec34fff5e25d841eb460716118694f96d48ff11954508343617f14a"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/config_io.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/config_io.py",
+      "sha256": "8fdbf32ae6433109d8e3c291a8ff94f34472730300ff1348e1756ff69376c55b",
+      "remote_sha256": "8fdbf32ae6433109d8e3c291a8ff94f34472730300ff1348e1756ff69376c55b",
+      "approved_baseline_sha256": "8fdbf32ae6433109d8e3c291a8ff94f34472730300ff1348e1756ff69376c55b"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/recovery.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/recovery.py",
+      "sha256": "2cb745e9daacb38915d18851e1a7b3994cafae4462a9daeb59d3bdc8b788894c",
+      "remote_sha256": "2cb745e9daacb38915d18851e1a7b3994cafae4462a9daeb59d3bdc8b788894c",
+      "approved_baseline_sha256": "2cb745e9daacb38915d18851e1a7b3994cafae4462a9daeb59d3bdc8b788894c"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/sim_paths.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/sim_paths.py",
+      "sha256": "7467f9fbefb13e87161acbb4d6341eeabc656e372634846d10f83a22accb3dae",
+      "remote_sha256": "7467f9fbefb13e87161acbb4d6341eeabc656e372634846d10f83a22accb3dae",
+      "approved_baseline_sha256": "7467f9fbefb13e87161acbb4d6341eeabc656e372634846d10f83a22accb3dae"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/race_driver.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/race_driver.py",
+      "sha256": "6281ab3c8ff0bafbb0c85b4e5a6217de8cc53cef46c0208c9f7d1329c6d265ed",
+      "remote_sha256": "6281ab3c8ff0bafbb0c85b4e5a6217de8cc53cef46c0208c9f7d1329c6d265ed",
+      "approved_baseline_sha256": "6281ab3c8ff0bafbb0c85b4e5a6217de8cc53cef46c0208c9f7d1329c6d265ed"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/race_planner.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/race_planner.py",
+      "sha256": "43704154aa438ff35b571ad611af8421bbc4f0b8338824edc2ccda980fcdae24",
+      "remote_sha256": "43704154aa438ff35b571ad611af8421bbc4f0b8338824edc2ccda980fcdae24",
+      "approved_baseline_sha256": "43704154aa438ff35b571ad611af8421bbc4f0b8338824edc2ccda980fcdae24"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/map_metrics.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/map_metrics.py",
+      "sha256": "d05d553ed3a5c48cfeb3e0ece296bc73d4c1d961272407152c657c86b690b567",
+      "remote_sha256": "d05d553ed3a5c48cfeb3e0ece296bc73d4c1d961272407152c657c86b690b567",
+      "approved_baseline_sha256": "d05d553ed3a5c48cfeb3e0ece296bc73d4c1d961272407152c657c86b690b567"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/occupancy.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/occupancy.py",
+      "sha256": "cd67d49b7161b36a842342c837cd6d383686fa7cabb2faaf5992cc2a08d1ffba",
+      "remote_sha256": "cd67d49b7161b36a842342c837cd6d383686fa7cabb2faaf5992cc2a08d1ffba",
+      "approved_baseline_sha256": "cd67d49b7161b36a842342c837cd6d383686fa7cabb2faaf5992cc2a08d1ffba"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/core/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/core/__init__.py",
+      "sha256": "9c96ae8abe56ac3883bc75ed471046375385fd76f6fccb2cd80a19d8acc836b8",
+      "remote_sha256": "9c96ae8abe56ac3883bc75ed471046375385fd76f6fccb2cd80a19d8acc836b8",
+      "approved_baseline_sha256": "9c96ae8abe56ac3883bc75ed471046375385fd76f6fccb2cd80a19d8acc836b8"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/vendor/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/vendor/__init__.py",
+      "sha256": "3d5efa0841bcaf71dde8bcea4d8c07f41edcece901c54528fa7e0cc4d7130651",
+      "remote_sha256": "3d5efa0841bcaf71dde8bcea4d8c07f41edcece901c54528fa7e0cc4d7130651",
+      "approved_baseline_sha256": "3d5efa0841bcaf71dde8bcea4d8c07f41edcece901c54528fa7e0cc4d7130651"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/vendor/pose_dataset/controller.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/vendor/pose_dataset/controller.py",
+      "sha256": "8a06fbb7a4fe18bda28f9cc110b05c89858f76d3424216496112957cb76faadb",
+      "remote_sha256": "8a06fbb7a4fe18bda28f9cc110b05c89858f76d3424216496112957cb76faadb",
+      "approved_baseline_sha256": "8a06fbb7a4fe18bda28f9cc110b05c89858f76d3424216496112957cb76faadb"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/vendor/pose_dataset/tracks.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/vendor/pose_dataset/tracks.py",
+      "sha256": "167c99790b20b9d975942b263fa62d858b858af5ed4e79e1a2e21ad32715c83c",
+      "remote_sha256": "167c99790b20b9d975942b263fa62d858b858af5ed4e79e1a2e21ad32715c83c",
+      "approved_baseline_sha256": "167c99790b20b9d975942b263fa62d858b858af5ed4e79e1a2e21ad32715c83c"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/apex_race/vendor/pose_dataset/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/apex_race/vendor/pose_dataset/__init__.py",
+      "sha256": "5fc520a62fbbcd554e8c8fd39d770743c4ec2bc2af0ed25c1196e525d53a044a",
+      "remote_sha256": "5fc520a62fbbcd554e8c8fd39d770743c4ec2bc2af0ed25c1196e525d53a044a",
+      "approved_baseline_sha256": "5fc520a62fbbcd554e8c8fd39d770743c4ec2bc2af0ed25c1196e525d53a044a"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/package.xml",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/package.xml",
+      "sha256": "a6ad35f86b116f0ee6fc376ef6389d1bdcb70b84a9959982a6c275724efd795b",
+      "remote_sha256": "a6ad35f86b116f0ee6fc376ef6389d1bdcb70b84a9959982a6c275724efd795b",
+      "approved_baseline_sha256": "a6ad35f86b116f0ee6fc376ef6389d1bdcb70b84a9959982a6c275724efd795b"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/setup.cfg",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/setup.cfg",
+      "sha256": "ae0f439da6dae5cc431b6b6d124c40133221507e00aa1d6c2cd1c16f56ee38e8",
+      "remote_sha256": "ae0f439da6dae5cc431b6b6d124c40133221507e00aa1d6c2cd1c16f56ee38e8",
+      "approved_baseline_sha256": "ae0f439da6dae5cc431b6b6d124c40133221507e00aa1d6c2cd1c16f56ee38e8"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/setup.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/setup.py",
+      "sha256": "703c0af27cc4450540f4429454953149dbe76915c61671d67cc92062e7876c64",
+      "remote_sha256": "703c0af27cc4450540f4429454953149dbe76915c61671d67cc92062e7876c64",
+      "approved_baseline_sha256": "703c0af27cc4450540f4429454953149dbe76915c61671d67cc92062e7876c64"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/config/apex_params.yaml",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/config/apex_params.yaml",
+      "sha256": "7917d779dbfc6cacbee89aeab77569dd7c08b2432120adaa8ee59dab974f63cf",
+      "remote_sha256": "7917d779dbfc6cacbee89aeab77569dd7c08b2432120adaa8ee59dab974f63cf",
+      "approved_baseline_sha256": "7917d779dbfc6cacbee89aeab77569dd7c08b2432120adaa8ee59dab974f63cf"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/__init__.py",
+      "sha256": "52e89f1de1433f629585d614c3890ef0d67df96ff0e3025543fc9024d517754b",
+      "remote_sha256": "52e89f1de1433f629585d614c3890ef0d67df96ff0e3025543fc9024d517754b",
+      "approved_baseline_sha256": "52e89f1de1433f629585d614c3890ef0d67df96ff0e3025543fc9024d517754b"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/launch/apex_pipeline.launch.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/launch/apex_pipeline.launch.py",
+      "sha256": "88d8348e3bbe4e2d9962a658c79105df224f1183860608531b4430f44099e5ac",
+      "remote_sha256": "88d8348e3bbe4e2d9962a658c79105df224f1183860608531b4430f44099e5ac",
+      "approved_baseline_sha256": "88d8348e3bbe4e2d9962a658c79105df224f1183860608531b4430f44099e5ac"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/perception/rplidar_publisher_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/perception/rplidar_publisher_node.py",
+      "sha256": "9b606f44481296fb22d8b19254d4f4cc52710c5d8d659ae9aab3769ad6562417",
+      "remote_sha256": "9b606f44481296fb22d8b19254d4f4cc52710c5d8d659ae9aab3769ad6562417",
+      "approved_baseline_sha256": "9b606f44481296fb22d8b19254d4f4cc52710c5d8d659ae9aab3769ad6562417"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/perception/recognition_tour_planner_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/perception/recognition_tour_planner_node.py",
+      "sha256": "3e06d721fac9635b53c33f33e9f36937c3073bd88b3868980d544b1689e87276",
+      "remote_sha256": "3e06d721fac9635b53c33f33e9f36937c3073bd88b3868980d544b1689e87276",
+      "approved_baseline_sha256": "3e06d721fac9635b53c33f33e9f36937c3073bd88b3868980d544b1689e87276"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/perception/rplidar_express.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/perception/rplidar_express.py",
+      "sha256": "49ca144b9d5b463bb1df52837e224c22e3afd276c5cde075ef0dbec80dd732ab",
+      "remote_sha256": "49ca144b9d5b463bb1df52837e224c22e3afd276c5cde075ef0dbec80dd732ab",
+      "approved_baseline_sha256": "49ca144b9d5b463bb1df52837e224c22e3afd276c5cde075ef0dbec80dd732ab"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/perception/fixed_map_route_planner_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/perception/fixed_map_route_planner_node.py",
+      "sha256": "15c6603ba501baba13da451375c3ee463ef629a02135f64f1d4159bd9e87c7ed",
+      "remote_sha256": "15c6603ba501baba13da451375c3ee463ef629a02135f64f1d4159bd9e87c7ed",
+      "approved_baseline_sha256": "15c6603ba501baba13da451375c3ee463ef629a02135f64f1d4159bd9e87c7ed"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/perception/lidar_scan_buffer.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/perception/lidar_scan_buffer.py",
+      "sha256": "c2bb50f33c0ce43b83914e030de6bb17b90ef5584cdec13153383cba0a16fd47",
+      "remote_sha256": "c2bb50f33c0ce43b83914e030de6bb17b90ef5584cdec13153383cba0a16fd47",
+      "approved_baseline_sha256": "c2bb50f33c0ce43b83914e030de6bb17b90ef5584cdec13153383cba0a16fd47"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/perception/curve_entry_path_planner_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/perception/curve_entry_path_planner_node.py",
+      "sha256": "50b16b50d1cae40667938d6a6bd6b11bbc0809a1d18a24a99081f06703d5f913",
+      "remote_sha256": "50b16b50d1cae40667938d6a6bd6b11bbc0809a1d18a24a99081f06703d5f913",
+      "approved_baseline_sha256": "50b16b50d1cae40667938d6a6bd6b11bbc0809a1d18a24a99081f06703d5f913"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/perception/curve_window_detection.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/perception/curve_window_detection.py",
+      "sha256": "082a4a24a7b47e7a5f971348f3e8be93eb9ddba8b2010d222c77ff834656fd40",
+      "remote_sha256": "082a4a24a7b47e7a5f971348f3e8be93eb9ddba8b2010d222c77ff834656fd40",
+      "approved_baseline_sha256": "082a4a24a7b47e7a5f971348f3e8be93eb9ddba8b2010d222c77ff834656fd40"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/perception/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/perception/__init__.py",
+      "sha256": "8eea9df4f6d7b38ca0e39ccc27b04700e3d08dbeec8046d613d22706d19985fa",
+      "remote_sha256": "8eea9df4f6d7b38ca0e39ccc27b04700e3d08dbeec8046d613d22706d19985fa",
+      "approved_baseline_sha256": "8eea9df4f6d7b38ca0e39ccc27b04700e3d08dbeec8046d613d22706d19985fa"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/odometry/kinematics_odometry_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/odometry/kinematics_odometry_node.py",
+      "sha256": "0accf48513b7576ed67e1ac6f4dcff756c275c372d50c0b6753dfee4d2eacf47",
+      "remote_sha256": "0accf48513b7576ed67e1ac6f4dcff756c275c372d50c0b6753dfee4d2eacf47",
+      "approved_baseline_sha256": "0accf48513b7576ed67e1ac6f4dcff756c275c372d50c0b6753dfee4d2eacf47"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/odometry/kinematics_estimator_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/odometry/kinematics_estimator_node.py",
+      "sha256": "6325623c93a4edb6f6e34d29cadce58130a095a8f82548ba08c249715d486848",
+      "remote_sha256": "6325623c93a4edb6f6e34d29cadce58130a095a8f82548ba08c249715d486848",
+      "approved_baseline_sha256": "6325623c93a4edb6f6e34d29cadce58130a095a8f82548ba08c249715d486848"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/odometry/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/odometry/__init__.py",
+      "sha256": "8eea9df4f6d7b38ca0e39ccc27b04700e3d08dbeec8046d613d22706d19985fa",
+      "remote_sha256": "8eea9df4f6d7b38ca0e39ccc27b04700e3d08dbeec8046d613d22706d19985fa",
+      "approved_baseline_sha256": "8eea9df4f6d7b38ca0e39ccc27b04700e3d08dbeec8046d613d22706d19985fa"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/timing/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/timing/__init__.py",
+      "sha256": "7514846014ebfb01635cf175402c97d64ee6863b4db987e5ec11bb6d85e2b42a",
+      "remote_sha256": "7514846014ebfb01635cf175402c97d64ee6863b4db987e5ec11bb6d85e2b42a",
+      "approved_baseline_sha256": "7514846014ebfb01635cf175402c97d64ee6863b4db987e5ec11bb6d85e2b42a"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/timing/device_clock.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/timing/device_clock.py",
+      "sha256": "84a354501c719cdeccaaf72e5c8fa15f3b937e41b887c212fb592bc660da2e29",
+      "remote_sha256": "84a354501c719cdeccaaf72e5c8fa15f3b937e41b887c212fb592bc660da2e29",
+      "approved_baseline_sha256": "84a354501c719cdeccaaf72e5c8fa15f3b937e41b887c212fb592bc660da2e29"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/hardware_pwm.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/hardware_pwm.py",
+      "sha256": "151f493b3e96b65f8d349ccf423fca407318bff116c937b6d25f1d39f26d38e2",
+      "remote_sha256": "151f493b3e96b65f8d349ccf423fca407318bff116c937b6d25f1d39f26d38e2",
+      "approved_baseline_sha256": "151f493b3e96b65f8d349ccf423fca407318bff116c937b6d25f1d39f26d38e2"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/cmd_vel_to_apex_actuation_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/cmd_vel_to_apex_actuation_node.py",
+      "sha256": "dca61f1de38f036072f62f9e310f5e96df4c7e9634d42de24c2b2ba1cc876eb4",
+      "remote_sha256": "dca61f1de38f036072f62f9e310f5e96df4c7e9634d42de24c2b2ba1cc876eb4",
+      "approved_baseline_sha256": "dca61f1de38f036072f62f9e310f5e96df4c7e9634d42de24c2b2ba1cc876eb4"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/actuation.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/actuation.py",
+      "sha256": "d46df52a9858f047d41ff9a41f51b3d1c9b560e3c6f891dbf4019a7f3282ce9d",
+      "remote_sha256": "d46df52a9858f047d41ff9a41f51b3d1c9b560e3c6f891dbf4019a7f3282ce9d",
+      "approved_baseline_sha256": "d46df52a9858f047d41ff9a41f51b3d1c9b560e3c6f891dbf4019a7f3282ce9d"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/speed_map.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/speed_map.py",
+      "sha256": "f32f0ae36f977e00737e5abb10a10955e4f5573ddec4d8cc93a4d90a25314270",
+      "remote_sha256": "f32f0ae36f977e00737e5abb10a10955e4f5573ddec4d8cc93a4d90a25314270",
+      "approved_baseline_sha256": "f32f0ae36f977e00737e5abb10a10955e4f5573ddec4d8cc93a4d90a25314270"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/actuation/__init__.py",
+      "sha256": "f8aceaff260797769611cc34c7f37306162a1f851a4267004908a5b0fa098039",
+      "remote_sha256": "f8aceaff260797769611cc34c7f37306162a1f851a4267004908a5b0fa098039",
+      "approved_baseline_sha256": "f8aceaff260797769611cc34c7f37306162a1f851a4267004908a5b0fa098039"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/estimation/fixed_map_localizer_core.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/estimation/fixed_map_localizer_core.py",
+      "sha256": "071b32d08a0f2138e748a2f7eede414b839d0c0bab7a04c283983909a54c3c9b",
+      "remote_sha256": "071b32d08a0f2138e748a2f7eede414b839d0c0bab7a04c283983909a54c3c9b",
+      "approved_baseline_sha256": "071b32d08a0f2138e748a2f7eede414b839d0c0bab7a04c283983909a54c3c9b"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/estimation/imu_lidar_planar_fusion_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/estimation/imu_lidar_planar_fusion_node.py",
+      "sha256": "2c52a8e21db660679027eb0c18c174fcbefedd5327cc06b7fbc86b43cc1e0d20",
+      "remote_sha256": "2c52a8e21db660679027eb0c18c174fcbefedd5327cc06b7fbc86b43cc1e0d20",
+      "approved_baseline_sha256": "2c52a8e21db660679027eb0c18c174fcbefedd5327cc06b7fbc86b43cc1e0d20"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/estimation/planar_fusion_core.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/estimation/planar_fusion_core.py",
+      "sha256": "1167ecc92296a1b6f7175ea42a213edf69133b9c7cb5cb4d204d8e95eb3fb0b1",
+      "remote_sha256": "1167ecc92296a1b6f7175ea42a213edf69133b9c7cb5cb4d204d8e95eb3fb0b1",
+      "approved_baseline_sha256": "1167ecc92296a1b6f7175ea42a213edf69133b9c7cb5cb4d204d8e95eb3fb0b1"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/estimation/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/estimation/__init__.py",
+      "sha256": "30c1415701ece6823bae903d2a2c9ce125b2f3b9bd42034cd39bf07d94cd53e8",
+      "remote_sha256": "30c1415701ece6823bae903d2a2c9ce125b2f3b9bd42034cd39bf07d94cd53e8",
+      "approved_baseline_sha256": "30c1415701ece6823bae903d2a2c9ce125b2f3b9bd42034cd39bf07d94cd53e8"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/control/windows_gamepad_bridge_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/control/windows_gamepad_bridge_node.py",
+      "sha256": "4c54d460be9e1c25bce8e1e1e2828416dd3a68f697331c171f8c6065d75bd7f2",
+      "remote_sha256": "4c54d460be9e1c25bce8e1e1e2828416dd3a68f697331c171f8c6065d75bd7f2",
+      "approved_baseline_sha256": "4c54d460be9e1c25bce8e1e1e2828416dd3a68f697331c171f8c6065d75bd7f2"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/control/recognition_session_manager_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/control/recognition_session_manager_node.py",
+      "sha256": "ec5216a831c486b157fe36dd79a4a7dd1601c2eaded0d5389a8c73b5e06023c1",
+      "remote_sha256": "ec5216a831c486b157fe36dd79a4a7dd1601c2eaded0d5389a8c73b5e06023c1",
+      "approved_baseline_sha256": "ec5216a831c486b157fe36dd79a4a7dd1601c2eaded0d5389a8c73b5e06023c1"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/control/recognition_tour_tracker_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/control/recognition_tour_tracker_node.py",
+      "sha256": "5f7dce7ea0a7c480cb8d3ee432ebccb01b11d8c879bd183bf26c80c89a0d023f",
+      "remote_sha256": "5f7dce7ea0a7c480cb8d3ee432ebccb01b11d8c879bd183bf26c80c89a0d023f",
+      "approved_baseline_sha256": "5f7dce7ea0a7c480cb8d3ee432ebccb01b11d8c879bd183bf26c80c89a0d023f"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/control/curve_path_tracker_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/control/curve_path_tracker_node.py",
+      "sha256": "041ae5a4e3e2a1e45d5c41c6cc54fffab9619c9fcabc2a63ba1dadd7f57bc433",
+      "remote_sha256": "041ae5a4e3e2a1e45d5c41c6cc54fffab9619c9fcabc2a63ba1dadd7f57bc433",
+      "approved_baseline_sha256": "041ae5a4e3e2a1e45d5c41c6cc54fffab9619c9fcabc2a63ba1dadd7f57bc433"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/control/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/control/__init__.py",
+      "sha256": "b9f4ad9419f7c416718f8be9e366482faecd013666ef716b2d4bf9a92d0e74b3",
+      "remote_sha256": "b9f4ad9419f7c416718f8be9e366482faecd013666ef716b2d4bf9a92d0e74b3",
+      "approved_baseline_sha256": "b9f4ad9419f7c416718f8be9e366482faecd013666ef716b2d4bf9a92d0e74b3"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/imu/nano_accel_serial_node.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/imu/nano_accel_serial_node.py",
+      "sha256": "c851d893e609f658f7a807f81cfedad9beaa80a7f6a5b54e728cefc7b1b7dab1",
+      "remote_sha256": "c851d893e609f658f7a807f81cfedad9beaa80a7f6a5b54e728cefc7b1b7dab1",
+      "approved_baseline_sha256": "c851d893e609f658f7a807f81cfedad9beaa80a7f6a5b54e728cefc7b1b7dab1"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/imu/__init__.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/imu/__init__.py",
+      "sha256": "8eea9df4f6d7b38ca0e39ccc27b04700e3d08dbeec8046d613d22706d19985fa",
+      "remote_sha256": "8eea9df4f6d7b38ca0e39ccc27b04700e3d08dbeec8046d613d22706d19985fa",
+      "approved_baseline_sha256": "8eea9df4f6d7b38ca0e39ccc27b04700e3d08dbeec8046d613d22706d19985fa"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry/imu/imu_line.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/apex_telemetry/imu/imu_line.py",
+      "sha256": "18ea5d6bf7a24d686fbe22d9932251a712000c591557717fe4abe53837e09d18",
+      "remote_sha256": "18ea5d6bf7a24d686fbe22d9932251a712000c591557717fe4abe53837e09d18",
+      "approved_baseline_sha256": "18ea5d6bf7a24d686fbe22d9932251a712000c591557717fe4abe53837e09d18"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/start_apex_pipeline.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/start_apex_pipeline.sh",
+      "sha256": "7c1cb42713506be3a6fa93ea364a307df50109b09e9d8d13f1cee0a6f2c42660",
+      "remote_sha256": "7c1cb42713506be3a6fa93ea364a307df50109b09e9d8d13f1cee0a6f2c42660",
+      "approved_baseline_sha256": "7c1cb42713506be3a6fa93ea364a307df50109b09e9d8d13f1cee0a6f2c42660"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/nudge.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/nudge.py",
+      "sha256": "879c69fd549f37e7d1eca7347a833c41fe0f8b471eda36c60fec14b11a0ab4c4",
+      "remote_sha256": "879c69fd549f37e7d1eca7347a833c41fe0f8b471eda36c60fec14b11a0ab4c4",
+      "approved_baseline_sha256": "879c69fd549f37e7d1eca7347a833c41fe0f8b471eda36c60fec14b11a0ab4c4"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/replay_sensors.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/replay_sensors.py",
+      "sha256": "3efd2168260fc8311f8e552d676ae63e2891d342f64125b4cf39358d0133ff59",
+      "remote_sha256": "3efd2168260fc8311f8e552d676ae63e2891d342f64125b4cf39358d0133ff59",
+      "approved_baseline_sha256": "3efd2168260fc8311f8e552d676ae63e2891d342f64125b4cf39358d0133ff59"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/lidar_bringup_check.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/lidar_bringup_check.py",
+      "sha256": "dd7de48fdee158a2b82f6cabaf2c3e699e6a5018969a52207f65df2b08ef60ba",
+      "remote_sha256": "dd7de48fdee158a2b82f6cabaf2c3e699e6a5018969a52207f65df2b08ef60ba",
+      "approved_baseline_sha256": "dd7de48fdee158a2b82f6cabaf2c3e699e6a5018969a52207f65df2b08ef60ba"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/race_bringup_check.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/race_bringup_check.py",
+      "sha256": "4770a400821fa5c9ed1d617e868a84e30ef7d50ca68fdf44cea274a423c30db8",
+      "remote_sha256": "4770a400821fa5c9ed1d617e868a84e30ef7d50ca68fdf44cea274a423c30db8",
+      "approved_baseline_sha256": "4770a400821fa5c9ed1d617e868a84e30ef7d50ca68fdf44cea274a423c30db8"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/record_real2sim_sensors.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/record_real2sim_sensors.py",
+      "sha256": "1d60cbb762e2bf4f76d5a2cfec78310756823d4953420d110dabbb67d61d43d0",
+      "remote_sha256": "1d60cbb762e2bf4f76d5a2cfec78310756823d4953420d110dabbb67d61d43d0",
+      "approved_baseline_sha256": "1d60cbb762e2bf4f76d5a2cfec78310756823d4953420d110dabbb67d61d43d0"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/record_static_lidar_capture.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/record_static_lidar_capture.py",
+      "sha256": "e358985da9fa0bdd990db683b975439db73ecdb48f23e13c482dc71b6fecaddf",
+      "remote_sha256": "e358985da9fa0bdd990db683b975439db73ecdb48f23e13c482dc71b6fecaddf",
+      "approved_baseline_sha256": "e358985da9fa0bdd990db683b975439db73ecdb48f23e13c482dc71b6fecaddf"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/record_rect_sensorfus_capture.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/record_rect_sensorfus_capture.py",
+      "sha256": "27373417510fb9f0f1304c91931be2b568141e11647c51f252b98ed656b9857b",
+      "remote_sha256": "27373417510fb9f0f1304c91931be2b568141e11647c51f252b98ed656b9857b",
+      "approved_baseline_sha256": "27373417510fb9f0f1304c91931be2b568141e11647c51f252b98ed656b9857b"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/rect_sensorfus_actuation.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/rect_sensorfus_actuation.py",
+      "sha256": "6647df61fa0834b38a4555629e49746dd09b57ddf7c4b6bc9aafc8aae0836123",
+      "remote_sha256": "6647df61fa0834b38a4555629e49746dd09b57ddf7c4b6bc9aafc8aae0836123",
+      "approved_baseline_sha256": "6647df61fa0834b38a4555629e49746dd09b57ddf7c4b6bc9aafc8aae0836123"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/record_manual_sensorfusion_capture.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/record_manual_sensorfusion_capture.py",
+      "sha256": "d585be59a4c0aa2e165fbc303359d7912dbf47b03b8e036d9728cdcf1aadf31b",
+      "remote_sha256": "d585be59a4c0aa2e165fbc303359d7912dbf47b03b8e036d9728cdcf1aadf31b",
+      "approved_baseline_sha256": "d585be59a4c0aa2e165fbc303359d7912dbf47b03b8e036d9728cdcf1aadf31b"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/record_curve_tracking_validation.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/record_curve_tracking_validation.py",
+      "sha256": "b2bfc38380f49b7aa3e6c3a7131fb4ebf5a70bdc52b4e9e4cdd07ec93ddc4111",
+      "remote_sha256": "b2bfc38380f49b7aa3e6c3a7131fb4ebf5a70bdc52b4e9e4cdd07ec93ddc4111",
+      "approved_baseline_sha256": "b2bfc38380f49b7aa3e6c3a7131fb4ebf5a70bdc52b4e9e4cdd07ec93ddc4111"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/monitor_pwm_sysfs.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/monitor_pwm_sysfs.py",
+      "sha256": "09c18fbd1f3d2c15982630464b2b0dc946dd894a6611fae09d4f16c8c058d982",
+      "remote_sha256": "09c18fbd1f3d2c15982630464b2b0dc946dd894a6611fae09d4f16c8c058d982",
+      "approved_baseline_sha256": "09c18fbd1f3d2c15982630464b2b0dc946dd894a6611fae09d4f16c8c058d982"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/record_online_fusion_estimate.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/record_online_fusion_estimate.py",
+      "sha256": "c4ff6ba7cf240fdf317fc00d6e44359517b3cbe2b702e5b4eb23e7f525d1c4a1",
+      "remote_sha256": "c4ff6ba7cf240fdf317fc00d6e44359517b3cbe2b702e5b4eb23e7f525d1c4a1",
+      "approved_baseline_sha256": "c4ff6ba7cf240fdf317fc00d6e44359517b3cbe2b702e5b4eb23e7f525d1c4a1"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/record_race_run.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/record_race_run.py",
+      "sha256": "4c1e6c0373db46ef6336c6daac72db6b034c922dedc372c5f8bb4a007c36c715",
+      "remote_sha256": "4c1e6c0373db46ef6336c6daac72db6b034c922dedc372c5f8bb4a007c36c715",
+      "approved_baseline_sha256": "4c1e6c0373db46ef6336c6daac72db6b034c922dedc372c5f8bb4a007c36c715"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/record_recognition_tour.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/record_recognition_tour.py",
+      "sha256": "fa416d6e62363379ce45f73a4caf2ef754f16398971c7e4db6f8a1e333a93e77",
+      "remote_sha256": "fa416d6e62363379ce45f73a4caf2ef754f16398971c7e4db6f8a1e333a93e77",
+      "approved_baseline_sha256": "fa416d6e62363379ce45f73a4caf2ef754f16398971c7e4db6f8a1e333a93e77"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/scripts/capture/wait_raw_pipeline_ready.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/scripts/capture/wait_raw_pipeline_ready.py",
+      "sha256": "91dac1e86f7ddcbb2e7e6f8f8643aa8db3a5636036517f345462f806adddbd7c",
+      "remote_sha256": "91dac1e86f7ddcbb2e7e6f8f8643aa8db3a5636036517f345462f806adddbd7c",
+      "approved_baseline_sha256": "91dac1e86f7ddcbb2e7e6f8f8643aa8db3a5636036517f345462f806adddbd7c"
+    },
+    {
+      "local": "real_vehicle/tools/core/sync_odom_rt_to_pi.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/sync_odom_rt_to_pi.sh",
+      "sha256": "6fac968045c1f07a45aaecfc93a43bae163c2f6eeda25594e1fd34aac5bc36d5",
+      "remote_sha256": "6fac968045c1f07a45aaecfc93a43bae163c2f6eeda25594e1fd34aac5bc36d5",
+      "approved_baseline_sha256": "6fac968045c1f07a45aaecfc93a43bae163c2f6eeda25594e1fd34aac5bc36d5"
+    },
+    {
+      "local": "real_vehicle/tools/core/race_fresh_start.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/race_fresh_start.py",
+      "sha256": "95814f7469d3c54b50a4b1f5fba63f4f862b6d7ed5a023e5e14ef39681584277",
+      "remote_sha256": "95814f7469d3c54b50a4b1f5fba63f4f862b6d7ed5a023e5e14ef39681584277",
+      "approved_baseline_sha256": "95814f7469d3c54b50a4b1f5fba63f4f862b6d7ed5a023e5e14ef39681584277"
+    },
+    {
+      "local": "real_vehicle/tools/core/install_apex_net_watchdog.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/install_apex_net_watchdog.sh",
+      "sha256": "dabd5f90ea2335f246dfeec97edfd2b2c60d0cfc73788db55736d16b43712397",
+      "remote_sha256": "dabd5f90ea2335f246dfeec97edfd2b2c60d0cfc73788db55736d16b43712397",
+      "approved_baseline_sha256": "dabd5f90ea2335f246dfeec97edfd2b2c60d0cfc73788db55736d16b43712397"
+    },
+    {
+      "local": "real_vehicle/tools/core/arm_until_done.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/arm_until_done.py",
+      "sha256": "f7c6f043ec93c5cbe5046536e3c7cf95cf75db913945f82a28188e9e32c45a29",
+      "remote_sha256": "f7c6f043ec93c5cbe5046536e3c7cf95cf75db913945f82a28188e9e32c45a29",
+      "approved_baseline_sha256": "f7c6f043ec93c5cbe5046536e3c7cf95cf75db913945f82a28188e9e32c45a29"
+    },
+    {
+      "local": "real_vehicle/tools/core/build_fixed_map_from_offline_refined.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/build_fixed_map_from_offline_refined.py",
+      "sha256": "ba51a395d77c91ed8838ce70c2ec50f8e758fa4d8ee6ebf09f64310033b3c91e",
+      "remote_sha256": "ba51a395d77c91ed8838ce70c2ec50f8e758fa4d8ee6ebf09f64310033b3c91e",
+      "approved_baseline_sha256": "ba51a395d77c91ed8838ce70c2ec50f8e758fa4d8ee6ebf09f64310033b3c91e"
+    },
+    {
+      "local": "real_vehicle/tools/core/apex_race_up.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/apex_race_up.sh",
+      "sha256": "cd16b1ffcff3877314aca9863570f8eadf5c59feeb187567e65f29e272ee9688",
+      "remote_sha256": "cd16b1ffcff3877314aca9863570f8eadf5c59feeb187567e65f29e272ee9688",
+      "approved_baseline_sha256": "cd16b1ffcff3877314aca9863570f8eadf5c59feeb187567e65f29e272ee9688"
+    },
+    {
+      "local": "real_vehicle/tools/core/apex_net_watchdog.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/apex_net_watchdog.sh",
+      "sha256": "64028c4977cc67070b54337db673d1ba4655ed33313e3cc7119462c4f21c4e61",
+      "remote_sha256": "64028c4977cc67070b54337db673d1ba4655ed33313e3cc7119462c4f21c4e61",
+      "approved_baseline_sha256": "64028c4977cc67070b54337db673d1ba4655ed33313e3cc7119462c4f21c4e61"
+    },
+    {
+      "local": "real_vehicle/tools/core/apex_core_up.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/apex_core_up.sh",
+      "sha256": "9264d193d92da3df1c74e90fd9481d64b51ff08afbf0b05618daa19cd65fb4a4",
+      "remote_sha256": "9264d193d92da3df1c74e90fd9481d64b51ff08afbf0b05618daa19cd65fb4a4",
+      "approved_baseline_sha256": "9264d193d92da3df1c74e90fd9481d64b51ff08afbf0b05618daa19cd65fb4a4"
+    },
+    {
+      "local": "real_vehicle/tools/core/enable_pi_persistent_journal.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/enable_pi_persistent_journal.sh",
+      "sha256": "c9a35703a41e27cfd7dedf27828570553fd1a82b6ebb8a4a1295e49d317939b0",
+      "remote_sha256": "c9a35703a41e27cfd7dedf27828570553fd1a82b6ebb8a4a1295e49d317939b0",
+      "approved_baseline_sha256": "c9a35703a41e27cfd7dedf27828570553fd1a82b6ebb8a4a1295e49d317939b0"
+    },
+    {
+      "local": "real_vehicle/tools/core/run_pi_health_watchdog.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/run_pi_health_watchdog.sh",
+      "sha256": "ea823052673a15864f13bc9095ada936ecdcabe5550a8c8db9262e0aa500e629",
+      "remote_sha256": "ea823052673a15864f13bc9095ada936ecdcabe5550a8c8db9262e0aa500e629",
+      "approved_baseline_sha256": "ea823052673a15864f13bc9095ada936ecdcabe5550a8c8db9262e0aa500e629"
+    },
+    {
+      "local": "real_vehicle/tools/core/collect_pi_reset_diagnostics.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/collect_pi_reset_diagnostics.sh",
+      "sha256": "8440c96f7c282b496b1ed5f16e66884c42c9e2a6ce6e4ee7fe127be75cc1fcec",
+      "remote_sha256": "8440c96f7c282b496b1ed5f16e66884c42c9e2a6ce6e4ee7fe127be75cc1fcec",
+      "approved_baseline_sha256": "8440c96f7c282b496b1ed5f16e66884c42c9e2a6ce6e4ee7fe127be75cc1fcec"
+    },
+    {
+      "local": "real_vehicle/tools/core/apex_fixed_map_follow_up.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/apex_fixed_map_follow_up.sh",
+      "sha256": "1f15c0237a2433b612b7bf1e2cc94206cbf2c37200f6c529e502627294febbc0",
+      "remote_sha256": "1f15c0237a2433b612b7bf1e2cc94206cbf2c37200f6c529e502627294febbc0",
+      "approved_baseline_sha256": "1f15c0237a2433b612b7bf1e2cc94206cbf2c37200f6c529e502627294febbc0"
+    },
+    {
+      "local": "real_vehicle/tools/core/apex_real_ready_service_runner.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/apex_real_ready_service_runner.sh",
+      "sha256": "429e3160e72ed26f7315e490ec8d3af8e73c885439e1850fb7ca10c2e3591b09",
+      "remote_sha256": "429e3160e72ed26f7315e490ec8d3af8e73c885439e1850fb7ca10c2e3591b09",
+      "approved_baseline_sha256": "429e3160e72ed26f7315e490ec8d3af8e73c885439e1850fb7ca10c2e3591b09"
+    },
+    {
+      "local": "real_vehicle/tools/core/apex_core_down.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/apex_core_down.sh",
+      "sha256": "05826e40b7beb5b9ff036912eeaaa3906896b672da52aff61a1f0f618a4d5cf7",
+      "remote_sha256": "05826e40b7beb5b9ff036912eeaaa3906896b672da52aff61a1f0f618a4d5cf7",
+      "approved_baseline_sha256": "05826e40b7beb5b9ff036912eeaaa3906896b672da52aff61a1f0f618a4d5cf7"
+    },
+    {
+      "local": "real_vehicle/tools/core/apex_manual_control_up.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/apex_manual_control_up.sh",
+      "sha256": "1dbba8bfa57cb27b45ee472b99faac93146ad2c0dba4f0a52785ede36968242c",
+      "remote_sha256": "1dbba8bfa57cb27b45ee472b99faac93146ad2c0dba4f0a52785ede36968242c",
+      "approved_baseline_sha256": "1dbba8bfa57cb27b45ee472b99faac93146ad2c0dba4f0a52785ede36968242c"
+    },
+    {
+      "local": "real_vehicle/tools/core/sync_apex_code_to_pi.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/sync_apex_code_to_pi.sh",
+      "sha256": "7a97f60395c1ddd9edcbb35baf04722be8129aa02d573ec170256fc2bc128164",
+      "remote_sha256": "7a97f60395c1ddd9edcbb35baf04722be8129aa02d573ec170256fc2bc128164",
+      "approved_baseline_sha256": "7a97f60395c1ddd9edcbb35baf04722be8129aa02d573ec170256fc2bc128164"
+    },
+    {
+      "local": "real_vehicle/tools/core/install_apex_real_ready_service.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/install_apex_real_ready_service.sh",
+      "sha256": "d7db7fc8d7da8ebc81b7636d8993497144f787fe98c5808a60213123150816d0",
+      "remote_sha256": "d7db7fc8d7da8ebc81b7636d8993497144f787fe98c5808a60213123150816d0",
+      "approved_baseline_sha256": "d7db7fc8d7da8ebc81b7636d8993497144f787fe98c5808a60213123150816d0"
+    },
+    {
+      "local": "real_vehicle/tools/core/apex_fixed_map_publisher.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/apex_fixed_map_publisher.py",
+      "sha256": "de8f7ce624e253bf424d5ad371ebf6e942367bee3c93a9b3bdcc1d72d4c0e730",
+      "remote_sha256": "de8f7ce624e253bf424d5ad371ebf6e942367bee3c93a9b3bdcc1d72d4c0e730",
+      "approved_baseline_sha256": "de8f7ce624e253bf424d5ad371ebf6e942367bee3c93a9b3bdcc1d72d4c0e730"
+    },
+    {
+      "local": "real_vehicle/tools/core/apex_real_ready_up.sh",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/apex_real_ready_up.sh",
+      "sha256": "e6d07bc3f542c7d588c27f93eda7ea51fa0b2b103f2558bef60fc191a247a300",
+      "remote_sha256": "e6d07bc3f542c7d588c27f93eda7ea51fa0b2b103f2558bef60fc191a247a300",
+      "approved_baseline_sha256": "e6d07bc3f542c7d588c27f93eda7ea51fa0b2b103f2558bef60fc191a247a300"
+    },
+    {
+      "local": "real_vehicle/tools/core/power_stability.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/power_stability.py",
+      "sha256": "27fbfdbeb4e413ce73efbce5971914d4471c1ec5d4b83a1e3180a4b47fa2bfea",
+      "remote_sha256": "27fbfdbeb4e413ce73efbce5971914d4471c1ec5d4b83a1e3180a4b47fa2bfea",
+      "approved_baseline_sha256": "27fbfdbeb4e413ce73efbce5971914d4471c1ec5d4b83a1e3180a4b47fa2bfea"
+    },
+    {
+      "local": "real_vehicle/docker/Dockerfile",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/docker/Dockerfile",
+      "sha256": "39891f6d88b0bb9121ce9f724474fb284347ed60006688ae763c25cc5fb3afbb",
+      "remote_sha256": "39891f6d88b0bb9121ce9f724474fb284347ed60006688ae763c25cc5fb3afbb",
+      "approved_baseline_sha256": "39891f6d88b0bb9121ce9f724474fb284347ed60006688ae763c25cc5fb3afbb"
+    },
+    {
+      "local": "real_vehicle/docker/docker-compose.yml",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/docker/docker-compose.yml",
+      "sha256": "35191a9cc0592dd716ffd0a12f7ba6bf832d3f2b15c964d391e5b6cff181f7f9",
+      "remote_sha256": "35191a9cc0592dd716ffd0a12f7ba6bf832d3f2b15c964d391e5b6cff181f7f9",
+      "approved_baseline_sha256": "35191a9cc0592dd716ffd0a12f7ba6bf832d3f2b15c964d391e5b6cff181f7f9"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/latency_profile.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/latency_profile.py",
+      "sha256": "979f9ec2125ca9928f42550949920986b336d24c193610f8069df3fdfa05aead",
+      "remote_sha256": "979f9ec2125ca9928f42550949920986b336d24c193610f8069df3fdfa05aead",
+      "approved_baseline_sha256": "979f9ec2125ca9928f42550949920986b336d24c193610f8069df3fdfa05aead"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/icp_reference.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/icp_reference.py",
+      "sha256": "c9b4dd5858f6b1d90cef803417aed808b0f9db32c680021025763467decefa0a",
+      "remote_sha256": "c9b4dd5858f6b1d90cef803417aed808b0f9db32c680021025763467decefa0a",
+      "approved_baseline_sha256": "c9b4dd5858f6b1d90cef803417aed808b0f9db32c680021025763467decefa0a"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/distill.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/distill.py",
+      "sha256": "2e136f68ffdc6cd56bf73ce7b5993af861870e30de0af751fd4328bb306e1f8e",
+      "remote_sha256": "2e136f68ffdc6cd56bf73ce7b5993af861870e30de0af751fd4328bb306e1f8e",
+      "approved_baseline_sha256": "2e136f68ffdc6cd56bf73ce7b5993af861870e30de0af751fd4328bb306e1f8e"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/train_pose_fusion.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/train_pose_fusion.py",
+      "sha256": "0e5e8d45cc74c9e35e764d42944be058db030f5a7b4851da28ceaab79d5dec8f",
+      "remote_sha256": "0e5e8d45cc74c9e35e764d42944be058db030f5a7b4851da28ceaab79d5dec8f",
+      "approved_baseline_sha256": "0e5e8d45cc74c9e35e764d42944be058db030f5a7b4851da28ceaab79d5dec8f"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/ros_callback_bench.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/ros_callback_bench.py",
+      "sha256": "7f6dcd94319dd5bcc44d0e20cfc257bc9215fe7fa8edeec838587ab8cb1cd793",
+      "remote_sha256": "7f6dcd94319dd5bcc44d0e20cfc257bc9215fe7fa8edeec838587ab8cb1cd793",
+      "approved_baseline_sha256": "7f6dcd94319dd5bcc44d0e20cfc257bc9215fe7fa8edeec838587ab8cb1cd793"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/onnx_net.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/onnx_net.py",
+      "sha256": "9b8a51eaa48c85c083315f797522b3f10ff4eaec3c6a2c9f65e1c2f845a88742",
+      "remote_sha256": "9b8a51eaa48c85c083315f797522b3f10ff4eaec3c6a2c9f65e1c2f845a88742",
+      "approved_baseline_sha256": "9b8a51eaa48c85c083315f797522b3f10ff4eaec3c6a2c9f65e1c2f845a88742"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/robustness.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/robustness.py",
+      "sha256": "dc529e68e40608804dd9d89c271b7f0f2f3a580a4684f26ba927a473ee7e9e31",
+      "remote_sha256": "dc529e68e40608804dd9d89c271b7f0f2f3a580a4684f26ba927a473ee7e9e31",
+      "approved_baseline_sha256": "dc529e68e40608804dd9d89c271b7f0f2f3a580a4684f26ba927a473ee7e9e31"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/pi4_budget.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/pi4_budget.py",
+      "sha256": "671a11c5f427acd0c98b588bc2f328921fa118f9b33009a32c083910809ba350",
+      "remote_sha256": "671a11c5f427acd0c98b588bc2f328921fa118f9b33009a32c083910809ba350",
+      "approved_baseline_sha256": "671a11c5f427acd0c98b588bc2f328921fa118f9b33009a32c083910809ba350"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/icp_odometry.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/icp_odometry.py",
+      "sha256": "1b4b816e29b0d1f407f7b030199d47bd8ed9c53ae9e124f70c9ce485632bdea8",
+      "remote_sha256": "1b4b816e29b0d1f407f7b030199d47bd8ed9c53ae9e124f70c9ce485632bdea8",
+      "approved_baseline_sha256": "1b4b816e29b0d1f407f7b030199d47bd8ed9c53ae9e124f70c9ce485632bdea8"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/learned_odometry_node.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/learned_odometry_node.py",
+      "sha256": "03ba97118109d9a338d1fb9d7fb89dd59f4ee6e91dac44b734cdf18bd32e79ec",
+      "remote_sha256": "03ba97118109d9a338d1fb9d7fb89dd59f4ee6e91dac44b734cdf18bd32e79ec",
+      "approved_baseline_sha256": "03ba97118109d9a338d1fb9d7fb89dd59f4ee6e91dac44b734cdf18bd32e79ec"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/architectures.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/architectures.py",
+      "sha256": "3414e710fba40c2509c8abdf32676776ec3fbdafc8201763de2a5748e69af6d9",
+      "remote_sha256": "3414e710fba40c2509c8abdf32676776ec3fbdafc8201763de2a5748e69af6d9",
+      "approved_baseline_sha256": "3414e710fba40c2509c8abdf32676776ec3fbdafc8201763de2a5748e69af6d9"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/gridsearch_sqlite.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/gridsearch_sqlite.py",
+      "sha256": "0a8f12310434d395db1f532b815023b481002960ea52c5e2247585fbb32e551b",
+      "remote_sha256": "0a8f12310434d395db1f532b815023b481002960ea52c5e2247585fbb32e551b",
+      "approved_baseline_sha256": "0a8f12310434d395db1f532b815023b481002960ea52c5e2247585fbb32e551b"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/odometry_metrics.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/odometry_metrics.py",
+      "sha256": "c7d74ee539881b775185202d609fb108211e8fdebe490c7ad38371f9aa2c28fa",
+      "remote_sha256": "c7d74ee539881b775185202d609fb108211e8fdebe490c7ad38371f9aa2c28fa",
+      "approved_baseline_sha256": "c7d74ee539881b775185202d609fb108211e8fdebe490c7ad38371f9aa2c28fa"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/standstill.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/standstill.py",
+      "sha256": "1f03b47231a3cdbd1146782e96d577193b6750a51c2804b4fbfbe3738c9703ba",
+      "remote_sha256": "1f03b47231a3cdbd1146782e96d577193b6750a51c2804b4fbfbe3738c9703ba",
+      "approved_baseline_sha256": "1f03b47231a3cdbd1146782e96d577193b6750a51c2804b4fbfbe3738c9703ba"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/sqlite_windows.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/sqlite_windows.py",
+      "sha256": "d76cfa688dfae923c977b9f661208f0671f14dfa5b36b93966ecd2a357f5ddb1",
+      "remote_sha256": "d76cfa688dfae923c977b9f661208f0671f14dfa5b36b93966ecd2a357f5ddb1",
+      "approved_baseline_sha256": "d76cfa688dfae923c977b9f661208f0671f14dfa5b36b93966ecd2a357f5ddb1"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/streaming_model.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/streaming_model.py",
+      "sha256": "4cd36764e7b1c6d450f3ab07b9c880bf76669f5d9a16bd27e25713af956348d1",
+      "remote_sha256": "4cd36764e7b1c6d450f3ab07b9c880bf76669f5d9a16bd27e25713af956348d1",
+      "approved_baseline_sha256": "4cd36764e7b1c6d450f3ab07b9c880bf76669f5d9a16bd27e25713af956348d1"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/sqlite_streams.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/sqlite_streams.py",
+      "sha256": "635c2c946ca49834a889ee054011217cd6229520631585072003835e6e4a5084",
+      "remote_sha256": "635c2c946ca49834a889ee054011217cd6229520631585072003835e6e4a5084",
+      "approved_baseline_sha256": "635c2c946ca49834a889ee054011217cd6229520631585072003835e6e4a5084"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/train_streaming.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/train_streaming.py",
+      "sha256": "b0ea3a57c49462646b15d8014020374019e57eea8a8433f5a9a1be30f498aa78",
+      "remote_sha256": "b0ea3a57c49462646b15d8014020374019e57eea8a8433f5a9a1be30f498aa78",
+      "approved_baseline_sha256": "b0ea3a57c49462646b15d8014020374019e57eea8a8433f5a9a1be30f498aa78"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/live_odometry.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/live_odometry.py",
+      "sha256": "c2d9139668a2c44702af2d4aa6b37f5f048c532fb020d0724a109fc2e6719465",
+      "remote_sha256": "c2d9139668a2c44702af2d4aa6b37f5f048c532fb020d0724a109fc2e6719465",
+      "approved_baseline_sha256": "c2d9139668a2c44702af2d4aa6b37f5f048c532fb020d0724a109fc2e6719465"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/evaluate_robust.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/evaluate_robust.py",
+      "sha256": "7fb087a9765a1e40799b7e47eb6c97fcbaab439f52070dfe5094b2545b51375e",
+      "remote_sha256": "7fb087a9765a1e40799b7e47eb6c97fcbaab439f52070dfe5094b2545b51375e",
+      "approved_baseline_sha256": "7fb087a9765a1e40799b7e47eb6c97fcbaab439f52070dfe5094b2545b51375e"
+    },
+    {
+      "local": "simulation/learning/lidar_imu_pose/polar_icp.py",
+      "remote": "/home/ensta/odom_rt/simulation/learning/lidar_imu_pose/polar_icp.py",
+      "sha256": "5a04d9ba7f2fab25e0f786ae0c4cdf98e64206909cd29c8d2f2654b8783d49f4",
+      "remote_sha256": "5a04d9ba7f2fab25e0f786ae0c4cdf98e64206909cd29c8d2f2654b8783d49f4",
+      "approved_baseline_sha256": "5a04d9ba7f2fab25e0f786ae0c4cdf98e64206909cd29c8d2f2654b8783d49f4"
+    },
+    {
+      "local": "simulation/tools/pose_dataset/config/sensors.yaml",
+      "remote": "/home/ensta/odom_rt/simulation/tools/pose_dataset/config/sensors.yaml",
+      "sha256": "ea08446cb8901d37eb75a2895be76cd8ecf4772cf26e4271de617249263295a1",
+      "remote_sha256": "ea08446cb8901d37eb75a2895be76cd8ecf4772cf26e4271de617249263295a1",
+      "approved_baseline_sha256": "ea08446cb8901d37eb75a2895be76cd8ecf4772cf26e4271de617249263295a1"
+    },
+    {
+      "local": "simulation/learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4/best_model.pt",
+      "remote": "/home/ensta/odom_rt/simulation/learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4/best_model.pt",
+      "sha256": "91ce379099fdd0f58b8a8cd6122dccdbf5162f08bbc705dd8a4f2881767508d0",
+      "remote_sha256": "91ce379099fdd0f58b8a8cd6122dccdbf5162f08bbc705dd8a4f2881767508d0",
+      "approved_baseline_sha256": "91ce379099fdd0f58b8a8cd6122dccdbf5162f08bbc705dd8a4f2881767508d0"
+    },
+    {
+      "local": "simulation/learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4/best_model.onnx",
+      "remote": "/home/ensta/odom_rt/simulation/learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4/best_model.onnx",
+      "sha256": "eff4ba0e163b49ca7385e57a600835d68ffd18a64899f4e2d935eec487e81e26",
+      "remote_sha256": "eff4ba0e163b49ca7385e57a600835d68ffd18a64899f4e2d935eec487e81e26",
+      "approved_baseline_sha256": "eff4ba0e163b49ca7385e57a600835d68ffd18a64899f4e2d935eec487e81e26"
+    },
+    {
+      "local": ".codex/validation/20261022_open_segment/run_oval.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/data/diagnostics/20261022_open_segment/run_oval.py",
+      "sha256": "75a8b74660e5c7743a69c098d1cb4e0660acf00a88cf9ea940570975ed262349",
+      "remote_sha256": "75a8b74660e5c7743a69c098d1cb4e0660acf00a88cf9ea940570975ed262349",
+      "approved_baseline_sha256": "75a8b74660e5c7743a69c098d1cb4e0660acf00a88cf9ea940570975ed262349"
+    },
+    {
+      "local": ".codex/validation/20261022_open_segment/run_segment_cpu_limit.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/data/diagnostics/20261022_open_segment/run_segment_cpu_limit.py",
+      "sha256": "98d6da9ab9d642ccc34db0c03405ee51147617d6bf61fc1304133cb704c4c822",
+      "remote_sha256": "98d6da9ab9d642ccc34db0c03405ee51147617d6bf61fc1304133cb704c4c822",
+      "approved_baseline_sha256": "98d6da9ab9d642ccc34db0c03405ee51147617d6bf61fc1304133cb704c4c822"
+    },
+    {
+      "local": ".codex/validation/20261022_open_segment/save_final_map.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/data/diagnostics/20261022_open_segment/save_final_map.py",
+      "sha256": "a5d08934e470fcb8d133f88ab1cf5085ca38a8517b10703b93dd95108a147ea0",
+      "remote_sha256": "a5d08934e470fcb8d133f88ab1cf5085ca38a8517b10703b93dd95108a147ea0",
+      "approved_baseline_sha256": "a5d08934e470fcb8d133f88ab1cf5085ca38a8517b10703b93dd95108a147ea0"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_race/test/test_map_guidance_transition.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_race/test/test_map_guidance_transition.py",
+      "sha256": "363dde61ed989cd3ebdb0d6a2e6a4f76d6bc7980d41965e54e9cc13d2e641aed",
+      "remote_sha256": "363dde61ed989cd3ebdb0d6a2e6a4f76d6bc7980d41965e54e9cc13d2e641aed",
+      "approved_baseline_sha256": "363dde61ed989cd3ebdb0d6a2e6a4f76d6bc7980d41965e54e9cc13d2e641aed"
+    },
+    {
+      "local": "real_vehicle/tools/core/ram_trial_storage.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/ram_trial_storage.py",
+      "sha256": "c4bf31d216177271a7e72b2924d201cf39bd0e48b94a2d20312f75c51de75bd1",
+      "remote_sha256": "c4bf31d216177271a7e72b2924d201cf39bd0e48b94a2d20312f75c51de75bd1",
+      "approved_baseline_sha256": "c4bf31d216177271a7e72b2924d201cf39bd0e48b94a2d20312f75c51de75bd1"
+    },
+    {
+      "local": "real_vehicle/tools/core/run_ram_capture.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/tools/core/run_ram_capture.py",
+      "sha256": "8bcbccd30ebb4805f3eeb5ad2e908f169e0058fb20ae046d3c4847dcb70f9fb2",
+      "remote_sha256": "8bcbccd30ebb4805f3eeb5ad2e908f169e0058fb20ae046d3c4847dcb70f9fb2",
+      "approved_baseline_sha256": "8bcbccd30ebb4805f3eeb5ad2e908f169e0058fb20ae046d3c4847dcb70f9fb2"
+    },
+    {
+      "local": "real_vehicle/ros2_ws/src/apex_telemetry/test/test_ram_trial_storage.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/ros2_ws/src/apex_telemetry/test/test_ram_trial_storage.py",
+      "sha256": "495814e571c1851e7a6afafcc6737a1b2ae0b5aa0f266094985da41234fa6b2a",
+      "remote_sha256": "495814e571c1851e7a6afafcc6737a1b2ae0b5aa0f266094985da41234fa6b2a",
+      "approved_baseline_sha256": "495814e571c1851e7a6afafcc6737a1b2ae0b5aa0f266094985da41234fa6b2a"
+    },
+    {
+      "local": ".codex/validation/20261022_open_segment/sample_resources.py",
+      "remote": "/home/ensta/AiAtonomousRc/APEX/data/diagnostics/20261022_open_segment/sample_resources.py",
+      "sha256": "fe15b3a621865bdffedf96985159f6430190a422d6c361a7e514cbbc0572b495",
+      "remote_sha256": "fe15b3a621865bdffedf96985159f6430190a422d6c361a7e514cbbc0572b495",
+      "approved_baseline_sha256": "fe15b3a621865bdffedf96985159f6430190a422d6c361a7e514cbbc0572b495"
+    }
+  ],
+  "versioned_launcher_directory": "real_vehicle/tools/core/validated_trial_20261024_000432",
+  "launcher_note": "Same helper bytes and bounds as the earlier capture; the directory name records their first approved use.",
+  "model_files_note": "The two exact selected model weights are included in the portable archive."
+}

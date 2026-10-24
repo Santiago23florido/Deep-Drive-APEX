@@ -108,6 +108,7 @@ class RaceCheck(Node):
         self.tf_listener = TransformListener(self.tf, self)
         self.odom_first: tuple[float, float] | None = None
         self.odom_last: tuple[float, float] | None = None
+        self.predicted_speeds: list[float] = []
 
     def sample_odom(self) -> None:
         """Where the odometry thinks the car is, in its own frame."""
@@ -123,6 +124,8 @@ class RaceCheck(Node):
     def _counter(self, topic: str):
         def cb(_msg) -> None:  # noqa: ANN001
             self.stamps[topic].append(time.monotonic())
+            if topic == "/apex/odometry/learned_predicted":
+                self.predicted_speeds.append(math.hypot(_msg.twist.twist.linear.x, _msg.twist.twist.linear.y))
         return cb
 
     def _on_map(self, _msg: OccupancyGrid) -> None:
@@ -140,6 +143,18 @@ class RaceCheck(Node):
 
     def _on_cmd(self, _msg: Twist) -> None:
         self.cmd_times.append(time.monotonic())
+
+    def reset_observations(self) -> None:
+        """Start a measurement window after DDS discovery has settled.
+
+        Preserve status reports: producer/bridge historical fault counters
+        must not be erased by warming up this observer.
+        """
+        self.stamps.clear()
+        self.cmd_times.clear()
+        self.predicted_speeds.clear()
+        self.map_seen = 0
+        self.odom_first = self.odom_last = None
 
     # -------------------------------------------------------------- the grading
     def rows(self) -> list[Row]:
@@ -172,8 +187,15 @@ class RaceCheck(Node):
         detail = f"{drift:.3f} m over the check ({rate:.2f} m/min), dx {dx:+.3f} dy {dy:+.3f}"
         if not self.args.stationary:
             return [Row("odometry travel", None, detail + " -- pass --stationary to grade it")]
-        return [Row("odometry drift at rest", drift <= self.args.drift_max_m,
+        rows = [Row("odometry drift at rest", drift <= self.args.drift_max_m,
                     detail + f"; allowed {self.args.drift_max_m:.2f} m")]
+        if self.predicted_speeds:
+            speed = float(np.percentile(self.predicted_speeds, 99.9))
+            rows.append(Row("predicted speed at rest", speed < 0.01,
+                            f"p99.9 {speed:.4f} m/s < 0.01 m/s; max {max(self.predicted_speeds):.4f} m/s"))
+        else:
+            rows.append(Row("predicted speed at rest", False, "no predicted odometry"))
+        return rows
 
     def _stream_rows(self) -> list[Row]:
         rows = []
@@ -240,6 +262,12 @@ class RaceCheck(Node):
                             f"{phase} (expected {self.args.expect_phase})"))
         else:
             rows.append(Row("driver phase", None, phase))
+        if self.args.stationary:
+            laps = int(st.get("lap_own", 0))
+            rows.append(Row("driver laps at rest", laps == 0, f"{laps} laps, travel {st.get('travel_m', 0):.3f} m"))
+        if "sign_fault" in st:
+            rows.append(Row("driver steering sign", not bool(st["sign_fault"]),
+                            f"sign_fault={st['sign_fault']}"))
         counters = st.get("counters") or {}
         rows.append(Row("driver scan_age stops", int(st.get("scan_age_stops", 0)) == 0,
                         f"{st.get('scan_age_stops', 0)} control ticks stopped by max_scan_age_s"))
@@ -277,8 +305,11 @@ class RaceCheck(Node):
         authority = st.get("steering_authority_deg")
         limit = st.get("max_steering_deg")
         if authority is not None and limit is not None:
-            rows.append(Row("steering limit within authority", float(limit) <= float(authority) + 1e-6,
-                            f"clamp {float(limit):.1f} deg <= servo authority {float(authority):.2f} deg"))
+            servo = st.get("steering_servo_state", {})
+            left, right = (float(st.get(f"max_steering_{side}_deg", limit)) for side in ("left", "right"))
+            al, ar = (float(servo.get(f"authority_{side}_deg", authority)) for side in ("left", "right"))
+            rows.append(Row("steering limit within authority", left <= al + 1e-6 and right <= ar + 1e-6,
+                            f"left/right clamps {left:.1f}/{right:.1f} deg <= servo {al:.2f}/{ar:.2f} deg"))
         rows.append(Row("bridge command gap", float(st.get("cmd_gap_ms_max", 0.0)) < CMD_GAP_MAX_MS,
                         f"worst {float(st.get('cmd_gap_ms_max', 0.0)):.0f} ms as seen by the bridge"))
         return rows
@@ -353,6 +384,8 @@ def cpu_rows(before: dict[int, tuple[str, float]], after: dict[int, tuple[str, f
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--duration", type=float, default=120.0)
+    ap.add_argument("--settle-s", type=float, default=2.0,
+                    help="spin for DDS discovery before the graded window; historical fault counters remain graded")
     ap.add_argument("--cmd-topic", default="/apex/cmd_vel_track")
     ap.add_argument("--expect-phase", default="", help="fail unless the driver reaches this phase (e.g. explore, race)")
     ap.add_argument("--expect-profile", default="affine", help="actuation profile the bridge must report")
@@ -362,11 +395,18 @@ def main() -> int:
                     help="phantom travel allowed over the whole check when --stationary (default 0.10 m)")
     ap.add_argument("--json", type=Path, default=None)
     args = ap.parse_args()
+    if not math.isfinite(args.settle_s) or args.settle_s < 0.0:
+        ap.error("--settle-s must be finite and nonnegative")
 
     rclpy.init()
     node = RaceCheck(args)
     before, t0 = _proc_cpu(), time.monotonic()
     try:
+        settle_until = time.monotonic() + args.settle_s
+        while rclpy.ok() and time.monotonic() < settle_until:
+            rclpy.spin_once(node, timeout_sec=0.1)
+        node.reset_observations()
+        before, t0 = _proc_cpu(), time.monotonic()
         end = t0 + args.duration
         while rclpy.ok() and time.monotonic() < end:
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -378,7 +418,7 @@ def main() -> int:
     node.destroy_node()
     rclpy.shutdown()
 
-    print(f"\nrace bring-up check: {elapsed:.0f} s on {args.cmd_topic}\n" + "-" * 78)
+    print(f"\nrace bring-up check: {elapsed:.0f} s on {args.cmd_topic} (after {args.settle_s:g} s DDS settling)\n" + "-" * 78)
     for row in rows:
         print(row.line())
     failed = [r.name for r in rows if r.ok is False]
@@ -389,6 +429,7 @@ def main() -> int:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(json.dumps({
             "duration_s": round(elapsed, 1), "cmd_topic": args.cmd_topic, "passed": not failed,
+            "settle_s": args.settle_s,
             "checks": [{"name": r.name, "ok": r.ok, "detail": r.detail} for r in rows],
         }, indent=1))
         print(f"written: {args.json}")

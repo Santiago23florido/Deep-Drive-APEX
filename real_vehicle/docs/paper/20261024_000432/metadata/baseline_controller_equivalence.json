@@ -1,0 +1,39 @@
+{
+  "baseline_run": "20261023_222959",
+  "tested_run": "20261024_000432",
+  "matching_python_core_and_node_files": [
+    "__init__.py",
+    "core/__init__.py",
+    "core/adaptive.py",
+    "core/config_io.py",
+    "core/lap_closure.py",
+    "core/local_cloud.py",
+    "core/map_metrics.py",
+    "core/occupancy.py",
+    "core/plant_id.py",
+    "core/pose_correction.py",
+    "core/race_config.py",
+    "core/race_driver.py",
+    "core/race_planner.py",
+    "core/reactive.py",
+    "core/recovery.py",
+    "core/sim_paths.py",
+    "core/vehicle_io.py",
+    "nodes/__init__.py",
+    "nodes/_common.py",
+    "nodes/estimator_health.py",
+    "nodes/race_driver_node.py",
+    "vendor/__init__.py",
+    "vendor/pose_dataset/__init__.py",
+    "vendor/pose_dataset/controller.py",
+    "vendor/pose_dataset/tracks.py"
+  ],
+  "control_configuration_changed": false,
+  "model_retrained": false,
+  "changes_for_this_trial": [
+    "Host tmpfs overlays for trial CSV/JSON/raw sensor output",
+    "Passive host resource probe managed by finite runner",
+    "Preflight host/container tmpfs validation and post-stop SHA256/fsync persistence"
+  ],
+  "selected_runtime_files_verified_before_and_after": 138
+}

@@ -1,0 +1,21 @@
+{
+  "checks": {
+    "imu_count_matches_metadata": true,
+    "scan_count_matches_metadata": true,
+    "receipt_count_matches_raw": true,
+    "lidar_all_rows_360_beams": true,
+    "imu_all_rows_complete": true,
+    "driver_critical_fields_finite": true,
+    "estimator_critical_fields_finite": true,
+    "driver_timestamps_increasing": true,
+    "estimator_timestamps_increasing": true
+  },
+  "all_passed": true,
+  "imu_samples": 15869,
+  "raw_scans": 1565,
+  "receipt_messages": 17434,
+  "driver_rows": 1219,
+  "estimator_rows": 1844,
+  "lidar_inf_ranges_note": "Non-return beams use inf as expected in LaserScan; these are retained, not converted to free-space measurements.",
+  "scope": "File/schema/finite-field/increasing-time checks and capture-count checks; no assertion that best-effort capture proves lossless hardware transport."
+}

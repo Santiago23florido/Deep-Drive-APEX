@@ -6,7 +6,8 @@ optimised SLAM graph, or the logged poses) and the log of which side it saw a
 wall on. Steps:
 
 1. **Reference**: the lap-1 path, closed at the start line, resampled and
-   smoothed. It is known to be drivable: the car just drove it.
+   smoothed. Reversing and smoothing mean it is not necessarily drivable as
+   one continuous forward trajectory; the final checks decide that.
 2. **Corridor**: at every station, how far the car centre may move to each
    side. A side with a mapped wall is bounded by the wall minus a margin; a
    blind side (curb under the LiDAR plane) only by the generic lane rule
@@ -169,6 +170,10 @@ def closed_reference(loop_xy: np.ndarray, start: tuple[float, float, float], cfg
     step = math.hypot(*(pts[1] - pts[0]))
     sig = cfg.smooth_sigma_m / max(step, 1e-6)
     pts = np.column_stack((gaussian_filter1d(pts[:, 0], sig, mode="wrap"), gaussian_filter1d(pts[:, 1], sig, mode="wrap")))
+    # Smoothing a driven reversal bunches the samples near its turning point.
+    # The offset solver differentiates on uniform arc-length stations; restore
+    # that parameterization before computing normals and curvature.
+    pts = resample_closed(pts, cfg.ds_m)
     return _start_at(path_from_points(pts), p0)
 
 
@@ -366,6 +371,7 @@ class RacePlan:
     t_lap_pred: float
     diag: dict = field(default_factory=dict)
     clearance: np.ndarray = field(default_factory=lambda: np.zeros(0))  # footprint clearance to the map per station [m]
+    route: Path2D | None = None  # observed lap route, for locally checked map guidance
 
     def speed_at(self, s: float) -> float:
         return float(self.path.interp_scalar(self.v, s))
@@ -427,7 +433,18 @@ def plan_race(grid: Grid, loop_xy: np.ndarray, start: tuple[float, float, float]
         "t_lap_pred_s": t_lap, "v_mean_mps": float(path.length / t_lap), "compute_s": time.perf_counter() - t0,
         "w_min_m": w_min,
     }
-    return RacePlan(path, v, ref, alpha, cor, t_lap, diag, clr)
+    reasons = []
+    if not np.isfinite(clr).all() or np.min(clr) < pcfg.verify_clearance_m:
+        reasons.append("map_clearance")
+    if not np.isfinite(kappa).all() or np.max(kappa) > veh.kappa_max:
+        reasons.append("curvature")
+    diag["direct_tracking_allowed"] = not reasons
+    diag["direct_tracking_rejection"] = reasons
+    # A route is a direction cue, never an unchecked trajectory command.
+    # Preserve the observed geometry rather than the offset optimizer's
+    # unsuccessful candidate. The local planner rechecks each executed arc.
+    route = _start_at(path_from_points(resample_closed(_dedupe(np.asarray(loop_xy)), pcfg.ds_m)), np.array(start[:2]))
+    return RacePlan(path, v, ref, alpha, cor, t_lap, diag, clr, route)
 
 
 def save_plan(plan: RacePlan, grid: Grid, loop_xy: np.ndarray, side_log: dict | None, out_dir: str | Path, extra: dict | None = None) -> Path:
@@ -456,6 +473,8 @@ def save_plan(plan: RacePlan, grid: Grid, loop_xy: np.ndarray, side_log: dict | 
         clr = plan.clearance if len(plan.clearance) == len(p.xy) else np.full(len(p.xy), np.nan)
         for i in range(len(p.xy)):
             f.write(f"{p.s[i]:.3f},{p.xy[i, 0]:.4f},{p.xy[i, 1]:.4f},{p.heading[i]:.5f},{p.curvature[i]:.5f},{plan.v[i]:.3f},{clr[i]:.3f}\n")
+    if plan.route is not None:
+        np.savetxt(out / "map_route.csv", plan.route.xy, delimiter=",", header="x,y", comments="")
     (out / "plan.json").write_text(json.dumps({**plan.diag, **(extra or {})}, indent=1, default=float), encoding="utf-8")
     return out
 

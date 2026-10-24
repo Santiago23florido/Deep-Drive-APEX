@@ -1,0 +1,18 @@
+{
+  "runtime_tests": {
+    "passed": 242,
+    "skipped_ros": 13,
+    "deselected_slow": 3,
+    "duration_s": 8.24
+  },
+  "odometry_and_geometry_tests": {
+    "passed": 16,
+    "duration_s": 59.71
+  },
+  "git_diff_check": "passed",
+  "approved_runtime_selected_files_pc_pi_matching": 138,
+  "approved_archive_inventory_files_verified": 302,
+  "original_archive_unchanged": true,
+  "car_stopped": true,
+  "new_motion_after_restoration": false
+}

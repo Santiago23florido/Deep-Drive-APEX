@@ -36,7 +36,7 @@ from sensor_msgs.msg import Imu, LaserScan
 
 
 class Real2SimSensorRecorder(Node):
-    def __init__(self, out_dir: str, imu_topic: str, scan_topic: str, duration_s: float) -> None:
+    def __init__(self, out_dir: str, imu_topic: str, scan_topic: str, duration_s: float, best_effort: bool = False) -> None:
         super().__init__("real2sim_sensor_recorder")
         os.makedirs(out_dir, exist_ok=True)
         self._out_dir = out_dir
@@ -44,6 +44,10 @@ class Real2SimSensorRecorder(Node):
         self._t0 = time.monotonic()
         self._counts = {"imu": 0, "scans": 0}
         self._meta = {"imu_topic": imu_topic, "scan_topic": scan_topic, "started_unix_s": time.time()}
+        self._meta.update(started_monotonic_ns=time.monotonic_ns(), best_effort=best_effort)
+        self._timing_file = open(os.path.join(out_dir, "sensor_receipt_timing.csv"), "w", newline="", encoding="utf-8")
+        self._timing = csv.writer(self._timing_file)
+        self._timing.writerow(["sensor", "stamp_ns", "receipt_ros_ns", "receipt_monotonic_ns"])
 
         self._imu_file = open(os.path.join(out_dir, "imu_raw.csv"), "w", newline="", encoding="utf-8")
         self._imu = csv.writer(self._imu_file)
@@ -52,14 +56,17 @@ class Real2SimSensorRecorder(Node):
         self._scan = csv.writer(self._scan_file)
         self._scan_header_written = False
 
-        reliable = QoSProfile(depth=200, reliability=ReliabilityPolicy.RELIABLE)
+        reliability = ReliabilityPolicy.BEST_EFFORT if best_effort else ReliabilityPolicy.RELIABLE
+        reliable = QoSProfile(depth=200, reliability=reliability)
         self.create_subscription(Imu, imu_topic, self._on_imu, reliable)
-        self.create_subscription(LaserScan, scan_topic, self._on_scan, QoSProfile(depth=20, reliability=ReliabilityPolicy.RELIABLE))
+        self.create_subscription(LaserScan, scan_topic, self._on_scan, QoSProfile(depth=20, reliability=reliability))
         self.create_timer(0.5, self._tick)
         self.done = False
         self.get_logger().info(f"Recording {imu_topic} and {scan_topic} for {duration_s:.0f} s into {out_dir}")
 
     def _on_imu(self, m: Imu) -> None:
+        self._timing.writerow(["imu", Time.from_msg(m.header.stamp).nanoseconds,
+                               self.get_clock().now().nanoseconds, time.monotonic_ns()])
         a, g = m.linear_acceleration, m.angular_velocity
         self._imu.writerow(
             [m.header.stamp.sec, m.header.stamp.nanosec, *(f"{v:.6f}" for v in (a.x, a.y, a.z, g.x, g.y, g.z))]
@@ -67,10 +74,14 @@ class Real2SimSensorRecorder(Node):
         self._counts["imu"] += 1
 
     def _on_scan(self, m: LaserScan) -> None:
+        self._timing.writerow(["lidar", Time.from_msg(m.header.stamp).nanoseconds,
+                               self.get_clock().now().nanoseconds, time.monotonic_ns()])
         if not self._scan_header_written:
             self._scan.writerow(["stamp_ns", "scan_time_s"] + [f"r{i}" for i in range(len(m.ranges))])
             self._scan_header_written = True
-            self._meta.update(angle_min=m.angle_min, angle_increment=m.angle_increment, beams=len(m.ranges), frame_id=m.header.frame_id)
+            self._meta.update(angle_min=m.angle_min, angle_max=m.angle_max, angle_increment=m.angle_increment,
+                              time_increment=m.time_increment, range_min=m.range_min, range_max=m.range_max,
+                              beams=len(m.ranges), frame_id=m.header.frame_id)
         stamp_ns = Time.from_msg(m.header.stamp).nanoseconds
         self._scan.writerow([stamp_ns, f"{m.scan_time:.6f}", *(f"{r:.4f}" if math.isfinite(r) else ("inf" if r > 0 else "-inf") for r in m.ranges)])
         self._counts["scans"] += 1
@@ -80,6 +91,7 @@ class Real2SimSensorRecorder(Node):
             self.done = True
 
     def close(self) -> None:
+        self._timing_file.close()
         self._imu_file.close()
         self._scan_file.close()
         self._meta.update(duration_s=time.monotonic() - self._t0, counts=self._counts)
@@ -94,9 +106,10 @@ def main() -> None:
     parser.add_argument("--duration", type=float, default=60.0)
     parser.add_argument("--imu-topic", default="/apex/imu/data_raw")
     parser.add_argument("--scan-topic", default="/lidar/scan_raw")
+    parser.add_argument("--best-effort", action="store_true", help="Passive capture compatible with sensor-data publishers")
     args = parser.parse_args()
     rclpy.init()
-    node = Real2SimSensorRecorder(args.out, args.imu_topic, args.scan_topic, args.duration)
+    node = Real2SimSensorRecorder(args.out, args.imu_topic, args.scan_topic, args.duration, args.best_effort)
     try:
         while rclpy.ok() and not node.done:
             rclpy.spin_once(node, timeout_sec=0.1)

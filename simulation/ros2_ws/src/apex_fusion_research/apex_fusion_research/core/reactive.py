@@ -24,7 +24,6 @@ from dataclasses import dataclass, field, replace
 import math
 
 import numpy as np
-from scipy.ndimage import distance_transform_edt
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 from scipy.spatial import cKDTree
@@ -338,7 +337,8 @@ class WallTracker:
         if other is not None:
             d_t = min(max(0.5 * (ref_wall.distance + other.distance), self.d_lo), d_hi)
             return TrackerState("BOTH", ref_wall, other, d_t, d_hi, switched, lw, rw, lane)
-        d_t = min(max(cfg.d_follow_m, self.d_lo), self.d_hi)
+        follow = cfg.d_follow_left_m if ref_wall.side == LEFT and cfg.d_follow_left_m > 0 else cfg.d_follow_m
+        d_t = min(max(follow, self.d_lo), self.d_hi)
         return TrackerState("L" if ref_wall.side == LEFT else "R", ref_wall, None, d_t, d_hi, switched, lw, rw, lane)
 
     def blind_travel(self, travel: float) -> float:
@@ -356,27 +356,33 @@ class ReactiveCommand:
 
 
 class LocalGrid:
-    """Distance to the nearest LiDAR point on a small grid around the car."""
+    """Continuous clearance to local LiDAR points, with a sampling allowance.
+
+    Keep the local grid's extent and half-cell allowance, but evaluate the
+    distance at the actual query position. Flooring both obstacles and queries
+    into cells made a nearly parallel wall jump 5 cm closer at the next path
+    sample. Comparing that with the current clearance could reject every exit
+    from an already squeezed start, even when an arc moved away from the wall.
+    """
 
     def __init__(self, points: np.ndarray, res: float = 0.05, x_lim: tuple[float, float] = (-2.0, 6.0), y_half: float = 4.5) -> None:
         self.res, self.x0, self.y0 = res, x_lim[0], -y_half
         nx, ny = int(round((x_lim[1] - x_lim[0]) / res)), int(round(2 * y_half / res))
-        occ = np.zeros((nx, ny), dtype=bool)
-        if len(points):
-            ix = np.floor((points[:, 0] - self.x0) / res).astype(int)
-            iy = np.floor((points[:, 1] - self.y0) / res).astype(int)
-            ok = (ix >= 0) & (ix < nx) & (iy >= 0) & (iy < ny)
-            occ[ix[ok], iy[ok]] = True
-        self.dist = distance_transform_edt(~occ) * res if occ.any() else np.full((nx, ny), 99.0)
         self.shape = (nx, ny)
+        points = np.asarray(points, dtype=float).reshape(-1, 2)
+        ij = np.floor((points - [self.x0, self.y0]) / res).astype(int)
+        inside = (ij[:, 0] >= 0) & (ij[:, 0] < nx) & (ij[:, 1] >= 0) & (ij[:, 1] < ny)
+        self.tree = cKDTree(points[inside]) if inside.any() else None
 
     def query(self, xy: np.ndarray) -> np.ndarray:
+        xy = np.asarray(xy, dtype=float)
         ix = np.floor((xy[..., 0] - self.x0) / self.res).astype(int)
         iy = np.floor((xy[..., 1] - self.y0) / self.res).astype(int)
         ok = (ix >= 0) & (ix < self.shape[0]) & (iy >= 0) & (iy < self.shape[1])
         out = np.full(ix.shape, 99.0)
-        out[ok] = self.dist[ix[ok], iy[ok]]
-        return np.maximum(out - 0.5 * self.res, 0.0)  # the point may lie anywhere in its cell
+        if self.tree is not None and ok.any():
+            out[ok] = self.tree.query(xy[ok])[0]
+        return np.maximum(out - 0.5 * self.res, 0.0)  # retain the local cloud's sampling allowance
 
 
 def two_arc_paths(k1: np.ndarray, k2: np.ndarray, l1: float, horizon: float, ds: float, x0: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -405,19 +411,28 @@ def two_arc_paths(k1: np.ndarray, k2: np.ndarray, l1: float, horizon: float, ds:
 class ReactivePlanner:
     def __init__(self, veh: VehicleLimits, cfg: ReactiveConfig) -> None:
         self.veh, self.cfg = veh, cfg
-        k = veh.kappa_max
-        self.k1 = np.linspace(-k, k, cfg.n_k1)
-        self.k2 = np.linspace(-k, k, cfg.n_k2)
+        left, right = veh.curvature_limit(True, planning=True), veh.curvature_limit(False, planning=True)
+        # Keep zero and both extrema even when the sides have unequal travel.
+        def samples(n: int) -> np.ndarray:
+            if n <= 2:
+                return np.array([0.0]) if n == 1 else np.array([-right, left])
+            n_right = max(1, int(round((n - 1) * right / (left + right))))
+            n_right = min(n - 2, n_right)
+            return np.concatenate((np.linspace(-right, 0.0, n_right + 1),
+                                   np.linspace(0.0, left, n - n_right)[1:]))
+        self.k1 = samples(cfg.n_k1)
+        self.k2 = samples(cfg.n_k2)
         self.r_circle = veh.circle_radius
 
     def stop_distance(self, v: float) -> float:
         return v * v / (2.0 * self.cfg.a_dec_mps2) + 0.2 * v + 0.3
 
     def plan(self, cloud: np.ndarray, v_now: float, kappa_prev: float, state: TrackerState, blind_travel: float = 0.0,
-             guide: np.ndarray | None = None, v_cap: float | None = None) -> ReactiveCommand:
+             guide: np.ndarray | None = None, v_cap: float | None = None, guide_weight: float = 1.0) -> ReactiveCommand:
         """Choose a path and a speed. ``guide``: optional (M, 2) base-frame
         points of a path to follow instead of the wall offset (race line)."""
         cfg, veh = self.cfg, self.veh
+        guide_weight = max(0., min(1., float(guide_weight))) if guide is not None else 0.
         v = max(0.0, v_now)
         ds = 0.1
         l1 = min(max(0.4 + 0.5 * v, 0.6), 1.2)
@@ -472,11 +487,11 @@ class ReactivePlanner:
             if bound_relaxed:
                 within = viol <= float(np.min(viol[feasible])) + 0.05
             feasible &= within
-            if guide is None:
+            if guide is None or guide_weight < 1.:
                 late = valid & (s[None, None, :] >= 0.4 * horizon)
                 n_late = late.sum(axis=2)
                 off = np.where(late, ((d_w - state.d_target) / cfg.off_scale_m) ** 2, 0.0).sum(axis=2) / np.maximum(n_late, 1)
-                cost += cfg.w_off * off
+                cost += (1. - guide_weight) * cfg.w_off * off
                 # Heading at the end of the path against the wall direction there.
                 last = np.where(late.any(axis=2), ns - 1 - np.argmax(late[..., ::-1], axis=2), -1)
                 ii, jj = np.indices(last.shape)
@@ -484,14 +499,14 @@ class ReactivePlanner:
                 t_end = tq[ii, jj, lk]
                 p_end = psi[ii, jj, lk]
                 head = 1.0 - np.abs(np.cos(p_end) * t_end[..., 0] + np.sin(p_end) * t_end[..., 1])
-                cost += cfg.w_head * np.where(last >= 0, head, 0.0)
+                cost += (1. - guide_weight) * cfg.w_head * np.where(last >= 0, head, 0.0)
             diag["d_wall"] = wall.distance
             diag["side"] = wall.side
         else:
             cost += 0.2 * (self.k1[:, None] / 0.5) ** 2 * np.ones_like(cost)
         if guide is not None and len(guide) >= 2:
             dg = cKDTree(guide).query(np.stack((x, y), axis=-1).reshape(-1, 2))[0].reshape(x.shape)
-            cost += cfg.w_guide * np.mean((dg / cfg.off_scale_m) ** 2, axis=2)
+            cost += guide_weight * cfg.w_guide * np.mean((dg / cfg.off_scale_m) ** 2, axis=2)
 
         ok = feasible.any()
         pick = np.where(feasible, cost, np.inf) if ok else -free  # nothing feasible: steer to the longest free path and brake
@@ -507,7 +522,7 @@ class ReactivePlanner:
         v_free = math.sqrt(max(0.0, 2.0 * cfg.a_dec_mps2 * (f - 0.3)))
         v_clr = v_top * min(1.0, max(0.35, (clr_min - cfg.c_hard_m) / max(cfg.c_soft_m - cfg.c_hard_m, 1e-6)))
         l_k = float(l_known[i, j])
-        v_lane = lane_speed(l_k, horizon, cfg) if guide is None else math.inf  # a guide (race line) comes from the map
+        v_lane = lane_speed(l_k, horizon, cfg) if guide is None or guide_weight < 1. else math.inf
         v_cmd = min(v_top, v_curv, v_free, v_clr, v_lane)
         if state.ref is None and blind_travel >= cfg.blind_hold_m:
             v_cmd = 0.0  # no wall for too long: outside the lane rule, stop
@@ -515,9 +530,11 @@ class ReactivePlanner:
             v_cmd = max(v_cmd, cfg.v_min_mps)
         if not ok:
             v_cmd = 0.0
-        diag.update(k1=k1, k2=k2, free=f, clr_min=clr_min, n_feasible=int(feasible.sum()), bound_relaxed=bound_relaxed, cost=float(cost[i, j]) if ok else float("nan"),
+        diag.update(k1=k1, k2=k2, free=f, clr_min=clr_min, n_feasible=int(feasible.sum()), bound_relaxed=bound_relaxed, cost=float(cost[i, j]) if ok else float("nan"), guide_weight=guide_weight,
                     lane_known=l_k, v_lane=v_lane)
-        path = np.column_stack((x[i, j], y[i, j]))
+        # The continuation after `free` is blocked. It participates in scoring,
+        # but must never become the controller's lookahead target.
+        path = np.column_stack((x[i, j], y[i, j]))[s <= f + 1e-9]
         return ReactiveCommand(k1, v_cmd, path, bool(ok), diag)
 
 
@@ -610,7 +627,9 @@ class WallPlanner:
         free = np.where(first >= 0, np.take_along_axis(acc, np.maximum(first, 0)[..., None], axis=2)[..., 0] - ds, horizon)
         stop = v * v / (2.0 * cfg.a_dec_mps2) + 0.2 * v + 0.3
         kmax = np.max(np.abs(kap) * ahead, axis=2)
-        feasible = (free >= min(stop, horizon - 1e-6)) & (kmax <= veh.kappa_max * 1.05)
+        within_steering = ((kap <= veh.curvature_limit(True, planning=True) * 1.05)
+                           & (kap >= -veh.curvature_limit(False, planning=True) * 1.05)) | ~ahead
+        feasible = (free >= min(stop, horizon - 1e-6)) & within_steering.all(axis=2)
         cost = cfg.w_off * ((dc - state.d_target) / cfg.off_scale_m) ** 2
         cost += cfg.w_block * (1.0 - free / horizon)
         soft = np.where(ahead, np.maximum(0.0, cfg.c_soft_m - clr), 0.0) ** 2 / cfg.c_soft_m**2
@@ -646,6 +665,7 @@ class WallPlanner:
                 "free": f, "clr_now": clr_now, "clr_min": clr_min, "n_feasible": int(feasible.sum()), "k_near": k_near,
                 "d_wall": wall.distance, "side": wall.side, "planner": "wall", "k1": float(kap[i, j][min(3, len(kap[i, j]) - 1)]),
                 "lane_known": l_k, "v_lane": v_lane}
+        path = path[acc[i, j][ahead[i, j]] <= f + 1e-9]
         return ReactiveCommand(diag["k1"], v_cmd, path, True, diag)
 
 
@@ -694,20 +714,37 @@ class ReactiveDriver:
         self.planner.veh = veh
         self.wall_planner.veh = veh
 
+    def set_curvature_limits(self, left: float, right: float) -> None:
+        """Physical arc limits, distinct from the actuator's command limits.
+
+        These equivalent bicycle angles are geometry only. The owning core
+        still clamps the inverse model's output to the configured servo limits.
+        """
+        old = self.veh
+        if max(abs(left - old.curvature_limit(True, planning=True)),
+               abs(right - old.curvature_limit(False, planning=True))) < 1e-3:
+            return
+        l_deg, r_deg = (math.degrees(math.atan(max(1e-3, k) * old.wheelbase_m)) for k in (left, right))
+        veh = replace(old, steer_max_left_deg=l_deg, steer_max_right_deg=r_deg,
+                      steer_plan_left_deg=l_deg, steer_plan_right_deg=r_deg,
+                      steer_plan_deg=min(l_deg, r_deg))
+        self.veh = self.tracker.veh = self.wall_planner.veh = veh
+        self.planner = ReactivePlanner(veh, self.cfg)
+
     def step(self, cloud_base: np.ndarray, pose_odom: tuple[float, float, float], travel: float, v_now: float,
-             guide: np.ndarray | None = None, v_cap: float | None = None) -> tuple[ReactiveCommand, TrackerState]:
+             guide: np.ndarray | None = None, v_cap: float | None = None, guide_weight: float = 1.0) -> tuple[ReactiveCommand, TrackerState]:
         """One revolution: follow the wall (wall-relative paths), or, without a
         wall or with a guide path (race line), the two-arc planner."""
         clusters = classify(cloud_base, self.cfg)
         state = self.tracker.update(clusters, pose_odom, travel)
         cmd = None
-        if state.ref is not None and guide is None:
+        if self.cfg.use_wall_planner and state.ref is not None and guide is None:
             cmd = self.wall_planner.plan(LocalGrid(cloud_base), state.ref, state, v_now, self.tracker.d_lo)
             if cmd is not None and v_cap is not None:
                 cmd.v = min(cmd.v, v_cap)
         if cmd is None:
             self.wall_planner.d_prev = None
-            cmd = self.planner.plan(cloud_base, v_now, self.kappa_prev, state, self.tracker.blind_travel(travel), guide, v_cap)
+            cmd = self.planner.plan(cloud_base, v_now, self.kappa_prev, state, self.tracker.blind_travel(travel), guide, v_cap, guide_weight)
             cmd.diag["planner"] = "arcs"
         self.kappa_prev = cmd.kappa
         cmd.diag["n_walls"] = sum(c.is_wall for c in clusters)
@@ -716,7 +753,12 @@ class ReactiveDriver:
 
 
 def pursue(path: np.ndarray, pose: tuple[float, float, float], lookahead: float, wheelbase: float) -> float:
-    """Pure-pursuit steering [rad] on a polyline (same frame as ``pose``, rear axle)."""
+    """Follow the checked polyline without extrapolating past its free end.
+
+    The planner's free prefix can be shorter than the desired lookahead,
+    especially near a corner. Extending its last tangent would recreate an
+    unchecked target and straighten the steering before completing the turn.
+    """
     if len(path) < 2:
         return 0.0
     d = np.hypot(path[:, 0] - pose[0], path[:, 1] - pose[1])
@@ -724,9 +766,8 @@ def pursue(path: np.ndarray, pose: tuple[float, float, float], lookahead: float,
     seg = np.hypot(np.diff(path[:, 0]), np.diff(path[:, 1]))
     acc = np.concatenate(([0.0], np.cumsum(seg)))
     target_s = acc[k0] + lookahead
-    if target_s >= acc[-1]:  # extend beyond the end along its last direction
-        u = (path[-1] - path[-2]) / max(seg[-1], 1e-9)
-        tx, ty = path[-1] + u * (target_s - acc[-1])
+    if target_s >= acc[-1]:
+        tx, ty = path[-1]
     else:
         tx, ty = np.interp(target_s, acc, path[:, 0]), np.interp(target_s, acc, path[:, 1])
     alpha = math.atan2(ty - pose[1], tx - pose[0]) - pose[2]

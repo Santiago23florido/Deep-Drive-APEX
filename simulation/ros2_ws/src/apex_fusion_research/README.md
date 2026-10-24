@@ -1,5 +1,28 @@
 # apex_fusion_research
 
+## Current implementation status, October 24, 2026
+
+This package now includes the same driving core as
+[the approved physical implementation](../../../../real_vehicle/docs/paper/20261024_005311/README.md).
+The retained physical laps were 46.837/14.594 s with 8/1 reverse starts, using
+MAP_GUIDED continuation. The shared code includes geometric reverse recovery,
+directional steering limits, finite missions, current-pose handover and the
+confidence gate described below. Earlier simulation tables/videos remain
+historical results, not a rerun of this final integration.
+
+Longitudinal gain/offset are fitted continuously but exposed to the inverse only
+when `conf_long >= 0.5`, the existing minimum sample count is met and residual
+consistency passes. Until then, effective values remain 1/0, independently of
+lateral confidence. Status retains raw estimates and `longitudinal_applied`.
+`test/test_sim_longitudinal_confidence.py` exercises sparse reverse observations,
+unexcited fits, confident application and inconsistent-residual rejection.
+
+The default live checkpoint is **v7e**, with the stationary hold including IMU
+prediction. The [learning README](../../../learning/lidar_imu_pose/README.md)
+documents its training and historical comparisons. See the
+[preprint readiness report](../../../../docs/reports/preprint_readiness_20261024.md)
+for the remaining final-version Gazebo campaign, baselines and artifacts.
+
 Sensor models and an unaided inertial navigation baseline for **LiDAR–IMU
 sensor-fusion research** on the APEX 1/10-scale car in Gazebo.
 
@@ -604,7 +627,7 @@ run_referee_node (truth only): lap completed / collision / off-track -> run_resu
 
 ```bash
 ./simulation/tools/sim/apex_real2sim_up.sh --track val_mixed --motion medium --seed 1 --laps 2 --driver format
-# --checkpoint <file>           default: learning/outputs/real2sim_v5_10hz/hybrid_submap_v4/best_model.pt (A2M8 Express 4 kHz at 10 Hz)
+# --checkpoint <file>           default: learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4/best_model.pt (v7e, with the stationary hold)
 # --driver race|format          race (default): explore, map and race (§13.1); format: follow the dataset format
 # --motion slow_variable        real-car speeds
 # --sensor APEX_real_compat     A2M8 in the 2 kHz protocol
@@ -888,6 +911,12 @@ refuses to adapt and says so. On the real car that is a wiring check.
 
 ### 14.3 What the car does with it
 
+Current application rule: the longitudinal inverse below uses the learned gain
+and offset only after independent longitudinal confidence and residual checks
+pass. A few accepted measurements do not by themselves identify both parameters.
+The raw fit continues while control retains the 1/0 prior. This rule applies to
+both this simulator and the physical package.
+
 `core/adaptive.py` inverts the map (`kappa_cmd = (kappa_des - trim) / gain`),
 adds `tau d(kappa)/dt` to invert the lag, clamps the command to the saturation
 it has actually observed, and divides the speed request by the identified gain
@@ -977,6 +1006,14 @@ mistake. **It is also how the real car's plant gets measured**: the same two
 CSVs recorded on the Pi, replayed offline, before anything is tuned on the car.
 
 ### 14.6 On the real car
+
+The following bring-up discussion records the original design. The completed
+October 24 implementation, including reverse launch learning and the actual
+affine bridge profile, is documented in the
+[race-stack guide](../../../../real_vehicle/docs/race_stack.md). The
+[approved evidence package](../../../../real_vehicle/docs/paper/20261024_005311/README.md)
+contains the exact deployed configuration and figures. It used a fresh autonomous
+reconnaissance lap; manual driving was not required for that trial.
 
 The unknowns are not an analogy, they are the configuration constants of
 `real_vehicle/.../actuation/cmd_vel_to_apex_actuation_node.py`:

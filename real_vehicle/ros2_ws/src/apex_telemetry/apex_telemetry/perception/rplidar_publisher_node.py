@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections import deque
 import glob
 import math
+import os
 import random
 import sys
 import threading
@@ -107,11 +108,13 @@ class RPLidarPublisherNode(Node):
         self.declare_parameter("motor_settle_s", 2.0)
         # The car's Pi 5 has reset while the motor started: wait for power_clear_s
         # without under-voltage first (at most power_wait_max_s), and hold the ramp
-        # while the flag is up (at most power_hold_max_s per step).
+        # while the flag is up (at most power_hold_max_s across the ramp).
         self.declare_parameter("power_guard", True)
         self.declare_parameter("power_clear_s", 1.0)
         self.declare_parameter("power_wait_max_s", 20.0)
         self.declare_parameter("power_hold_max_s", 10.0)
+        run_dir = os.environ.get("APEX_RACE_RUN_DIR", "")
+        self.declare_parameter("power_status_file", os.path.join(run_dir, "power.csv") if run_dir else "")
         # After a failure the driver waits 1, 2, 4 ... up to this before reopening the LiDAR.
         self.declare_parameter("retry_max_s", 30.0)
         # Minimum USB latency, subtracted from the stamps (calibrate on the car).
@@ -168,6 +171,7 @@ class RPLidarPublisherNode(Node):
         self._power_clear_s = max(0.0, float(self.get_parameter("power_clear_s").value))
         self._power_wait_max_s = max(0.0, float(self.get_parameter("power_wait_max_s").value))
         self._power_hold_max_s = max(0.0, float(self.get_parameter("power_hold_max_s").value))
+        self._power_status_file = str(self.get_parameter("power_status_file").value)
         self._stamp_correction_s = float(self.get_parameter("stamp_correction_ms").value) * 1e-3
         self._drop_incomplete = bool(self.get_parameter("drop_incomplete_revolutions").value)
         self._timing_log_every_s = max(1.0, float(self.get_parameter("timing_log_every_s").value))
@@ -696,9 +700,12 @@ class RPLidarPublisherNode(Node):
                     clear_s=self._power_clear_s,
                     wait_max_s=self._power_wait_max_s,
                     hold_max_s=self._power_hold_max_s,
+                    status_path=self._power_status_file if self._power_guard else None,
                     sleep=self._sleep_with_stop,
                 )
-                if guard.alarm_path is None:
+                if guard.status_path:
+                    self.get_logger().info("Power guard: current under-voltage bit from host power log; hwmon fallback if stale")
+                if guard.alarm_path is None and not guard.status_path:
                     self.get_logger().info("No under-voltage flag to watch: plain soft start")
                 elif not guard.wait_clear():
                     self.get_logger().warning(

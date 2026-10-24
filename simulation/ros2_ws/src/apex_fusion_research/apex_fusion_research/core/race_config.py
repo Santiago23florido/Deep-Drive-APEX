@@ -41,11 +41,28 @@ class VehicleLimits:
     lookahead_min_m: float = 0.55
     lookahead_time_s: float = 0.32
     lookahead_base_m: float = 0.35
+    # Zero keeps the legacy symmetric limits. Positive values describe the
+    # configured command authority on each side, not a measured wheel angle.
+    steer_max_left_deg: float = 0.0
+    steer_max_right_deg: float = 0.0
+    steer_plan_left_deg: float = 0.0
+    steer_plan_right_deg: float = 0.0
+
+    def steering_limit_deg(self, left: bool, *, planning: bool = False) -> float:
+        actual = (self.steer_max_left_deg if left else self.steer_max_right_deg) or self.steer_max_deg
+        if not planning:
+            return actual
+        planned = (self.steer_plan_left_deg if left else self.steer_plan_right_deg) or self.steer_plan_deg
+        return min(actual, planned)
+
+    def curvature_limit(self, left: bool, *, planning: bool = False) -> float:
+        return math.tan(math.radians(self.steering_limit_deg(left, planning=planning))) / self.wheelbase_m
 
     @property
     def kappa_max(self) -> float:
         """Largest path curvature the planners may use [1/m]."""
-        return math.tan(math.radians(self.steer_plan_deg)) / self.wheelbase_m
+        # Modules that still require one limit retain the conservative side.
+        return min(self.curvature_limit(True, planning=True), self.curvature_limit(False, planning=True))
 
     @property
     def circle_offsets(self) -> tuple[float, float, float]:
@@ -77,8 +94,11 @@ def vehicle_limits(vcfg: dict[str, Any], steer_plan_deg: float = 16.0) -> Vehicl
 class ReactiveConfig:
     """Lap-1 driving from the local LiDAR cloud (no map, no path)."""
 
+    use_wall_planner: bool = True  # false: bicycle arcs, with the same wall tracker and collision/lane checks
+    preview_while_waiting: bool = False  # real planning load with outputs still neutral
     w_min_m: float = 1.5  # generic lane rule: a lane is at least this wide
     d_follow_m: float = 0.75  # distance kept to the followed wall when only one wall is seen
+    d_follow_left_m: float = 0.0  # positive: override the target only when following the left wall
     wall_margin_m: float = 0.20  # footprint margin to the followed wall
     blind_margin_m: float = 0.10  # footprint margin to the invisible edge implied by w_min
     both_max_width_m: float = 2.8  # two walls farther apart: one of them is not a lane edge
@@ -188,6 +208,7 @@ class RaceConfig:
     v_tight_gain: float = 5.0  # cap = base + gain * corridor width [m]
     handover_max_lat_m: float = 0.3
     handover_max_head_deg: float = 15.0
+    guide_handover_s: float = 0.0  # gradual local-to-map guidance; zero keeps legacy behavior
     guard_clearance_m: float = 0.06
     guard_drop_m: float = 0.18  # ... and this much below the clearance the plan expected there (live cloud vs map noise)
     guard_hold_s: float = 1.0
@@ -294,6 +315,8 @@ class AdaptiveConfig:
     launch_hold_s: float = 0.30  # standstill under a speed command before the launch ramp
     launch_ramp_mps2: float = 0.50
     lead_max: float = 0.25  # [1/m] cap of the servo-lag lead
+    lead_preserve_turn: bool = False  # opt-in: anticipation cannot invert desired curvature
+    plan_with_identified_model: bool = False  # physical arc limits from the same model the inverse uses
     lead_smooth_s: float = 0.06  # the lap-1 path updates at 10 Hz: differentiate a smoothed signal
     # --- confidence schedule. Every entry may only make the car more careful
     # than the nominal configuration, never less.
@@ -323,10 +346,19 @@ class AdaptiveConfig:
     recover_speed_mps: float = 0.4  # reverse speed
     recover_distance_m: float = 1.5
     recover_timeout_s: float = 4.0
+    recover_exit_free_m: float = 0.0  # early exit needs this much usable forward path (0: legacy)
     recover_max_per_lap: int = 2
+    # Optional separate allowance for a place the car cannot escape. Genuine
+    # forward progress replenishes this allowance, never the per-lap ceiling.
+    recover_max_without_progress: int = 0  # 0: only the legacy per-lap ceiling
+    recover_progress_reset_m: float = 0.75
     recover_clearance_m: float = 0.25  # rear clearance required in the accumulated cloud
 
     def validate(self) -> None:
+        if self.recover_max_without_progress < 0:
+            raise ValueError("recover_max_without_progress must be nonnegative")
+        if not math.isfinite(self.recover_progress_reset_m) or self.recover_progress_reset_m <= 0:
+            raise ValueError("recover_progress_reset_m must be finite and positive")
         if not self.tau_steer_grid_s or not self.tau_speed_grid_s:
             raise ValueError("the lag grids may not be empty")
         if min(self.tau_steer_grid_s) <= 0.0 or min(self.tau_speed_grid_s) <= 0.0:
@@ -343,6 +375,23 @@ class AdaptiveConfig:
 
 
 @dataclass
+class MissionConfig:
+    """Optional bounded open-track trial; the driving controller stays the same."""
+
+    enabled: bool = False
+    max_distance_m: float = 1.0
+    max_duration_s: float = 5.0
+    max_command_mps: float = 0.25
+    max_reverse_command_mps: float = 0.25
+    forward_only: bool = True
+
+    def __post_init__(self) -> None:
+        for name in ("max_distance_m", "max_duration_s", "max_command_mps", "max_reverse_command_mps"):
+            if not math.isfinite(getattr(self, name)) or getattr(self, name) <= 0.0:
+                raise ValueError(f"mission.{name} must be finite and positive")
+
+
+@dataclass
 class RaceDriverConfig:
     vehicle: VehicleLimits = field(default_factory=VehicleLimits)
     reactive: ReactiveConfig = field(default_factory=ReactiveConfig)
@@ -351,3 +400,4 @@ class RaceDriverConfig:
     race: RaceConfig = field(default_factory=RaceConfig)
     correction: CorrectionConfig = field(default_factory=CorrectionConfig)
     adaptive: AdaptiveConfig = field(default_factory=AdaptiveConfig)
+    mission: MissionConfig = field(default_factory=MissionConfig)

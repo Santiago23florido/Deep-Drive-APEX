@@ -137,6 +137,18 @@ def test_a_reversed_steering_is_refused_not_fitted():
     assert ident.model() == ident.prior()
 
 
+def test_parked_pose_noise_cannot_vote_for_reversed_steering():
+    ident = PlantIdentifier(RaceDriverConfig())
+    for i in range(100):
+        t = i * 0.1
+        ident.push_command(t, 0.4, 0.7)
+        ident.on_estimate(t, (i * 0.0002, 0.0, -i * 0.00001), SIGMA)
+    assert ident.rejected["slow"] > 0
+    assert not ident.sign_fault
+    assert sum(ident.sign_votes) == 0
+    assert ident.steer.n == 0
+
+
 def test_the_watchdog_restores_the_datasheet_when_it_predicts_better():
     cfg = RaceDriverConfig()
     ident = PlantIdentifier(cfg)

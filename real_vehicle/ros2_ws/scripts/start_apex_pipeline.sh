@@ -39,6 +39,8 @@ if [[ -z "${BRIDGE_PROFILE}" && "${APEX_ENABLE_RACE_STACK:-0}" == "1" ]]; then
   BRIDGE_PROFILE="affine"
 fi
 BRIDGE_MAX_STEERING_DEG="${APEX_BRIDGE_MAX_STEERING_DEG:-}"
+BRIDGE_MAX_STEERING_LEFT_DEG="${APEX_BRIDGE_MAX_STEERING_LEFT_DEG:-}"
+BRIDGE_MAX_STEERING_RIGHT_DEG="${APEX_BRIDGE_MAX_STEERING_RIGHT_DEG:-}"
 ENABLE_NANO="${APEX_ENABLE_NANO:-1}"
 ENABLE_LIDAR="${APEX_ENABLE_LIDAR:-1}"
 ENABLE_OFFLINE_SUBMAP_REFINER="${APEX_ENABLE_OFFLINE_SUBMAP_REFINER:-0}"
@@ -787,6 +789,12 @@ if [[ "${ENABLE_CMDVEL_ACTUATION_BRIDGE}" == "1" ]]; then
   if [[ -n "${BRIDGE_MAX_STEERING_DEG}" ]]; then
     CMD+=(-p "max_steering_deg:=$(normalize_float_override "${BRIDGE_MAX_STEERING_DEG}")")
   fi
+  if [[ -n "${BRIDGE_MAX_STEERING_LEFT_DEG}" ]]; then
+    CMD+=(-p "max_steering_left_deg:=$(normalize_float_override "${BRIDGE_MAX_STEERING_LEFT_DEG}")")
+  fi
+  if [[ -n "${BRIDGE_MAX_STEERING_RIGHT_DEG}" ]]; then
+    CMD+=(-p "max_steering_right_deg:=$(normalize_float_override "${BRIDGE_MAX_STEERING_RIGHT_DEG}")")
+  fi
   "${CMD[@]}" &
   track_pid "cmd_vel actuation bridge" "$!"
   startup_stage_sleep "cmd_vel bridge"
@@ -926,10 +934,11 @@ if [[ "${ENABLE_RACE_STACK}" == "1" ]]; then
     OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
     exec taskset -c "${APEX_ODOM_CPU:-1}" nice -n -5 python3 learned_odometry_node.py --ros-args \
       -r __node:=apex_learned_odometry \
-      -p "checkpoint:=${APEX_ODOM_CHECKPOINT:-${ODOM_DIR}/simulation/learning/outputs/real2sim_v5_10hz/hybrid_submap_v4/best_model.pt}" \
+      -p "checkpoint:=${APEX_ODOM_CHECKPOINT:-${ODOM_DIR}/simulation/learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4/best_model.pt}" \
       -p "sensor_profile:=${APEX_ODOM_SENSOR_PROFILE:-APEX_real_wt61}" \
       -p "sensors_yaml:=${ODOM_DIR}/simulation/tools/pose_dataset/config/sensors.yaml" \
       -p "icp_backend:=polar" -p "net_backend:=onnx" -p "device:=cpu" -p "num_threads:=1" \
+      -p "standstill_hold:=true" \
       -p "use_sim_time:=false" -p "log_csv:=${RACE_RUN_DIR}/estimator.csv"
   ) &
   track_pid "learned odometry" "$!"

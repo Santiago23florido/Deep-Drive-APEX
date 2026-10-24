@@ -4,6 +4,14 @@ This folder contains report materials and formal LaTeX synthesis reports that ar
 
 ## Reports
 
+The current publication audit is
+[Preprint readiness, October 24, 2026](preprint_readiness_20261024.md), with
+[machine-readable validation](preprint_validation_20261024.json). It covers the
+approved real capture, final simulation source integration, measured timing and
+the remaining Gazebo campaign, baselines and release artifacts. The
+[approved data and English figures](../../real_vehicle/docs/paper/20261024_005311/README.md)
+are already versioned. The French reports below remain historical material.
+
 | Report | Folder | Contents |
 | --- | --- | --- |
 | ROS Voiture Blue Synthesis | [ros-voiture-blue](ros-voiture-blue/) | French LaTeX synthesis of the ROS/APEX stack for the blue vehicle. |

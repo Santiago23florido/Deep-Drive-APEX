@@ -1,91 +1,108 @@
-# SLAM-Enabled Real Vehicle
+# APEX physical vehicle
 
-This directory is reserved for the physical vehicle. Its primary stack is the ROS 2 `voiture_system` package, whose real launch integrates LiDAR, serial state, Ackermann odometry, vehicle control, and `slam_toolbox`.
+The retained implementation is **`apex_race` + `apex_telemetry`**, learned
+LiDAR–inertial odometry and `slam_toolbox`, as deployed in operator-approved run
+**`20261024_005311`** on October 24, 2026. The old `voiture_system` and curve-entry
+flows remain in the tree as earlier implementations.
 
-## Component Roles
+![Approved physical execution, using onboard estimates](docs/paper/20261024_005311/figures/real_vehicle_execution.png)
 
-| Path | Purpose | Classification |
-| --- | --- | --- |
-| `ros2_ws/src/voiture_system/` | Primary real-vehicle stack with SLAM and optional Nav2. | Primary |
-| `ros2_ws/src/apex_telemetry/` | APEX sensor, estimation, planning, tracking, and actuation pipeline. | Auxiliary/experimental |
-| `docker/` | Container and device access for auxiliary APEX workflows. | Auxiliary |
-| `tools/` | Capture, analysis, firmware, hardware checks, and PC utilities. | Auxiliary |
-| `arduino/` | Sensor firmware used by the vehicle. | Hardware |
-| `data/` | Captures and results obtained from the vehicle. | Data |
+## Results and downloadable evidence
 
-The old Python stack without SLAM is not stored here. It is preserved at `../archive/legacy/full_soft/`.
+| Result | Approved run |
+| --- | ---: |
+| Reconnaissance / second lap | 46.837 / 14.594 s |
+| Reverse starts, lap 1 / lap 2 | 8 / 1 |
+| Executed second-lap mode | MAP_GUIDED |
+| Raw IMU samples / scans | 9,002 / 889 |
+| Hybrid processing median / P95 / max | 14.165 / 18.128 / 26.490 ms |
+| Propagated pose age at control, median / P95 | 15.000 / 23.240 ms |
+| Maximum command publication gap | 45.05 ms |
+| Driver / odometry / recorder CPU, median | 96.97 / 31.49 / 11.00% of one core |
+| Selected PC/Pi runtime files checked | 138, before and after the trial |
 
-## Primary Stack: `voiture_system`
+The operator selected this run for its original-like physical response. The
+optimized global candidate was rejected, and one reverse recovery remained on
+the second lap. Contact with boundaries was not reported. No external trajectory
+ground truth or motor electrical measurements were available. CPU percentages
+refer to one core, and hybrid processing includes more than network inference.
 
-The primary launch file is:
+- [Full report, six English figures, numeric tables and comparison](docs/paper/20261024_005311/README.md)
+- [Portable raw-data/source/configuration/model archive](docs/paper/20261024_005311/real_vehicle_20261024_005311.zip), 10,004,574 bytes, 305 verified payload files
+- [Archive SHA256](docs/paper/20261024_005311/real_vehicle_20261024_005311.zip.sha256)
+- [Acquisition runtime tag](https://github.com/Santiago23florido/Deep-Drive-APEX/tree/real-car-approved-20261024-005311)
+- [Earlier full capture](docs/paper/20261024_000432/README.md), retained independently
+
+![Recorded map and estimated laps](docs/paper/20261024_005311/figures/slam_map_and_laps.png)
+
+## Runtime graph
 
 ```text
-ros2_ws/src/voiture_system/launch/bringup_real_slam_nav.launch.py
+WT61PC IMU (100 Hz) + A2M8 Express LiDAR (10 Hz)
+  -> learned hybrid odometry (ONNX + polar ICP)
+  -> slam_toolbox -> map / graph / map-to-odometry transform
+  -> apex_race driver (reactive lap 1, map-guided continuation)
+  -> adaptive command shaping -> Twist-to-actuation bridge -> ESC / servo
 ```
 
-Its defaults are `use_slam:=true`, `use_nav2:=false`, `use_auto_track:=true`, and `use_rviz:=true`.
+The stationary hold covers both scan estimates and IMU prediction. The speed
+inverse uses learned gain/offset only after independent longitudinal confidence
+and residual checks pass. Otherwise, effective gain/offset remain 1/0 while
+learning continues. See [the full graph and implementation](docs/race_stack.md).
 
-```text
-RPLIDAR -> /lidar/scan -> slam_toolbox -> /map
-Arduino -> /vehicle/speed_mps -> ackermann_odometry_node -> /odom
-adaptive_track_controller_node -> /cmd_vel
-/cmd_vel -> ackermann_drive_node -> motor and steering
-```
+## Component locations
 
-## Build
-
-```bash
-cd ~/AiAtonomousRc/real_vehicle/ros2_ws
-source /opt/ros/jazzy/setup.bash
-rosdep install --from-paths src --ignore-src -r -y
-colcon build --symlink-install --packages-select voiture_system
-source install/setup.bash
-```
-
-## Run on the Vehicle
-
-```bash
-ros2 launch voiture_system bringup_real_slam_nav.launch.py \
-  use_slam:=true \
-  use_nav2:=false \
-  use_auto_track:=true \
-  use_rviz:=true
-```
-
-| Parameter | Default |
+| Path | Purpose |
 | --- | --- |
-| `lidar_port` | `/dev/ttyUSB0` |
-| `lidar_baudrate` | `256000` |
-| `arduino_port` | `/dev/ttyACM0` |
-| `arduino_baudrate` | `115200` |
-| `max_steering_deg` | `18.0` |
-| `speed_limit_pct` | `40.0` |
+| `ros2_ws/src/apex_race/` | Driver, local/global planning, lap detection, plant identification and adaptation |
+| `ros2_ws/src/apex_telemetry/` | Hardware sensors, device timestamps, actuation bridge and PWM |
+| `tools/core/apex_race_up.sh` | Race bring-up, single-owner checks and hardware guards |
+| `tools/core/run_ram_capture.py` | Finite RAM-backed capture and verified persistence after stopping |
+| `tools/core/validated_trial_20261024_000432/` | Exact helper scripts reused by the approved 005311 run |
+| `tools/pc/` | Offline audits and paper plots |
+| `arduino/` | Sensor firmware |
+| `docs/paper/20261024_005311/` | Approved evidence, metrics, figures and exact portable snapshot |
+| `ros2_ws/src/voiture_system/` | Earlier SLAM/Nav2 vehicle implementation |
 
-Always verify device paths and the actual LiDAR baud rate before launching.
+The shared driving core is checked against `simulation/` for byte and semantic
+parity. Hardware-specific configuration and I/O remain separate. Build the real
+and simulated workspaces independently.
 
-## Safety
+## Deployment and capture
 
-The real launch opens sensors and can issue actuator commands. Run it only on the vehicle, initially lifted or restrained, with a physical way to cut power. Do not use it as a desktop smoke test.
+From the PC, use [`tools/pc/race_pi.sh`](tools/pc/race_pi.sh): `status` reads
+the state, `preflight` runs the disarmed checks and stops, and `run` launches
+the finite recognition-to-SLAM trial with RAM-backed capture. The
+[main README](../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
+provides the complete SSH commands, prerequisites, deployment and output paths.
 
-## Auxiliary APEX Tools Without SLAM
+The recorded Pi root is `/home/ensta/AiAtonomousRc/APEX`; it contains this
+directory's contents. Learned-odometry dependencies and weights are mounted
+separately from `/home/ensta/odom_rt`. Follow the
+[race-stack guide](docs/race_stack.md) and
+[approved launcher instructions](tools/core/validated_trial_20261024_000432/README.md)
+for the exact setup.
 
-This directory also preserves a minimal APEX diagnostic and capture flow. It can start IMU, LiDAR, raw odometry, and controlled pulses without SLAM:
+The finite profile retains two laps, 40 m estimated travel, 300 s, 0.40 m/s
+command caps, geometry-checked reverse recovery, and arm/power/sensor guards.
+Directional steering limits are nominal command units, not measured wheel
+angles. A trial starts with fresh mapping, odometry and adaptation state.
 
-```bash
-cd ~/AiAtonomousRc/real_vehicle
-./tools/core/apex_core_down.sh
-APEX_SKIP_BUILD=1 ./tools/capture/apex_raw_capture_up.sh
-```
+Trial outputs go to RAM while driving. After neutral and shutdown, the wrapper
+copies, verifies and fsyncs them to persistent storage before removing RAM data.
+This does not disable all operating-system or Docker logging. See
+[RAM capture details](docs/ram_logging.md).
 
-This auxiliary flow does not replace the primary SLAM-enabled `voiture_system` stack.
+## Offline work and publication
 
-## Legacy Python Stack Without SLAM
+The approved ZIP includes `verify_archive.py`, `reproduce_figures.py` and analysis
+requirements. Extract it and follow its README to verify and regenerate figures
+without ROS or a car. Preserve the sealed ZIP and its hash when producing new
+analysis in a separate directory.
 
-The historical implementation independent of ROS 2 is stored at `archive/legacy/full_soft/`. Its old entry point is `code/main.py`, which accepts a `--simulation` option. Keep it as a reference; use `simulation/` or the real `voiture_system` stack for new work.
-
-## Related Documentation
-
-- [Real Vehicle System](../docs/09_blue_vehicle_real_system.md)
-- [Hardware Interfaces](../docs/19_hardware_interfaces.md)
-- [Launch Files and Flows](../docs/11_launch_files_and_execution_flows.md)
-- [Known Limitations and Legacy Code](../docs/16_known_limitations_and_legacy_parts.md)
+See the [real evaluation protocol](docs/real_evaluation_protocol.md) and
+[preprint readiness report](../docs/reports/preprint_readiness_20261024.md).
+The remaining final-version simulation campaign can run after access to the
+vehicle ends. Existing real captures support deployment, timing and internal
+consistency reporting; they do not provide absolute pose error or a controlled
+zero-shot benchmark of the entire stack.

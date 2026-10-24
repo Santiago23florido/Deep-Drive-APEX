@@ -1,6 +1,6 @@
 """The car's driving logic must be the simulation's, not a relative of it.
 
-Twelve modules of ``core/`` and one ROS helper are copies of the simulation's.
+The shared modules of ``core/`` and the ROS helpers are copies of the simulation's.
 A copy that drifts is the worst failure mode available here: the thing validated
 in Gazebo and in the 2D harness would stop being the thing the car runs, and
 nothing would say so. So the copy is checked mechanically, two ways:
@@ -44,7 +44,7 @@ pytestmark = pytest.mark.skipif(not SIM_PKG.is_dir(), reason="no simulation tree
 # Copied verbatim: (path inside the package, path inside the simulation package).
 COPIES = [(f"core/{name}.py", f"core/{name}.py") for name in (
     "config_io", "race_config", "map_metrics", "occupancy", "local_cloud", "lap_closure",
-    "pose_correction", "reactive", "race_planner", "plant_id", "adaptive", "race_driver",
+    "pose_correction", "reactive", "race_planner", "plant_id", "adaptive", "race_driver", "recovery",
 )] + [("nodes/_common.py", "nodes/_common.py"), ("nodes/estimator_health.py", "nodes/estimator_health.py")]
 
 # Written for the car, and the only files of core/ that may differ.

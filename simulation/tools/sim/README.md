@@ -1,5 +1,27 @@
 # APEX Simulation
 
+## Current research workflow
+
+From the repository root, the recognition-to-SLAM race launcher is:
+
+```bash
+./simulation/tools/sim/apex_real2sim_up.sh \
+  --track test_unseen --seed 6 --laps 3 --no-rviz
+```
+
+It builds `rc_sim_description` and `apex_fusion_research` unless `--skip-build`
+is supplied. The default checkpoint is v7e; prepare its weights and dependencies
+as described in the [simulation README](../../README.md). Output is written to
+`simulation/data/real2sim/<run>/` with a separate truth referee and evaluation.
+
+The shared driver includes the October 24 physical corrections and longitudinal
+confidence gate. [The approved physical run](../../../real_vehicle/docs/paper/20261024_005311/README.md)
+completed laps in 46.837/14.594 s, with 8/1 reverse starts. Those physical results
+do not replace the [remaining final-version simulation evaluation](../../../docs/reports/preprint_readiness_20261024.md).
+The PC-to-Pi entry point for real preflight/run is
+[`real_vehicle/tools/pc/race_pi.sh`](../../../real_vehicle/tools/pc/race_pi.sh).
+The workflows below preserve earlier simulator tools.
+
 ## Main Startup
 
 ```bash

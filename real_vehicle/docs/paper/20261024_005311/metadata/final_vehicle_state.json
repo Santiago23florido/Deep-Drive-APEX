@@ -1,0 +1,12 @@
+{
+  "utc": "2026-10-23T23:58:06.192303+00:00",
+  "docker_running": [],
+  "motor_duty_cycle_ns": 1500000,
+  "cpu_max_khz": 2400000,
+  "throttled": "throttled=0x0",
+  "temperature": "temp=53.8'C",
+  "storage_filesystems": [
+    "ext2/ext3 /home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_race",
+    "ext2/ext3 /home/ensta/AiAtonomousRc/APEX/data/diagnostics/20261022_open_segment"
+  ]
+}

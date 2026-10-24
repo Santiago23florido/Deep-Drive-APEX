@@ -5,7 +5,7 @@ import pytest
 
 from apex_fusion_research.core.local_cloud import ScanAccumulator, scan_points, supported, voxel_downsample
 from apex_fusion_research.core.race_config import ReactiveConfig, VehicleLimits
-from apex_fusion_research.core.reactive import (LEFT, RIGHT, ReactiveDriver, ReactivePlanner, WallTracker, classify, known_length, lane_known,
+from apex_fusion_research.core.reactive import (LEFT, RIGHT, LocalGrid, ReactiveDriver, ReactivePlanner, WallTracker, classify, known_length, lane_known,
                                                 lane_speed, lane_walls, pursue, two_arc_paths)
 
 VEH, CFG = VehicleLimits(), ReactiveConfig()
@@ -41,6 +41,53 @@ def test_arcs_closed_form():
     # second arc continues from the end of the first
     x, y, psi = two_arc_paths(np.array([1.0]), np.array([-1.0]), 1.0, 2.0, 0.5, 0.0)
     assert abs(psi[0, 0, -1]) < 1e-9
+
+
+def test_clearance_matches_point_distances_across_cell_boundaries():
+    points = np.array([[-0.153, -0.218], [0.153, -0.207], [0.3, -0.199]])
+    # The old raster's current/future queries could differ by a whole 5 cm
+    # cell. A 0.2 mm displacement cannot change a distance by more than 0.2 mm.
+    queries = np.array([[0.1999, 0.0], [0.2001, 0.0], [0.0, 0.0]])
+    expected = np.maximum(np.linalg.norm(queries[:, None] - points, axis=-1).min(axis=1) - 0.025, 0.0)
+    actual = LocalGrid(points).query(queries)
+    np.testing.assert_allclose(actual, expected, atol=1e-12)
+    assert abs(actual[1] - actual[0]) <= 0.0002 + 1e-12
+
+
+def test_squeezed_start_can_turn_away_from_a_slanted_wall():
+    veh = VehicleLimits(steer_max_deg=12.5, steer_plan_deg=12.0)
+    # A wall 21 cm right of base_link, slanting into the straight path.
+    # The footprint fits; the existing escape rule must allow turning left.
+    cloud = line(-0.23, -0.2222, 3.0, -0.093, step=0.01)
+    cmd, _ = ReactiveDriver(veh, ReactiveConfig()).step(cloud, (0, 0, 0), 0, 0)
+    assert cmd.feasible and cmd.v > 0.0, cmd.diag
+    assert cmd.kappa > 0.0
+
+
+def test_clearance_keeps_frontal_obstacle_blocked():
+    cloud = line(0.35, -1.0, 0.35, 1.0, step=0.01)
+    cmd, _ = drive(cloud, v=0.0)
+    assert not cmd.feasible and cmd.v == 0.0
+
+
+def test_short_checked_arc_keeps_its_curvature_with_long_lookahead():
+    # Exact bicycle geometry: following the end of a radius-2 m arc requires
+    # atan(wheelbase / radius), even when the requested lookahead is longer.
+    radius, wheelbase = 2.0, 0.3
+    theta = np.linspace(0.05, 0.15, 5)
+    path = np.column_stack((radius * np.sin(theta), radius * (1 - np.cos(theta))))
+    assert pursue(path, (0, 0, 0), 0.85, wheelbase) == pytest.approx(math.atan(wheelbase / radius))
+
+
+def test_arc_command_excludes_the_blocked_continuation():
+    cloud = line(1.0, -3.0, 1.0, 3.0, step=0.01)
+    cmd, _ = drive(cloud, v=0.0)
+    assert cmd.feasible and 0.3 <= cmd.diag['free'] < 1.0
+    # Arc samples are at 0.1 m stations from the rear axle. None of the
+    # returned targets may be past the certified free prefix.
+    assert len(cmd.path) > 1
+    assert len(cmd.path) * 0.1 <= cmd.diag['free'] + 1e-9
+    assert cmd.path[:, 0].max() < 1.0 - VEH.circle_radius
 
 
 def test_follow_single_wall_turns_towards_target():

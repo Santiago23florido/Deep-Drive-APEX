@@ -1,5 +1,27 @@
 # LiDAR–IMU pose learning
 
+## Current deployment and publication evidence
+
+The operator-approved physical capture is
+[`20261024_005311`](../../../real_vehicle/docs/paper/20261024_005311/README.md):
+46.837/14.594 s laps, 9,002 raw IMU samples and 889 scans. Hybrid processing
+median/P95/max was 14.165/18.128/26.490 ms on the deployed Pi. This includes ICP,
+preparation, network or stationary hold, deskew and integration; it is not isolated
+network inference. The exact deployed PT/ONNX weights and source are inside that
+run's verified archive. No external real trajectory reference was recorded.
+
+The stationary hold now covers both scan-stamped estimates and IMU prediction
+(section 15). The shared controller uses an independent longitudinal confidence
+gate before applying its learned speed inverse. These are runtime corrections;
+they did not retrain the weights during the approved trial. Historical model
+tables below retain their original dataset/checkpoint scope.
+
+The [preprint readiness report](../../../docs/reports/preprint_readiness_20261024.md)
+separates simulator ground-truth evaluation, real internal consistency, frozen
+weight transfer and online controller adaptation. Generated training outputs are
+not automatically published by merging the source; simulation data/checkpoint
+release and final-version evaluation remain explicit tasks.
+
 Planar motion estimation for the APEX vehicle from a 2D LiDAR and a 6-axis
 IMU. This folder contains, in chronological order:
 
@@ -1302,6 +1324,20 @@ The hold is a ROS parameter of the node (`standstill_hold`, default true) and a
 launch argument of the real2sim stack (`--standstill-hold false` reproduces the
 drift). It is a property of the *deployed* estimator: `stream_predict`, the
 training and evaluation path, is unchanged.
+
+**Integration correction, 2026-10-22:** those parked drift measurements covered
+the scan-stamped pose. They did not cover the 100 Hz IMU prediction consumed by
+the controller. On the real Pi with v7e and the hold enabled, that pose stayed
+within millimetres while `predict()` still integrated accelerometer tilt and
+residual bias between corrections. The controller saw a repeated centimetre
+excursion, accumulated 10.88 m and counted two fictitious laps. The hold now
+also applies to `predict()`: it returns the held scan pose, zero velocity and
+zero yaw rate, stamped at the latest IMU sample. The scan commits the prediction
+hold together with its pose under the same lock, and moving scan geometry
+releases it. Scan freshness remains a separate control gate. Regression tests
+now cover tilted IMU samples during a hold and prediction resuming on the
+recorded moving run. The real 120 s check passed with predicted speed exactly
+zero and no fictitious laps; see `real_vehicle/docs/race_stack.md` section 5f.
 
 Open: this treats the symptom of an extrapolation, not its cause. The cure at
 the weights would be stationary segments of tens of seconds in the training

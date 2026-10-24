@@ -3,10 +3,22 @@
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from apex_fusion_research.core.race_config import RaceDriverConfig
 from apex_fusion_research.core.race_driver import RaceDriverCore
 from apex_fusion_research.core.race_planner import path_from_points
+
+
+def test_zero_velocity_corrections_do_not_accumulate_travel():
+    core = RaceDriverCore(RaceDriverConfig(), 3)
+    for i in range(100):
+        core.control(i * 0.02, ((i % 2) * 0.001, 0.0, 0.0), 0.0, None, False)
+    assert core.travel == 0.0
+    # Resuming forwards and then reversing still measures both segments.
+    core.control(2.0, (0.101, 0.0, 0.0), 0.5, None, False)
+    core.control(2.1, (0.001, 0.0, 0.0), -0.5, None, False)
+    assert core.travel == pytest.approx(0.2)
 
 
 def _core(expected_clearance: float) -> RaceDriverCore:

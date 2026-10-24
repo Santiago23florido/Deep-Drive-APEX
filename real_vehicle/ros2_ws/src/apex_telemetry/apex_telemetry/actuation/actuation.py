@@ -24,6 +24,7 @@ class SteeringServo:
         backend: str = "sysfs_pwm",
         node=None,
         publish_topic: str = "",
+        asymmetric_limits: bool = False,
     ) -> None:
         self._logger = logger
         self._limit_deg = max(1.0, float(limit_deg))
@@ -56,16 +57,16 @@ class SteeringServo:
         # (5.0..10.0 % over +-18 deg = 0.1389 %/deg). Changing it rescales how
         # far the wheels move per commanded degree.
         self._variation_per_deg = 0.5 * (self._dc_max - self._dc_min) / self._limit_deg
-        # The angle the servo can reach *in both directions*. The window is
-        # [5.0, 10.0] % about a centre of 8.2 % (the mechanical straight-ahead,
-        # 1.64 ms), so it reaches -23.0 deg one way and +12.96 deg the other.
-        # Every planner and tracker in this repository assumes a symmetric
-        # steering authority, so the smaller of the two is the real limit: a
-        # request beyond it is clamped here, and `applied_deg` therefore never
-        # reports an angle the wheels did not take. Before this, a 48 deg
-        # request (logged on the car) was saturated by the duty bounds and
-        # reported back as 23 deg.
+        # Nominal PWM-equivalent angles, not independently measured wheels.
+        # With direction_sign=-1, 5..10% about 8.2% gives +23.04 left and
+        # -12.96 right. Legacy callers keep the smaller symmetric limit.
+        # The directional opt-in is used only with matching bridge/planner
+        # limits; duty bounds and the configured centre remain unchanged.
         self._authority_deg = min(self._dc_center - self._dc_min, self._dc_max - self._dc_center) / self._variation_per_deg
+        lower = (self._dc_center - self._dc_min) / self._variation_per_deg
+        upper = (self._dc_max - self._dc_center) / self._variation_per_deg
+        self._authority_left_deg, self._authority_right_deg = (lower, upper) if self._direction_sign < 0 else (upper, lower)
+        self._asymmetric_limits = bool(asymmetric_limits)
         self._requested_angle_deg = 0.0
         self._pre_sign_angle_deg = 0.0
         self._post_sign_angle_deg = 0.0
@@ -88,7 +89,9 @@ class SteeringServo:
         self._requested_angle_deg = float(angle_deg)
         # Clamp what was *asked for*, not only the duty it computes: see
         # `_authority_deg`.
-        requested_angle_deg = max(-self._authority_deg, min(self._authority_deg, self._requested_angle_deg))
+        left = self._authority_left_deg if self._asymmetric_limits else self._authority_deg
+        right = self._authority_right_deg if self._asymmetric_limits else self._authority_deg
+        requested_angle_deg = max(-right, min(left, self._requested_angle_deg))
         signed_angle_deg = requested_angle_deg * self._direction_sign
         duty_cycle = self._dc_center + signed_angle_deg * self._variation_per_deg
         duty_cycle = max(self._dc_min, min(self._dc_max, duty_cycle))
@@ -122,6 +125,9 @@ class SteeringServo:
     def get_state(self) -> dict[str, float]:
         return {
             "authority_deg": self._authority_deg,
+            "authority_left_deg": self._authority_left_deg,
+            "authority_right_deg": self._authority_right_deg,
+            "asymmetric_limits": self._asymmetric_limits,
             "requested_deg": self._requested_angle_deg,
             "pre_sign_deg": self._pre_sign_angle_deg,
             "post_sign_deg": self._post_sign_angle_deg,

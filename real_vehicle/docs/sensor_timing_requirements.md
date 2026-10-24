@@ -62,6 +62,7 @@ All paths below are under `real_vehicle/`.
   - Sample *n* is measured at device time `n × Ts`, where `Ts` = 250 µs is reported by the LiDAR. Capsule *c* reaches the host `1.5 Ts + 840 bits / baud` after its last sample (the SDK timing model) plus the USB latency. The clock mapper turns `n × Ts` into ROS time.
   - A revolution runs from one sync sample to the next.
   - Revolutions that lost a capsule, or whose sample count is off the running median by more than 15 %, are dropped whole. The odometry is trained with whole-revolution dropouts.
+  - Its device-clock envelope uses a 3 s window, 6 chunks and 0.25 s refits, with the existing 3 % drift bound. This recovers timing faster after serial losses; the IMU keeps its separate clock settings. See `race_stack.md` section 5k for the real-car validation and the precision tradeoff.
   - The motor PWM is regulated to `target_rate_hz`: an integral step every 20 revolutions, with a 0.05 Hz deadband.
   - Topics:
     - `/lidar/scan`, `/lidar/scan_localization` and `/lidar/scan_slam`: the same layouts as before, now with revolution stamps.
@@ -82,6 +83,13 @@ All paths below are under `real_vehicle/`.
   | `use_device_timestamps` | true | IMU: stamp each sample at its MCU time. |
 
   `start_apex_pipeline.sh` takes `APEX_LIDAR_BACKEND` (default `rplidar_express`).
+  In race runs, `power_status_file` defaults to `power.csv` in
+  `APEX_RACE_RUN_DIR`. The startup supply guard uses a fresh (at most 3 s old)
+  host `get_throttled` bit 0 to distinguish current undervoltage from latched
+  history. Missing, incomplete or stale rows fall back to the hwmon alarm,
+  which can retain a historical fault. The extra motor-ramp hold budget is
+  cumulative across all PWM steps; it is not restarted at each step. The
+  separate host pre-arm power and temperature check remains required.
 - **Tests** `ros2_ws/src/apex_telemetry/test/test_sensor_timing.py`. They run without ROS or hardware and cover:
   - the clock mapper, including jitter, drift, restarts and never stamping after reception;
   - IMU lines;

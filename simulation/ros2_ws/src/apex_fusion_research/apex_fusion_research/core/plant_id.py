@@ -462,13 +462,17 @@ class PlantIdentifier:
         kappa = curvature_measurement(dx, dyaw, arm)
         self.kappa_meas, self.kappa_meas_t = kappa, self.t_cmd or 0.0
         u = float(eff[self.i_steer])
-        self._sign_check(u, kappa)
-        if abs(u) >= a.sat_frac * self.kappa_sat:
-            self._saturation(kappa, speed)
-            self._refuse("saturated")
-            return kappa
+        # Parked pose noise has a curvature but cannot establish its sign.
+        # Apply the measured-speed gate before voting or learning saturation,
+        # just as for the steering gains below.
         if abs(speed) < a.v_min_steer_mps:
             self._refuse("slow")
+            return kappa
+        self._sign_check(u, kappa)
+        side_scale = self.cfg.vehicle.curvature_limit(u >= 0.0, planning=True) / self.kappa_nom
+        if abs(u) >= a.sat_frac * self.kappa_sat * side_scale:
+            self._saturation(kappa, speed)
+            self._refuse("saturated")
             return kappa
         if spread > a.transient_max * dt:
             # A command that moved a lot inside the interval: the lag model
@@ -505,7 +509,8 @@ class PlantIdentifier:
     def _saturation(self, kappa: float, speed: float) -> None:
         gain = self.steer.x[GAIN_R] if kappa < 0.0 else self.steer.x[GAIN_L]
         eff = float(gain) + float(self.steer.x[SLIP]) * (speed * speed - self.v2_ref)  # noqa: PLW2901
-        self.sat_seen.append(abs(kappa) / max(eff, 0.2))
+        side_scale = self.cfg.vehicle.curvature_limit(kappa >= 0.0, planning=True) / self.kappa_nom
+        self.sat_seen.append(abs(kappa) / max(eff, 0.2) / side_scale)
         if len(self.sat_seen) > self.a.sat_window:
             self.sat_seen.pop(0)
         if len(self.sat_seen) >= self.a.sat_window // 2:
@@ -623,6 +628,19 @@ class PlantIdentifier:
         return self.long.conf([V_GAIN, V_OFF]) if self.long.n >= self.a.n_long else 0.0
 
     @property
+    def longitudinal_ready(self) -> bool:
+        """Both speed coefficients need evidence before their inverse is used.
+
+        A single reverse observation can fit an offset that nearly cancels a
+        small forward target. Count alone also cannot separate gain and offset
+        at one command level. Keep identifying, but retain the unit-gain,
+        zero-offset prior until both standard deviations halve and residuals
+        remain consistent. This is independent of lateral-chain confidence.
+        """
+        return (not self.latched and not self.sign_fault and self.conf_long >= 0.5
+                and self.long.chi <= self.a.chi_max)
+
+    @property
     def confidence(self) -> float:
         """Confidence of the lateral chain, which is what the envelope uses.
 
@@ -639,10 +657,12 @@ class PlantIdentifier:
         if self.latched or self.sign_fault:
             return self.prior()
         a = self.a
+        speed_ready = self.longitudinal_ready
         return PlantModel(
             gain_left=float(self.steer.x[GAIN_L]), gain_right=float(self.steer.x[GAIN_R]),
             trim=float(self.steer.x[TRIM]), slip=float(self.steer.x[SLIP]), arm_m=float(self.lever.x[ARM]),
-            v_gain=float(self.long.x[V_GAIN]), v_offset=float(self.long.x[V_OFF]),
+            v_gain=float(self.long.x[V_GAIN]) if speed_ready else 1.0,
+            v_offset=float(self.long.x[V_OFF]) if speed_ready else 0.0,
             dead_mps=float(self.dead), dead_rev_mps=float(self.dead_rev), kappa_sat=float(self.kappa_sat),
             v_ref_mps=math.sqrt(max(self.v2_ref, 0.0)), tau_steer_s=self.tau_k[self.i_steer], tau_speed_s=self.tau_v[self.i_speed],
             confidence=self.confidence, conf_right=self.steer.conf([GAIN_R]),
@@ -672,6 +692,9 @@ class PlantIdentifier:
         return {
             "confidence": m.confidence, "conf_steer": self.conf_steer, "conf_lever": self.conf_lever,
             "conf_long": self.conf_long, "conf_right": m.conf_right,
+            "longitudinal_applied": self.longitudinal_ready,
+            "v_gain_estimated": float(self.long.x[V_GAIN]),
+            "v_offset_estimated": float(self.long.x[V_OFF]),
             "gain_left": m.gain_left, "gain_right": m.gain_right, "trim": m.trim, "slip": m.slip,
             "arm_m": m.arm_m, "v_gain": m.v_gain, "v_offset": m.v_offset, "dead_mps": m.dead_mps,
             "dead_rev_mps": m.dead_rev_mps, "kappa_sat": m.kappa_sat,

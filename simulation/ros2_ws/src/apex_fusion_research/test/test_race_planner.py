@@ -1,6 +1,7 @@
 import math
 
 import numpy as np
+import pytest
 
 from apex_fusion_research.core.occupancy import GridInfo, read_pgm_yaml, write_pgm_yaml
 from apex_fusion_research.core.race_config import PlannerConfig, RaceConfig, VehicleLimits
@@ -52,13 +53,27 @@ def test_min_curvature_within_bounds_and_smoother():
     log = {"xy": cl, "left": np.ones(len(cl), bool), "right": np.ones(len(cl), bool)}
     plan = plan_race(grid, cl, (0.0, -3.0, 0.0), log, VEH, PlannerConfig(), RaceConfig(), 1.5)
     assert np.all(plan.alpha >= plan.cor.lo - 1e-6) and np.all(plan.alpha <= plan.cor.hi + 1e-6)
-    assert plan.diag["max_kappa"] < plan.diag["max_kappa_ref"]
+    # Minimum squared curvature is an integral objective, not a minimax one.
+    # Uniform reference stations remove artificial peaks at the old seam.
+    reference = closed_reference(cl, (0.0, -3.0, 0.0), PlannerConfig())
+    def bending_energy(path):
+        ds = np.linalg.norm(np.roll(path.xy, -1, axis=0) - path.xy, axis=1)
+        return np.sum(smoothed_curvature(path) ** 2 * ds)
+    assert bending_energy(plan.path) < bending_energy(reference)
+    assert plan.diag["max_kappa"] <= VEH.kappa_max
     assert plan.diag["min_map_clearance_m"] >= PlannerConfig().verify_clearance_m - 1e-6
-    assert plan.path.length < plan.ref.length + 1e-6 or plan.diag["race_length_m"] <= plan.diag["lap_ref_length_m"]
+    # Gentler turns may take a longer line within the lane. Preserve one
+    # winding and bound the extra length by the available outward offset.
+    turning = np.angle(np.exp(1j * (np.roll(plan.path.heading, -1) - plan.path.heading)))
+    assert np.sum(turning) == pytest.approx(2 * math.pi, abs=.01)
+    outward_room = 1.0 - .5 * VEH.width_m - PlannerConfig().wall_margin_m
+    assert plan.path.length <= reference.length + 2 * math.pi * outward_room
     # Speed profile: within the lateral acceleration limit and positive.
     k = smoothed_curvature(plan.path)
     assert np.all(plan.v <= np.sqrt(RaceConfig().a_lat_mps2 / np.maximum(k, 1e-6)) + 0.05)
     assert plan.v.min() > 0.5 and plan.t_lap_pred > 0
+    assert plan.diag['direct_tracking_allowed']
+    assert not plan.diag['direct_tracking_rejection']
 
 
 def test_blind_side_bounded_by_w_min():

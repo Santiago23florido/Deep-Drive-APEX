@@ -1,0 +1,134 @@
+{
+  "audit_date": "2026-10-24",
+  "timezone": "Europe/Paris",
+  "approved_acquisition_commit": "661e33e5cf2b8037d5b6129cfd1e991e26d4bcb0",
+  "approved_acquisition_tag": "real-car-approved-20261024-005311",
+  "controller_runtime_modified_during_publication": false,
+  "hardware_launched": false,
+  "fresh_multiseed_gazebo_campaign_run": false,
+  "pc_ssh_test_method": "Mocked SSH executable; no network or vehicle",
+  "suites": [
+    {
+      "command": "simulation/learning/.venv/bin/python -m pytest -q real_vehicle/ros2_ws/src/apex_race/test real_vehicle/ros2_ws/src/apex_telemetry/test real_vehicle/tools/pc/test_audit_real_run.py",
+      "result": "267 passed in 25.37s",
+      "passed": 267,
+      "log_sha256": "82aa5a5bea7077bd130fcb604e2f324d5d56e9badc69bd2e4018557576af072c",
+      "log_path": "validation_20261024/real_tests.txt"
+    },
+    {
+      "command": "simulation/learning/.venv/bin/python -m pytest -q simulation/ros2_ws/src/apex_fusion_research/test",
+      "result": "204 passed in 95.39s (0:01:35)",
+      "passed": 204,
+      "log_sha256": "b930484ccafa1035f8a5f93a5a1d1b53ea7e7b444199b0d0591c8c410c519cc9",
+      "log_path": "validation_20261024/simulation_tests.txt"
+    },
+    {
+      "command": "simulation/learning/.venv/bin/python -m pytest -q simulation/learning/lidar_imu_pose/tests",
+      "result": "68 passed, 8 warnings in 239.79s (0:03:59)",
+      "passed": 68,
+      "log_sha256": "e34d2ed49aa1f2880e97479a0b3d4680d536ed4290901aaf88218d0324e71d9b",
+      "log_path": "validation_20261024/odometry_tests.txt"
+    },
+    {
+      "command": "simulation/learning/.venv/bin/python -m pytest -q real_vehicle/tools/pc/test_race_pi.py",
+      "result": "8 passed in 0.10s",
+      "passed": 8,
+      "log_sha256": "4389b56885d24ad3c0212124adcac5049cd8550cd047de2185842dbf63b1bd56",
+      "log_path": "validation_20261024/pc_entry_tests.txt"
+    }
+  ],
+  "total_passed": 547,
+  "shared_source_pairs": [
+    {
+      "relative_path": "core/config_io.py",
+      "sha256": "8fdbf32ae6433109d8e3c291a8ff94f34472730300ff1348e1756ff69376c55b",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/race_config.py",
+      "sha256": "ae3a64b6d9a574f5815484dda519b51fddb2a89fc01c1cae1a7a6905481173b6",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/map_metrics.py",
+      "sha256": "d05d553ed3a5c48cfeb3e0ece296bc73d4c1d961272407152c657c86b690b567",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/occupancy.py",
+      "sha256": "cd67d49b7161b36a842342c837cd6d383686fa7cabb2faaf5992cc2a08d1ffba",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/local_cloud.py",
+      "sha256": "1bbddd85da326a597520764eee19f11becac064775bc9d51f6743e137fa575b4",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/lap_closure.py",
+      "sha256": "4574a63d24b8d63808deafc1cc15eb108da05f6c9dbf594c43533c86a34fef70",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/pose_correction.py",
+      "sha256": "2237bcce7ea11dfc152b759dd39557b16e02971528c1b38b56798a2761ad2de9",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/reactive.py",
+      "sha256": "a0de2eca399cd146d39901c074160b237964fde847200b69f23ab9934763ed41",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/race_planner.py",
+      "sha256": "43704154aa438ff35b571ad611af8421bbc4f0b8338824edc2ccda980fcdae24",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/plant_id.py",
+      "sha256": "09e58cbca71e72373ea4e7463f338a86e419f0812a1c0e5829f795654fc62bc9",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/adaptive.py",
+      "sha256": "acaca5f8cf5144d13b135f1df54e0baeb0bf0b33c2678516e570ec0cae54cc46",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/race_driver.py",
+      "sha256": "6281ab3c8ff0bafbb0c85b4e5a6217de8cc53cef46c0208c9f7d1329c6d265ed",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "core/recovery.py",
+      "sha256": "2cb745e9daacb38915d18851e1a7b3994cafae4462a9daeb59d3bdc8b788894c",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "nodes/_common.py",
+      "sha256": "8aa226bd8f81523cff54ef9491ba1ea146e8bcec4c6b319364bd2277047db28f",
+      "byte_identical": true
+    },
+    {
+      "relative_path": "nodes/estimator_health.py",
+      "sha256": "c22b8936d4fa019458e2d253a35a8c1527ef54dc5b40627729877cff416f52b2",
+      "byte_identical": true
+    }
+  ],
+  "archive_checks": [
+    {
+      "run": "20261024_000432",
+      "sha256": "c0c3a3bae9fcce83ee260d3f27d9a6aab2e56616693a5eda054ee87c3c5b178a",
+      "bytes": 31516045,
+      "payload_files": 302,
+      "crc_and_payload_hashes_verified": true
+    },
+    {
+      "run": "20261024_005311",
+      "sha256": "cdcda4bf8d42be5b5ab841ccaa8c70922119a268e8fce094cbc143ffacaf2721",
+      "bytes": 10004574,
+      "payload_files": 305,
+      "crc_and_payload_hashes_verified": true
+    }
+  ]
+}

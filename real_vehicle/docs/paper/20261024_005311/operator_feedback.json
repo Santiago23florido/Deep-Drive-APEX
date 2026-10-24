@@ -1,0 +1,10 @@
+{
+  "physical_completed_laps": 2,
+  "operator_confirmation_pending": false,
+  "operator_confirmed_success": true,
+  "operator_selected_as_retained_version": true,
+  "physical_speed_comparison": "Operator confirmed the desired speed, like the original run.",
+  "contact_with_track": "not reported",
+  "original_spanish": "esta vez klo hizo a la veolocidad qwiueera como el original funciono bien esi toomo los datos eses es qel que queiro dejar",
+  "recorded_utc": "2026-10-24T00:03:15.136156+00:00"
+}

@@ -173,6 +173,7 @@ class LiveOdometry:
         self.velocity = np.zeros(2)
         self.bias = np.zeros(3)
         self.last_stamp_ns: int | None = None
+        self._predict_hold = False  # committed with the scan pose under self.lock
         self.scans = 0
         self.health = _Health(lidar.rate_hz, imu_rate_hz)
         # The IMU side (add_imu, predict) and the scan side (process) may run
@@ -350,6 +351,7 @@ class LiveOdometry:
             c, s = math.cos(self.pose[2]), math.sin(self.pose[2])
             self.pose = np.array([self.pose[0] + c * delta[0] - s * delta[1], self.pose[1] + s * delta[0] + c * delta[1], self.pose[2] + delta[2]])
             self.velocity, self.bias = velocity, bias
+            self._predict_hold = hold
             self._prev = (stamp, cur_r, cur_v)
             self.last_stamp_ns = stamp
             self.scans += 1
@@ -372,12 +374,18 @@ class LiveOdometry:
     # ------------------------------------------------------------ prediction
     def predict(self) -> tuple[int, np.ndarray, np.ndarray, float] | None:
         """Pose, body velocity and yaw rate propagated with the bias-corrected
-        IMU from the last scan stamp to the latest IMU sample:
+        IMU from the last scan stamp to the latest IMU sample. A confirmed
+        standstill holds this prediction too: integrating accelerometer tilt
+        here would invent motion between the corrected, stationary scans.
+        The next scan's geometry releases the hold; scan freshness remains a
+        separate control gate.
         (stamp, pose, velocity, yaw rate)."""
         with self.lock:
             if self.last_stamp_ns is None or not self._imu_t:
                 return None
             pose = self.pose.copy()
+            if self._predict_hold:
+                return self._imu_t[-1], pose, np.zeros(2), 0.0
             v = self.velocity.copy()
             bias = self.bias.copy()
             t_prev = self.last_stamp_ns

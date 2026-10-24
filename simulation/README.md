@@ -2,7 +2,52 @@
 
 This directory is the active development environment when the physical car is unavailable. It contains the Gazebo model and worlds, simulation-specific ROS packages, RViz layouts, tools, run data, and the earlier simulator kept for reference.
 
+## October 24, 2026 integration status
+
+The simulator includes the final shared driving-core corrections used by
+[approved physical run `20261024_005311`](../real_vehicle/docs/paper/20261024_005311/README.md):
+confidence-gated longitudinal inversion, asymmetric steering authority,
+geometry-based reverse recovery, mission/lap guards and continuous map-guided
+handover. The learned estimator also holds its IMU-predicted pose while parked,
+preventing fictitious travel between stationary scan corrections. No controller
+runtime or neural weights were changed during the documentation integration.
+
+| Evidence | Available result | Scope |
+| --- | --- | --- |
+| Approved physical laps | 46.837 / 14.594 s; 8 / 1 reverse starts | Development track, MAP_GUIDED continuation |
+| Final shared core | Byte/semantic parity tests against the real package | Hardware I/O and parameter profiles remain distinct |
+| Historical Gazebo runs below | Reactive mapping followed by planned laps | Results belong to their recorded earlier versions |
+| Final-version Gazebo campaign | Still required | Multi-track trials, baselines and ablations |
+
+See the [preprint readiness report](../docs/reports/preprint_readiness_20261024.md)
+for the remaining experiments and publication artifacts. The real archive
+includes six English figures and the exact PT/ONNX weights; broader training
+outputs and generated simulation runs remain Git-ignored.
+
+## Run recognition, mapping and planned continuation
+
+From the repository root:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+cd simulation/ros2_ws
+colcon build --symlink-install --packages-select rc_sim_description apex_fusion_research
+source install/setup.bash
+cd ../..
+./simulation/tools/sim/apex_real2sim_up.sh \
+  --track test_unseen --seed 6 --laps 3 --no-rviz
+```
+
+Prepare the v7e checkpoint first using the
+[learning README](learning/lidar_imu_pose/README.md). The driver consumes its own
+estimated pose and noisy sensors; the separate referee uses simulator truth for
+evaluation. No physical-car connection is used by this launcher.
+
 ## Autonomous Racing on a Track It Has Never Seen (Simulation)
+
+This section presents historical demonstrations. Their figures and seed tables
+are retained with their original experimental context; they are not new results
+from the final October 24 controller.
 
 <p align="center">
   <img src="ros2_ws/src/apex_fusion_research/doc/images/race/anim_carrera.gif" width="860" alt="The car racing on the line it planned on its own map">
@@ -25,7 +70,7 @@ Its only pose is the neural LiDAR-inertial odometry corrected by the SLAM, and i
 
 The full description is in [Real2sim race mode](ros2_ws/src/apex_fusion_research/README.md#131-race-mode-explore-map-race): validation on 4 seeds, the odometry model's training figures, and what worked.
 
-## Quick Start
+## General simulator quick start
 
 ```bash
 cd ~/AiAtonomousRc/simulation/ros2_ws
