@@ -85,7 +85,7 @@ their directory name records their first approved use.
 
 ## Measurement scope
 
-The [main README](../../../../README.md) now presents the additional timing,
+The [real-vehicle README](../../../README.md) presents the additional timing,
 resource and data tables alongside the figures, and documents the
 [PC SSH preflight/run entry point](../../../tools/pc/race_pi.sh). The
 [preprint readiness report](../../../../docs/reports/preprint_readiness_20261024.md)

@@ -260,7 +260,7 @@ simulation/learning/.venv/bin/python simulation/tools/analysis/evaluate_real2sim
   simulation/data/real2sim/frozen_v7e_test_unseen_s6
 ```
 
-The [PC SSH workflow in the main README](../../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
+The [PC SSH workflow in the real-vehicle README](../../real_vehicle/README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
 documents physical preflight/run separately. This audit starts no hardware trial.
 
 ## Integration validation
