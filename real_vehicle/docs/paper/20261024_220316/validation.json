@@ -1,0 +1,11 @@
+{
+  "runtime_source_commit": "f907cce",
+  "physical_operator_confirmed": true,
+  "selected_runtime_files_matching_pc_pi": 144,
+  "raw_payloads_copied_and_verified_after_neutral": 97,
+  "preflight_graded_checks_passed": 33,
+  "pretrial_tests_passed": 312,
+  "pretrial_test_duration_s": 21.43,
+  "pc_default_selection_tests_passed": 11,
+  "kalman_longitudinal_converged": false
+}

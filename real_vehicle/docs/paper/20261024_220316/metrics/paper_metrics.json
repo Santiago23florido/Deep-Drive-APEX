@@ -1,0 +1,39 @@
+{
+  "run_id": "20261024_220316",
+  "lap_durations_s": [
+    29.644300937652588,
+    10.875135898590088
+  ],
+  "reverse_starts_per_lap": [
+    3,
+    0
+  ],
+  "first_crossing_s": 29.644300937652588,
+  "second_crossing_s": 40.519436836242676,
+  "planning_started_s": 30.425007343292236,
+  "slam_guidance_started_s": 34.6805100440979,
+  "driver_done_s": 41.500237226486206,
+  "reversals": [
+    {
+      "start_s": 5.219897031784058,
+      "end_s": 8.30013656616211,
+      "phase_at_start": "explore",
+      "distance_m": 0.17311322597205547
+    },
+    {
+      "start_s": 9.839897632598877,
+      "end_s": 12.899989366531372,
+      "phase_at_start": "explore",
+      "distance_m": 0.2037848975067039
+    },
+    {
+      "start_s": 23.379928588867188,
+      "end_s": 26.019882678985596,
+      "phase_at_start": "explore",
+      "distance_m": 0.24237938266837733
+    }
+  ],
+  "direct_tracking_allowed": false,
+  "external_ground_truth": false,
+  "comparison_type": "descriptive_single_trial"
+}

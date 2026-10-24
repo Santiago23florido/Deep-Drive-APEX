@@ -1,0 +1,3 @@
+lap,duration_s,reverse_maneuver_starts,execution
+1,29.644300937652588,3,Lap 1: Reconnaissance
+2,10.875135898590088,0,Lap 2: Planning + SLAM guidance

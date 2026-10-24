@@ -1,0 +1,1 @@
+Actual saved SLAM occupancy grid, cropped around the onboard estimated trajectory. Colors distinguish reconnaissance and the subsequent lap containing planning and SLAM-guided local execution. Orange markers show recorded reverse maneuvers. The dashed route is a local-planning guide, not an executed optimized forward race line. No external trajectory ground truth is available. 

@@ -1,0 +1,1 @@
+Descriptive comparison within one real-vehicle trial: elapsed times between onboard start-line crossings and recorded reverse-maneuver starts. The second lap includes asynchronous planning followed by SLAM-guided local execution. This is not a controlled ablation or a statistical performance claim; no external ground truth is implied.
