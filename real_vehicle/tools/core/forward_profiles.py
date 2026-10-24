@@ -1,4 +1,5 @@
 """Explicit experimental forward calibrations; approved acquisition is separate."""
+import json
 
 PROFILES = {
     "initialized": {
@@ -22,3 +23,19 @@ def forward_profile(name):
     values["race_yaml"] = f"ros2_ws/src/apex_race/config/race_speed_{name}.yaml"
     values["vehicle_yaml"] = f"ros2_ws/src/apex_race/config/vehicle_speed_{name}.yaml"
     return values
+
+
+def select_forward_profile(directory, explicit=None):
+    """Carry the request across sudo through the existing per-trial RAM marker.
+
+    sudo deliberately drops arbitrary environment variables. A RAM run must
+    have an explicit recorded selection; never fall back to another profile.
+    """
+    marker = directory / '.ram_capture_active.json'
+    if marker.exists():
+        name = json.loads(marker.read_text())['forward_profile']
+        if explicit is not None and explicit != name:
+            raise ValueError('Requested profile disagrees with RAM trial selection')
+    else:
+        name = explicit or 'initialized'
+    return forward_profile(name)

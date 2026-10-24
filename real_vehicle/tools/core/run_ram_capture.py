@@ -33,6 +33,12 @@ def main():
     result, sampler = None, None
     try:
         storage.mount()
+        # The CPU helper changes user through sudo, which strips environment
+        # variables. Persist selection in the already verified RAM marker.
+        marker = storage.targets['diagnostics'] / '.ram_capture_active.json'
+        requested = json.loads(marker.read_text())
+        requested['forward_profile'] = args.profile
+        marker.write_text(json.dumps(requested) + '\n')
         if args.profile != 'approved':
             # The original acquisition helpers remain byte-for-byte intact.
             # Only this trial's RAM copy selects the explicit experimental YAML.
@@ -66,8 +72,7 @@ def main():
             # live-power checks, finite mission guards and final disarming.
             command = ['python3', str(storage.targets['diagnostics'] / 'run_segment_cpu_limit.py'),
                        '--max-khz', '2000000', '--runner', 'run_oval.py']
-            environment = dict(os.environ, APEX_FORWARD_PROFILE=args.profile)
-            result = subprocess.run(command, cwd=args.root, env=environment, timeout=650).returncode
+            result = subprocess.run(command, cwd=args.root, timeout=650).returncode
     finally:
         # Stop before copying to SD even after startup/timeout exceptions.
         running = subprocess.check_output(['docker', 'ps', '--format', '{{.Names}}'], text=True).splitlines()

@@ -1,5 +1,6 @@
 """Forward calibration must not silently change successful steering or reverse."""
 import ast
+import json
 import math
 from pathlib import Path
 import sys
@@ -16,7 +17,7 @@ from apex_race.core.vehicle_io import load_vehicle_config
 CONFIG = Path(__file__).resolve().parents[1] / 'config'
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / 'tools/core'))
-from forward_profiles import forward_profile
+from forward_profiles import forward_profile, select_forward_profile
 
 
 def tracking_config():
@@ -26,6 +27,23 @@ def tracking_config():
     for name in ('steer_max_left_deg', 'steer_max_right_deg', 'steer_plan_left_deg', 'steer_plan_right_deg'):
         setattr(cfg.vehicle, name, getattr(sides, name))
     return cfg
+
+
+def test_requested_profile_survives_sudo_environment_sanitization(tmp_path, monkeypatch):
+    marker = tmp_path/'.ram_capture_active.json'
+    marker.write_text(json.dumps({'forward_profile': 'tracking'}))
+    monkeypatch.delenv('APEX_FORWARD_PROFILE', raising=False)
+    assert select_forward_profile(tmp_path)['name'] == 'tracking'
+    # Even a stale inherited environment must not override the recorded request.
+    monkeypatch.setenv('APEX_FORWARD_PROFILE', 'initialized')
+    assert select_forward_profile(tmp_path)['name'] == 'tracking'
+    with pytest.raises(ValueError):
+        select_forward_profile(tmp_path, 'initialized')
+    marker.write_text('{}')
+    with pytest.raises(KeyError):
+        select_forward_profile(tmp_path)
+    marker.unlink()
+    assert select_forward_profile(tmp_path, 'tracking')['name'] == 'tracking'
 
 
 def test_tracking_preserves_lateral_geometry_and_recovery_selection():

@@ -64,8 +64,7 @@ case "$mode" in
   preflight)
     if [[ "$profile" != approved ]]; then
       cp tools/core/initialized_trial/run_oval.py data/diagnostics/20261022_open_segment/run_oval_initialized.py
-      export APEX_FORWARD_PROFILE="$profile"
-      exec python3 data/diagnostics/20261022_open_segment/run_oval_initialized.py --diagnose-only
+      exec python3 data/diagnostics/20261022_open_segment/run_oval_initialized.py --diagnose-only --forward-profile "$profile"
     fi
     exec python3 data/diagnostics/20261022_open_segment/run_oval.py --diagnose-only
     ;;

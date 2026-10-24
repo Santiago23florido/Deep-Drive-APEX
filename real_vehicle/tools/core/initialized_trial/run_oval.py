@@ -13,6 +13,7 @@ import time
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--execute', action='store_true', help='activate the bridge and perform the agreed trial')
 parser.add_argument('--diagnose-only', action='store_true', help='perform the same preflight, never publish arm=true')
+parser.add_argument('--forward-profile', choices=['initialized', 'tracking'])
 args = parser.parse_args()
 if args.execute and args.diagnose_only:
     parser.error('choose either --execute or --diagnose-only')
@@ -23,8 +24,8 @@ root = Path.home() / 'AiAtonomousRc/APEX'
 os.chdir(root)
 sys.path.insert(0, str(root / 'tools/core'))
 from power_stability import wait_for_stable_power
-from forward_profiles import forward_profile
-profile = forward_profile(os.environ.get('APEX_FORWARD_PROFILE', 'initialized'))
+from forward_profiles import select_forward_profile
+profile = select_forward_profile(Path(__file__).parent, args.forward_profile)
 out = root / 'data/diagnostics/20261022_open_segment' / ('oval_' + time.strftime('%Y%m%d_%H%M%S'))
 out.mkdir()
 shutil.copyfile(root / "tools/core/arm_until_done.py", out / "arm_until_done.py")
@@ -44,6 +45,7 @@ for source in sources:
     manifest[str(relative)] = hashlib.sha256(source.read_bytes()).hexdigest()
 (out / 'source_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 (out / 'forward_profile.json').write_text(json.dumps(profile, indent=2) + '\n')
+print('Recorded forward profile: ' + profile['name'], flush=True)
 env = dict(os.environ,
            APEX_RACE_PARAMS_FILE='/work/' + profile['race_yaml'],
            APEX_RACE_VEHICLE_YAML='/work/' + profile['vehicle_yaml'],
