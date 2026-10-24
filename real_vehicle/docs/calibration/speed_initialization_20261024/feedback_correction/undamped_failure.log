@@ -1,0 +1,92 @@
+.................FF                                                      [100%]
+=================================== FAILURES ===================================
+_____ test_restored_feedback_with_delayed_speed_and_load_changes[0.3-1.0] ______
+
+gain = 1.0, delay_s = 0.3
+
+    @pytest.mark.parametrize('gain', [.55, .85, 1., 1.15])
+    @pytest.mark.parametrize('delay_s', [.16, .30])
+    def test_restored_feedback_with_delayed_speed_and_load_changes(gain, delay_s):
+        """Isolate P feedback while Kalman legitimately retains its uncertain prior."""
+        def simulate(scale):
+            cfg = initialized_config()
+            cfg.adaptive.speed_feedback_forward_scale = scale
+            shaper, ident = AdaptiveShaper(cfg), PlantIdentifier(cfg)
+            model = ident.model()
+            velocity, history, records = 0., [0.], []
+            dt, delay_steps = .02, round(delay_s/.02)
+            for index in range(1000):
+                t = index*dt
+                target = [.45, .55, .50][int(t//4.) % 3]
+                measured = history[max(0, len(history)-1-delay_steps)]
+                u, _ = shaper.shape(t, 0., target, measured, model, shaper.envelope(model))
+                u = max(0., min(cfg.mission.max_command_mps, u))
+                pwm = 0. if u < .005 else min(28.2, 15.42+5.24*u)
+                motor_gain = gain if t < 10. else .9*gain
+                delivered = max(0., motor_gain*(6.3*((pwm-15.)/33.)-.08)) if pwm else 0.
+                if velocity < .03 and pwm < 17.3:
+                    delivered = 0.
+                velocity += (1.-math.exp(-dt/.22))*(delivered-velocity)
+                history.append(velocity)
+                records.append((t, target, velocity, pwm))
+            return np.array(records)
+        old, fixed = simulate(1.), simulate(6.3)
+        settled = (fixed[:, 0] > 3.) & (np.mod(fixed[:, 0], 4.) > 1.5)
+        old_error = np.mean(abs(old[settled, 1]-old[settled, 2]))
+        fixed_error = np.mean(abs(fixed[settled, 1]-fixed[settled, 2]))
+        if gain != 1.:
+            assert fixed_error < old_error
+        assert fixed_error < .15
+        assert np.max(fixed[:, 3]) <= 28.2 and np.max(fixed[:, 2]) < .8
+        # Delayed measurements must not create a persistent large oscillation.
+        for start in [2., 6., 14., 18.]:
+            keep = (fixed[:, 0] >= start) & (fixed[:, 0] < start+1.)
+>           assert np.ptp(fixed[keep, 2]) < .15
+E           assert 0.2241335074430082 < 0.15
+E            +  where 0.2241335074430082 = <function ptp at 0x72315d1ac330>(array([0.45053841, 0.46834044, 0.48555123, 0.50185878, 0.51697216,\n       0.53062681, 0.54258927, 0.55266123, 0.560682...25, 0.38897874, 0.4003341 , 0.41245214, 0.42509678,\n       0.43802551, 0.45099407, 0.46376093, 0.4760918 , 0.4877638 ]))
+E            +    where <function ptp at 0x72315d1ac330> = np.ptp
+
+real_vehicle/ros2_ws/src/apex_race/test/test_initialized_speed.py:185: AssertionError
+_____ test_restored_feedback_with_delayed_speed_and_load_changes[0.3-1.15] _____
+
+gain = 1.15, delay_s = 0.3
+
+    @pytest.mark.parametrize('gain', [.55, .85, 1., 1.15])
+    @pytest.mark.parametrize('delay_s', [.16, .30])
+    def test_restored_feedback_with_delayed_speed_and_load_changes(gain, delay_s):
+        """Isolate P feedback while Kalman legitimately retains its uncertain prior."""
+        def simulate(scale):
+            cfg = initialized_config()
+            cfg.adaptive.speed_feedback_forward_scale = scale
+            shaper, ident = AdaptiveShaper(cfg), PlantIdentifier(cfg)
+            model = ident.model()
+            velocity, history, records = 0., [0.], []
+            dt, delay_steps = .02, round(delay_s/.02)
+            for index in range(1000):
+                t = index*dt
+                target = [.45, .55, .50][int(t//4.) % 3]
+                measured = history[max(0, len(history)-1-delay_steps)]
+                u, _ = shaper.shape(t, 0., target, measured, model, shaper.envelope(model))
+                u = max(0., min(cfg.mission.max_command_mps, u))
+                pwm = 0. if u < .005 else min(28.2, 15.42+5.24*u)
+                motor_gain = gain if t < 10. else .9*gain
+                delivered = max(0., motor_gain*(6.3*((pwm-15.)/33.)-.08)) if pwm else 0.
+                if velocity < .03 and pwm < 17.3:
+                    delivered = 0.
+                velocity += (1.-math.exp(-dt/.22))*(delivered-velocity)
+                history.append(velocity)
+                records.append((t, target, velocity, pwm))
+            return np.array(records)
+        old, fixed = simulate(1.), simulate(6.3)
+        settled = (fixed[:, 0] > 3.) & (np.mod(fixed[:, 0], 4.) > 1.5)
+        old_error = np.mean(abs(old[settled, 1]-old[settled, 2]))
+        fixed_error = np.mean(abs(fixed[settled, 1]-fixed[settled, 2]))
+        if gain != 1.:
+>           assert fixed_error < old_error
+E           assert 0.07333597559282462 < 0.03145591396890724
+
+real_vehicle/ros2_ws/src/apex_race/test/test_initialized_speed.py:179: AssertionError
+=========================== short test summary info ============================
+FAILED real_vehicle/ros2_ws/src/apex_race/test/test_initialized_speed.py::test_restored_feedback_with_delayed_speed_and_load_changes[0.3-1.0]
+FAILED real_vehicle/ros2_ws/src/apex_race/test/test_initialized_speed.py::test_restored_feedback_with_delayed_speed_and_load_changes[0.3-1.15]
+2 failed, 17 passed in 0.87s
