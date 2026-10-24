@@ -1,0 +1,18 @@
+....................................................................     [100%]
+=============================== warnings summary ===============================
+simulation/learning/lidar_imu_pose/tests/test_onnx_net.py::test_onnx_matches_torch_over_a_stream
+simulation/learning/lidar_imu_pose/tests/test_onnx_net.py::test_window_imu_encoder_exports_without_the_loop
+  Warning: You are using the legacy TorchScript-based ONNX export. Starting in PyTorch 2.9, the new torch.export-based ONNX exporter has become the default. Learn more about the new export logic: https://docs.pytorch.org/docs/stable/onnx_export.html. For exporting control flow: https://pytorch.org/tutorials/beginner/onnx/export_control_flow_model_to_onnx_tutorial.html
+
+simulation/learning/lidar_imu_pose/tests/test_onnx_net.py::test_onnx_matches_torch_over_a_stream
+simulation/learning/lidar_imu_pose/tests/test_onnx_net.py::test_window_imu_encoder_exports_without_the_loop
+  Warning: The feature will be removed. Please remove usage of this function
+
+simulation/learning/lidar_imu_pose/tests/test_onnx_net.py::test_onnx_matches_torch_over_a_stream
+simulation/learning/lidar_imu_pose/tests/test_onnx_net.py::test_window_imu_encoder_exports_without_the_loop
+simulation/learning/lidar_imu_pose/tests/test_onnx_net.py::test_window_imu_encoder_exports_without_the_loop
+simulation/learning/lidar_imu_pose/tests/test_onnx_net.py::test_window_imu_encoder_exports_without_the_loop
+  Warning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+68 passed, 8 warnings in 239.79s (0:03:59)

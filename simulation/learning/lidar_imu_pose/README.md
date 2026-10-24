@@ -1,5 +1,27 @@
 # LiDAR–IMU pose learning
 
+## Current deployment and publication evidence
+
+The operator-approved physical capture is
+[`20261024_005311`](../../../real_vehicle/docs/paper/20261024_005311/README.md):
+46.837/14.594 s laps, 9,002 raw IMU samples and 889 scans. Hybrid processing
+median/P95/max was 14.165/18.128/26.490 ms on the deployed Pi. This includes ICP,
+preparation, network or stationary hold, deskew and integration; it is not isolated
+network inference. The exact deployed PT/ONNX weights and source are inside that
+run's verified archive. No external real trajectory reference was recorded.
+
+The stationary hold now covers both scan-stamped estimates and IMU prediction
+(section 15). The shared controller uses an independent longitudinal confidence
+gate before applying its learned speed inverse. These are runtime corrections;
+they did not retrain the weights during the approved trial. Historical model
+tables below retain their original dataset/checkpoint scope.
+
+The [preprint readiness report](../../../docs/reports/preprint_readiness_20261024.md)
+separates simulator ground-truth evaluation, real internal consistency, frozen
+weight transfer and online controller adaptation. Generated training outputs are
+not automatically published by merging the source; simulation data/checkpoint
+release and final-version evaluation remain explicit tasks.
+
 Planar motion estimation for the APEX vehicle from a 2D LiDAR and a 6-axis
 IMU. This folder contains, in chronological order:
 

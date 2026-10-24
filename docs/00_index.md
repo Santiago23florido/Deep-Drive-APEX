@@ -1,5 +1,19 @@
 # Documentation Index
 
+## Current implementation and publication entry points
+
+| Topic | Current reference |
+| --- | --- |
+| Approved physical runtime, data and English figures | [Run 20261024_005311](../real_vehicle/docs/paper/20261024_005311/README.md) |
+| Real runtime graph and deployed configuration | [Race stack](../real_vehicle/docs/race_stack.md) |
+| PC SSH preflight and recognition-to-SLAM run | [Main README commands](../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run) |
+| Current simulator and historical demonstrations | [Simulation README](../simulation/README.md) |
+| Remaining simulation experiments for the preprint | [Readiness report](reports/preprint_readiness_20261024.md) |
+
+The active physical implementation is `apex_race` + `apex_telemetry`, learned
+odometry and `slam_toolbox`. Older architecture pages may describe the earlier
+`voiture_system` or curve-entry flows; they do not replace the approved runtime.
+
 ## Who Should Read This
 
 This documentation is for people continuing development in simulation, developers of the SLAM-enabled physical vehicle, and maintainers who need to distinguish operational code from archived material.
@@ -16,7 +30,7 @@ This documentation is for people continuing development in simulation, developer
 | Architecture | [System Architecture](06_system_architecture.md) | Main data flows. |
 | Architecture | [ROS Architecture](07_ros_architecture.md) | Packages, nodes, TF, and topics. |
 | Simulation | [Gazebo Simulation](08_simulation_gazebo.md) | Scenarios, sensors, and execution. |
-| Real vehicle | [SLAM-Enabled Real Vehicle](09_blue_vehicle_real_system.md) | `voiture_system`, hardware, and safety. |
+| Real vehicle | [SLAM-Enabled Real Vehicle](09_blue_vehicle_real_system.md) | Approved race runtime, hardware and earlier stack distinction. |
 | Code | [Packages and Modules](10_packages_and_modules.md) | Package responsibilities. |
 | Execution | [Launch Files and Flows](11_launch_files_and_execution_flows.md) | Recommended and alternate entry points. |
 | Interfaces | [Topics, Services, and Parameters](12_topics_services_actions_parameters.md) | Practical ROS reference. |
