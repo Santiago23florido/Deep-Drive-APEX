@@ -164,6 +164,11 @@ def test_reverse_does_not_end_on_a_barely_feasible_forward_path():
 def test_driving_settings_match_the_physically_working_run():
     reference = json.loads((Path(__file__).parent / 'data/working_193423_config.json').read_text())
     current = json.loads(json.dumps(asdict(oval_core().cfg)))  # JSON represents tuple grids as arrays
+    # New opt-in calibration switches must stay neutral in the approved profile.
+    for key, value in (('longitudinal_forward_only', False), ('longitudinal_allow_overspeed', False),
+                       ('launch_forward_command_scale', 1.0)):
+        assert current['adaptive'][key] == value
+        current['adaptive'].pop(key)
     # Driving settings remain fixed; trial budgets and the minimum lap
     # arming distance changed after observing a valid return below 10 m.
     for section, key in (('adaptive', 'recover_max_per_lap'), ('adaptive', 'recover_max_without_progress'),

@@ -56,7 +56,8 @@ LOG_COLUMNS = ["t", "phase", "x_map", "y_map", "yaw_map", "x_odom", "y_odom", "y
                # therefore allows itself (adaptive.py). Appended, never inserted:
                # the analysis tools read these by name.
                "kap_des", "kap_cmd", "kap_meas", "g_left", "g_right", "k_trim", "k_slip", "arm", "g_v",
-               "u_dead", "tau_steer", "conf", "conf_arm", "v_env", "recover"]
+               "u_dead", "tau_steer", "conf", "conf_arm", "v_env", "recover",
+               "v_target", "v_model_steady"]
 
 
 class ImmediateFuture:
@@ -697,7 +698,8 @@ class RaceDriverCore:
                f"{self.kappa_des:.4f}", f"{self.cmd_out[1]:.4f}", f"{self.ident.fresh_kappa(t):.4f}",
                f"{m.gain_left:.4f}", f"{m.gain_right:.4f}", f"{m.trim:.4f}", f"{m.slip:.5f}", f"{m.arm_m:.4f}",
                f"{m.v_gain:.4f}", f"{m.dead_mps:.4f}", f"{m.tau_steer_s:.3f}",
-               f"{m.confidence:.3f}", f"{self.ident.conf_lever:.3f}", f"{env.v_max_mps:.2f}", self.recover]
+               f"{m.confidence:.3f}", f"{self.ident.conf_lever:.3f}", f"{env.v_max_mps:.2f}", self.recover,
+               f"{self.shaper.v_target if v != 0.0 else 0.0:.3f}", f"{m.speed_out(v):.3f}"]
         return v, steer, row
 
     def adaptation(self) -> dict:
@@ -736,4 +738,9 @@ class RaceDriverCore:
                     "max_command_mps": self.cfg.mission.max_command_mps,
                     "max_reverse_command_mps": self.cfg.mission.max_reverse_command_mps},
                 "sign_fault": self.ident.sign_fault,
-                "confidence": self.model.confidence, "arm_m": self.model.arm_m, "g_left": self.model.gain_left}
+                "confidence": self.model.confidence, "arm_m": self.model.arm_m, "g_left": self.model.gain_left,
+                "v_target": self.shaper.v_target if self.cmd_out[0] != 0.0 else 0.0,
+                "speed_model": {"gain": self.model.v_gain, "offset": self.model.v_offset,
+                                "prior_gain": 1.0, "prior_offset": 0.0,
+                                "longitudinal_applied": self.ident.longitudinal_ready,
+                                "forward_only": self.cfg.adaptive.longitudinal_forward_only}}

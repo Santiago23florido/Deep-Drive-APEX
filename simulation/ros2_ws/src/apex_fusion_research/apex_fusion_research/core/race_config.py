@@ -273,6 +273,8 @@ class AdaptiveConfig:
     sign_votes: int = 20  # samples of the steering sign check before the car may adapt
     sign_kappa_min: float = 0.15
     # --- speed block: [gain, offset]; the start threshold is bracketed apart
+    longitudinal_forward_only: bool = False  # forward bridge calibration does not identify reverse
+    longitudinal_allow_overspeed: bool = False  # steady same-sign speed can exceed the prior
     vgain_sigma: float = 0.20
     vgain_min: float = 0.60
     vgain_max: float = 1.40
@@ -313,6 +315,7 @@ class AdaptiveConfig:
     kp_speed: float = 0.25  # proportional only: the identified gain is the integrator
     speed_authority: float = 0.20  # fraction of the command the proportional term may add
     launch_hold_s: float = 0.30  # standstill under a speed command before the launch ramp
+    launch_forward_command_scale: float = 1.0  # convert launch constants when the forward command gauge is calibrated
     launch_ramp_mps2: float = 0.50
     lead_max: float = 0.25  # [1/m] cap of the servo-lag lead
     lead_preserve_turn: bool = False  # opt-in: anticipation cannot invert desired curvature

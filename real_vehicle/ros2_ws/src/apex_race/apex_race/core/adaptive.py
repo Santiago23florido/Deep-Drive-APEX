@@ -87,6 +87,7 @@ class AdaptiveShaper:
         self.launch_extra = 0.0
         self.lead = 0.0
         self.v_out = 0.0
+        self.v_target = 0.0
         self.kappa_out = 0.0
 
     # ------------------------------------------------------------ envelope
@@ -129,6 +130,7 @@ class AdaptiveShaper:
         """``(speed, curvature)`` to command so the car delivers the request."""
         dt = 0.0 if self.t_prev is None else max(0.0, min(0.1, t - self.t_prev))
         self.t_prev = t
+        self.v_target = v_des
         if not self.a.enabled:
             self.v_out, self.kappa_out = v_des, kappa_des
             return v_des, kappa_des
@@ -152,6 +154,7 @@ class AdaptiveShaper:
 
     def _speed(self, t: float, dt: float, v_des: float, speed: float, model: PlantModel) -> float:
         a = self.a
+        self.v_target = v_des
         if abs(v_des) < 1e-6:
             self.launch_since, self.launch_extra = None, 0.0
             return 0.0
@@ -167,8 +170,11 @@ class AdaptiveShaper:
         if abs(speed) < 0.05:
             self.launch_since = t if self.launch_since is None else self.launch_since
             if t - self.launch_since >= a.launch_hold_s:
-                self.launch_extra = min(a.launch_ramp_mps2 * 0.5, self.launch_extra + a.launch_ramp_mps2 * dt)
-            u = math.copysign(max(abs(u), dead + 0.03), v_des)
+                scale = a.launch_forward_command_scale if v_des > 0.0 else 1.0
+                ramp = a.launch_ramp_mps2 * scale
+                self.launch_extra = min(ramp * 0.5, self.launch_extra + ramp * dt)
+            scale = a.launch_forward_command_scale if v_des > 0.0 else 1.0
+            u = math.copysign(max(abs(u), dead + 0.03 * scale), v_des)
         else:
             self.launch_since, self.launch_extra = None, 0.0
         u += math.copysign(self.launch_extra, v_des)
@@ -176,5 +182,5 @@ class AdaptiveShaper:
         return max(-cap, min(cap, u))
 
     def diag(self) -> dict:
-        return {"lead": self.lead, "v_out": self.v_out, "kappa_out": self.kappa_out,
+        return {"lead": self.lead, "v_out": self.v_out, "v_target": self.v_target, "kappa_out": self.kappa_out,
                 "launch_extra": self.launch_extra}
