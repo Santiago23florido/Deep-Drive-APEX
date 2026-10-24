@@ -254,6 +254,7 @@ class AdaptiveConfig:
     gain_min: float = 0.55
     gain_max: float = 1.60
     gain_walk_per_s: float = 0.001
+    steering_confidence_gate: bool = False  # opt-in: do not invert an uncertain early steering fit
     trim_sigma: float = 0.05  # [1/m] about 0.9 deg of servo centre error
     trim_max: float = 0.25
     trim_walk_per_s: float = 0.0005

@@ -97,6 +97,7 @@ apex_race_driver:
       launch_forward_command_scale: 6.3
       speed_feedback_forward_scale: 6.3
       kp_speed_forward: 0.17  # damp the converted P gain for the measured feedback delay
+      steering_confidence_gate: true
       dead_max_mps: 2.125
     mission:
       enabled: true

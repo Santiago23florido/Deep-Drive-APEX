@@ -146,6 +146,34 @@ def test_forward_feedback_preserves_electrical_gain_and_authority():
     assert 5.24*(u-.5) == pytest.approx(-33.*.20*.30, abs=.002)
 
 
+def test_sparse_steering_fit_cannot_reduce_authority_or_bias_reverse():
+    cfg = initialized_config()
+    ident = PlantIdentifier(cfg)
+    ident.steer.x[:] = [1.5675, 1.6, -.15, 0.]
+    ident.steer.n = 10  # exactly the failure's premature fitted model
+    model = ident.model()
+    assert model.gain_left == 1. and model.gain_right == cfg.vehicle.right_ratio
+    assert model.trim == 0. and model.kappa_sat == cfg.vehicle.kappa_max
+    assert model.kappa_in(0., .2) == 0.  # a selected straight reverse stays straight
+    assert model.kappa_in(-.6, .2) == pytest.approx(-.6/cfg.vehicle.right_ratio)
+    assert not ident.status()['steering_applied']
+    assert ident.status()['gain_right_estimated'] == 1.6
+
+
+def test_steering_inverse_is_released_only_with_consistent_precise_evidence():
+    cfg = initialized_config()
+    ident = PlantIdentifier(cfg)
+    ident.steer.x[:] = [.9, 1.1, .02, 0.]
+    ident.steer.n = cfg.adaptive.n_steer
+    ident.steer.p *= .01
+    ident.steer.chi = 1.
+    assert ident.conf_steer >= .5
+    assert ident.model().gain_right == 1.1 and ident.status()['steering_applied']
+    ident.steer.chi = 6.
+    assert ident.model().gain_right == cfg.vehicle.right_ratio
+    assert not ident.status()['steering_applied']
+
+
 @pytest.mark.parametrize('gain', [.55, .85, 1., 1.15])
 @pytest.mark.parametrize('delay_s', [.16, .30])
 def test_restored_feedback_with_delayed_speed_and_load_changes(gain, delay_s):

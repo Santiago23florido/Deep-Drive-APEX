@@ -167,7 +167,7 @@ def test_driving_settings_match_the_physically_working_run():
     # New opt-in calibration switches must stay neutral in the approved profile.
     for key, value in (('longitudinal_forward_only', False), ('longitudinal_allow_overspeed', False),
                        ('launch_forward_command_scale', 1.0), ('speed_feedback_forward_scale', 1.0),
-                       ('kp_speed_forward', 0.0)):
+                       ('kp_speed_forward', 0.0), ('steering_confidence_gate', False)):
         assert current['adaptive'][key] == value
         current['adaptive'].pop(key)
     # Driving settings remain fixed; trial budgets and the minimum lap
