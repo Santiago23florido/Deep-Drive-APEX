@@ -92,16 +92,18 @@ def review(source: Path, output: Path) -> dict:
     plt.rcParams.update({'font.size': 9, 'pdf.fonttype': 42, 'svg.fonttype': 'none'})
     fig, axes = plt.subplots(2, 1, sharex=True, figsize=(7.2, 4.2), layout='constrained')
     x = t-events['t_explore']
-    axes[0].plot(x, ref, color='black', lw=.9, label='Logged nominal reference')
+    axes[0].plot(x, ref, color='black', lw=.9,
+                 label='Logged nominal reference' if legacy else 'Reference (reverse: legacy gauge)')
     axes[0].plot(x, speed, color='#0072b2', lw=.7, label='Onboard speed estimate')
-    axes[0].set(ylabel='Speed / nominal reference', title='Recorded control signals (legacy reference gauge)' if legacy else 'Recorded control signals')
+    axes[0].set(ylabel='Speed / nominal reference' if legacy else 'Speed [m/s] / reverse reference',
+                title='Recorded control signals (legacy reference gauge)' if legacy else 'Recorded control signals')
     axes[0].legend(fontsize=7, ncol=2)
     moving = (ref > .005) & (command > .005) & (speed > .05)
     residual = np.where(moving, speed-ref, np.nan)
     axes[1].plot(x, residual, lw=.7, color='#d55e00', label='Forward-motion numerical residual')
     axes[1].scatter(x[stable & moving], residual[stable & moving], s=3, color='#009e73', label='Settled forward samples')
     axes[1].axhline(0., color='black', lw=.5)
-    axes[1].set(ylabel='Estimate minus reference')
+    axes[1].set(ylabel='Estimate minus reference' if legacy else 'Forward residual [m/s]')
     axes[1].legend(fontsize=7, ncol=2)
     axes[1].set_xlabel('Time since reconnaissance start [s]')
     for ax in axes:
@@ -112,11 +114,15 @@ def review(source: Path, output: Path) -> dict:
     for extension in ('png', 'pdf'):
         fig.savefig(output/('control_tracking.'+extension), dpi=400)
     plt.close(fig)
+    convention = ('The original reference convention is retained; numerical residuals do not establish '
+                  'calibrated physical tracking or odometry accuracy. ' if legacy else
+                  'Forward references use the declared onboard-derived bridge calibration; reverse '
+                  'retains its legacy command gauge. Forward residuals compare the actual reference '
+                  'with the unmodified onboard estimate, not independent motion ground truth. ')
     (output/'control_tracking_caption.txt').write_text(
         'Recorded internal references and onboard estimates. Dashed lines mark recognized laps. '
-        'Green points meet the stated settled-motion selection. The original reference convention '
-        'is retained; numerical residuals do not establish calibrated physical tracking or odometry '
-        'accuracy. Curvature comparison includes measurement/actuation delay and transients.\n')
+        'Green points meet the stated settled-motion selection. ' + convention +
+        'Curvature comparison includes measurement/actuation delay and transients.\n')
     return report
 
 

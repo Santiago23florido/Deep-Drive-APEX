@@ -1,0 +1,190 @@
+{
+  "run_id": "20261024_214635",
+  "ground_truth_available": false,
+  "reference_convention": "Recorded reference; inspect the declared bridge calibration",
+  "bridge_map": {
+    "esc_zero_pct": 15.0,
+    "pct_per_mps": 8.68421052631579,
+    "max_pct": 28.2,
+    "esc_zero_rev_pct": 18.0,
+    "rev_pct_per_mps": 33.0,
+    "max_rev_pct": 31.2,
+    "full_scale_mps": 1.52,
+    "full_scale_reverse_mps": 0.4
+  },
+  "selection": {
+    "stable_window_s": 0.8,
+    "minimum_window_coverage_s": 0.7,
+    "maximum_reference_range": 0.025,
+    "minimum_moving_speed_mps": 0.05
+  },
+  "laps": [
+    {
+      "lap": 1,
+      "duration_s": 28.72358751296997,
+      "reverse_starts": 4,
+      "forward_command_s": 12.86172866821289,
+      "reverse_command_s": 7.740200042724609,
+      "zero_command_s": 8.12165880203247,
+      "forward_requested": {
+        "duration_s": 12.86172866821289,
+        "reference_mean": 0.3564070144774404,
+        "onboard_speed_mean_mps": 0.20973677340303268,
+        "numeric_bias": -0.14667024107440774,
+        "numeric_mae": 0.15056400798947095,
+        "numeric_rmse": 0.20421161710013278,
+        "feedback_saturated_fraction": 0.12735455826196568
+      },
+      "forward_moving": {
+        "duration_s": 10.760928869247437,
+        "reference_mean": 0.36000000000000004,
+        "onboard_speed_mean_mps": 0.2665547106680246,
+        "numeric_bias": -0.09344528933197535,
+        "numeric_mae": 0.09809921597411936,
+        "numeric_rmse": 0.1183929951389752,
+        "feedback_saturated_fraction": 0.0
+      },
+      "settled_forward": {
+        "duration_s": 8.705028533935547,
+        "reference_mean": 0.36,
+        "onboard_speed_mean_mps": 0.28441303575943777,
+        "numeric_bias": -0.0755869642405622,
+        "numeric_mae": 0.0813400267794814,
+        "numeric_rmse": 0.09366398754606778,
+        "feedback_saturated_fraction": 0.0
+      },
+      "raw_curvature_diagnostic": {
+        "valid_s": 10.080828666687012,
+        "mae_inv_m": 0.7981404394085815,
+        "scope": "Raw contemporaneous diagnostic, not a steering acceptance metric. Includes delay, transients and curvature observations that the identifier may reject as too slow."
+      }
+    },
+    {
+      "lap": 2,
+      "duration_s": 25.65043306350708,
+      "reverse_starts": 2,
+      "forward_command_s": 14.410433053970337,
+      "reverse_command_s": 5.73930025100708,
+      "zero_command_s": 5.500699758529663,
+      "forward_requested": {
+        "duration_s": 14.410433053970337,
+        "reference_mean": 0.358012815118136,
+        "onboard_speed_mean_mps": 0.2112243388372508,
+        "numeric_bias": -0.14678847628088515,
+        "numeric_mae": 0.14837066360286766,
+        "numeric_rmse": 0.18935070142028543,
+        "feedback_saturated_fraction": 0.10685313362188781
+      },
+      "forward_moving": {
+        "duration_s": 12.430533170700073,
+        "reference_mean": 0.35999999999999993,
+        "onboard_speed_mean_mps": 0.2530127397905171,
+        "numeric_bias": -0.10698726020948288,
+        "numeric_mae": 0.10882145381720447,
+        "numeric_rmse": 0.12395735394218989,
+        "feedback_saturated_fraction": 0.0
+      },
+      "settled_forward": {
+        "duration_s": 9.308733224868774,
+        "reference_mean": 0.36,
+        "onboard_speed_mean_mps": 0.2561341054450919,
+        "numeric_bias": -0.1038658945549081,
+        "numeric_mae": 0.10631520789663733,
+        "numeric_rmse": 0.11728095935616836,
+        "feedback_saturated_fraction": 0.0
+      },
+      "raw_curvature_diagnostic": {
+        "valid_s": 12.010533094406128,
+        "mae_inv_m": 0.760719004573364,
+        "scope": "Raw contemporaneous diagnostic, not a steering acceptance metric. Includes delay, transients and curvature observations that the identifier may reject as too slow."
+      }
+    }
+  ],
+  "adaptation": {
+    "confidence": 0.0,
+    "conf_steer": 0.0,
+    "conf_lever": 0.9636340017803512,
+    "conf_long": 0.2789760956430968,
+    "conf_right": 0.8012277064031641,
+    "longitudinal_applied": false,
+    "longitudinal_forward_only": true,
+    "steering_applied": true,
+    "gain_left_estimated": 1.3939717225646207,
+    "gain_right_estimated": 1.6,
+    "trim_estimated": -0.034495763537990345,
+    "v_gain_estimated": 0.6864704655537044,
+    "v_offset_estimated": 0.08200609966946368,
+    "gain_left": 1.3939717225646207,
+    "gain_right": 1.6,
+    "trim": -0.034495763537990345,
+    "slip": -1.9266051958953287e-12,
+    "arm_m": 0.15071481682731855,
+    "v_gain": 1.0,
+    "v_offset": 0.0,
+    "dead_mps": 0.2836347126307162,
+    "dead_rev_mps": 0.24907603768229128,
+    "kappa_sat": 0.7671098910048454,
+    "v_ref_mps": 0.39005544012014504,
+    "tau_steer_s": 0.06,
+    "tau_speed_s": 0.3,
+    "n": {
+      "lever": 191,
+      "steer": 37,
+      "long": 33,
+      "dead": 21
+    },
+    "chi": {
+      "lever": 0.03296968298798525,
+      "steer": 12.129619974366987,
+      "long": 0.9004171244778117
+    },
+    "sigma": {
+      "arm": 0.0018182999109824427,
+      "gain_left": 0.17516140844468472,
+      "gain_right": 0.05963168807905078,
+      "trim": 0.01286807689497764,
+      "v_gain": 0.14420478087138067
+    },
+    "sign_fault": false,
+    "trips": 0,
+    "latched": false,
+    "rejected": {
+      "dt": 7,
+      "sigma": 0,
+      "health": 2,
+      "slow": 962,
+      "saturated": 0,
+      "transient": 307,
+      "braking": 0,
+      "deadband": 127,
+      "no_command": 0,
+      "latched": 0
+    },
+    "envelope": {
+      "v_max_mps": 0.357,
+      "a_lat_mps2": 0.96,
+      "lap1_v_scale": 0.85,
+      "blind_margin_add_m": 0.05,
+      "kappa_limit": 0.7671098910048454,
+      "kappa_limit_left": 1.3807118745769835,
+      "kappa_limit_right": 0.7671098910048454
+    }
+  },
+  "direct_tracking_allowed": false,
+  "counters": {
+    "disarmed": 2877,
+    "core_busy_hold": 2214,
+    "core_busy_stop": 0,
+    "scan_stale": 0,
+    "pose_age_stop": 0
+  },
+  "scan_age_stops": 1,
+  "cmd_gap_max_ms": 57.83,
+  "source_sha256": {
+    "driver.csv": "41b93c310aa25aa652fa8cb65aecd1cd828d0e5c7a08251a9798e49d24767ae4",
+    "race_events.json": "61c374697eb61a39bfa83f81c7e2f47d864551fed67c09c6a69d427db30635c3",
+    "bridge_before.json": "b1327ef8d8c579f23a6f64f22840da16aef94baa2933ae7044aab1efab06fcd3"
+  },
+  "interpretation": "Numerical reference/onboard residuals, not absolute physical speed accuracy. No measured signal is scaled or time-shifted to match the reference.",
+  "recognized_laps": 2
+}

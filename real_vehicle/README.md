@@ -93,6 +93,15 @@ contact: 43.842 / 33.922 s, with 6 / 4 reverse starts. Its separate reference
 logging exposes the remaining speed-calibration mismatch. The report includes
 time-weighted tracking diagnostics, English figures and raw-data locations.
 
+The later [longitudinal-only `tracking` profile](docs/calibration/speed_initialization_20261024/tracking_followup/README.md)
+retains that steering/recovery selection and reached its two-lap stop in run
+`214635`: 28.724 / 25.650 s, with 4 / 2 reverses. The operator reported multiple
+physical laps. Forward reference 0.360 m/s versus selected lap-2 onboard speed
+0.256 m/s leaves MAE 0.106 m/s. It remains an experiment with unaccepted
+longitudinal adaptation. From the PC, `./real_vehicle/tools/pc/race_pi.sh --profile tracking run`
+selects its finite captured trial; add `--dry-run` before `run` to preview.
+The default stays `approved` and the former acquisition is preserved.
+
 The recorded Pi root is `/home/ensta/AiAtonomousRc/APEX`; it contains this
 directory's contents. Learned-odometry dependencies and weights are mounted
 separately from `/home/ensta/odom_rt`. Follow the

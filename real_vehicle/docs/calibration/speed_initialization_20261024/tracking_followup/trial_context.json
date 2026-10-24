@@ -1,0 +1,16 @@
+{
+  "profile": "tracking",
+  "runtime_source_commit": "eee4988",
+  "calibration_source_run": "20261024_211216",
+  "odometry_weights_changed": false,
+  "forward_scale": 3.8,
+  "forward_reference_bounds_mps": [
+    0.36,
+    0.42
+  ],
+  "default_approved_profile_changed": false,
+  "actual_stop_reason": "driver_done",
+  "ground_truth_available": false,
+  "scope": "Calibrated hardware follow-up; not untouched zero-shot full-stack transfer",
+  "prior_failed_selector_run": "20261024_214318"
+}

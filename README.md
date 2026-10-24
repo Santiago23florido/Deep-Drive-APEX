@@ -103,6 +103,15 @@ stationary car on a clear track, `./real_vehicle/tools/pc/race_pi.sh --profile i
 deploys the hash-checked payload and performs the bounded experimental trial.
 This command moves the car. Preview it with `--dry-run` before `run`.
 
+The separate [longitudinal-only `tracking` follow-up, run `214635`](real_vehicle/docs/calibration/speed_initialization_20261024/tracking_followup/README.md)
+reached the two-lap stop in 28.724 / 25.650 s, with 4 / 2 reverse starts. The
+operator reported multiple physical laps. Its actual forward reference was
+0.360 m/s; selected second-lap onboard mean / MAE were 0.256 / 0.106 m/s.
+Longitudinal confidence remained below acceptance. Use `--profile tracking`
+explicitly for this calibrated experiment; it retains the approved steering
+and reverse selection. It does not replace the approved default or establish
+accurate speed tracking or untouched zero-shot full-stack transfer.
+
 ## From the PC: SSH preflight and recognition-to-SLAM run
 
 The PC entry point is [`real_vehicle/tools/pc/race_pi.sh`](real_vehicle/tools/pc/race_pi.sh).

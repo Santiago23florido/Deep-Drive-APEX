@@ -1,0 +1,12 @@
+{
+  "verified_payload_files": 97,
+  "transient_ram_wrapper_files": [
+    "diagnostics/.ram_capture_active.json",
+    "diagnostics/run_oval.py",
+    "diagnostics/run_segment_cpu_limit.py",
+    "diagnostics/sample_resources.py",
+    "diagnostics/save_final_map.py",
+    "runs/.last_run"
+  ],
+  "verified_after_motor_stop": true
+}

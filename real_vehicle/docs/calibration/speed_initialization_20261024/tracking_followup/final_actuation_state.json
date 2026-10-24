@@ -1,0 +1,9 @@
+{
+  "pwm": {
+    "period": 20000000,
+    "duty_cycle": 1500000,
+    "enable": 1
+  },
+  "container_removed": true,
+  "neutral_verified": true
+}

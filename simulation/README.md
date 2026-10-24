@@ -39,6 +39,15 @@ battery/boundary conditions, together with the unresolved speed-reference error.
 It does not validate the experimental initialized profile or replace the
 remaining simulation campaign.
 
+The later [`tracking` hardware follow-up](../real_vehicle/docs/calibration/speed_initialization_20261024/tracking_followup/README.md)
+calibrates only the forward profile from run 211216 and retains approved
+steering/recovery behavior. Its captured two-lap mission ended normally, but
+selected lap-2 speed MAE was 0.106 m/s and the longitudinal inverse remained
+inactive. This follow-up changes no shared controller core or neural weights;
+its six motor-delay checks are not a completed Gazebo campaign. The calibrated
+hardware profile still requires final simulator integration and controlled
+repeat trials before a speed-tracking claim.
+
 ## Run recognition, mapping and planned continuation
 
 From the repository root:
