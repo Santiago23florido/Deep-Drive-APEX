@@ -1,0 +1,4 @@
+trial,run_id,completed_onboard_laps,lap1_s,lap2_s,forward_esc_snapshot_median,forward_command_time_weighted_median_mps,driver_command_max_gap_ms,effective_v_gain_final,effective_v_offset_final
+Original fast run,20261023_222959,2,34.20891237258911,14.844345569610596,17.97,0.09,42.45,1.0,0.0
+Previous full capture,20261024_000432,2,83.82346320152283,42.77300977706909,16.14550256381774,0.035,42.0,0.8799033213485705,0.13432548695621466
+Longitudinal confidence gate,20261024_005311,2,46.83656167984009,14.593669652938843,17.97,0.09,45.05,1.0,0.0

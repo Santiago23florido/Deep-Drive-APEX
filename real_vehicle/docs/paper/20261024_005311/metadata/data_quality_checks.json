@@ -1,0 +1,20 @@
+{
+  "all_passed": true,
+  "checks": {
+    "imu_count_matches_metadata": true,
+    "scan_count_matches_metadata": true,
+    "receipt_count_matches_raw": true,
+    "all_lidar_rows_360_beams": true,
+    "all_imu_rows_complete": true,
+    "driver_critical_values_finite": true,
+    "estimator_critical_values_finite": true,
+    "driver_stamps_increasing": true,
+    "estimator_stamps_increasing": true
+  },
+  "imu_samples": 9002,
+  "lidar_scans": 889,
+  "receipt_rows": 9891,
+  "driver_rows": 655,
+  "estimator_rows": 1141,
+  "note": "Structural/count/finite-field/time checks; best-effort recording does not prove lossless hardware transport. Infinite LaserScan ranges are retained as non-returns."
+}

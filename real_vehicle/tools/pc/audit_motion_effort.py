@@ -95,7 +95,10 @@ def main():
     report['bridge']['forward_request_below_legacy_minimum_fraction'] = float((applied[(applied > 0)] < bridge[0]['min_effective_speed_pct']).mean())
     report['bridge']['minimum_parameter_note'] = 'min_effective_speed_pct is a legacy-profile parameter; affine profile does not impose this minimum. Its presence in status does not establish the current physical motor threshold.'
     report['bridge']['reverse_phase_snapshot_counts'] = {p: sum(r['motor_state']['reverse_phase'] == p for r in bridge) for p in sorted({r['motor_state']['reverse_phase'] for r in bridge})}
-    report['adaptation_final'] = {k: events['adaptation'][k] for k in ('v_gain', 'v_offset', 'dead_mps', 'dead_rev_mps', 'confidence', 'n') if k in events['adaptation']}
+    report['adaptation_final'] = {k: events['adaptation'][k] for k in (
+        'v_gain', 'v_offset', 'v_gain_estimated', 'v_offset_estimated',
+        'longitudinal_applied', 'conf_long', 'dead_mps', 'dead_rev_mps', 'confidence', 'n')
+        if k in events['adaptation']}
     report['interpretation'] = [
         'Recorded maneuvers and small forward commands contribute to elapsed time; increasing a ceiling alone does not increase commands below that ceiling.',
         'Affine mapping permits commands below the former legacy minimum. Physical breakaway threshold may vary with battery/load, but is not measured here.',

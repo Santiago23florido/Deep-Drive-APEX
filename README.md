@@ -2,19 +2,23 @@
 
 Deep Drive APEX is an autonomous RC car project built with ROS 2 and Gazebo. The repository explicitly separates simulation, the SLAM-enabled physical vehicle, and historical code so each environment can evolve without mixing dependencies or commands.
 
-## Preserved Real-Vehicle Run — October 24, 2026
+## Retained Real-Vehicle Run — October 24, 2026
 
-The operator confirmed two physical laps in run **20261024_000432**:
-83.82 s for reconnaissance and 42.77 s for the second lap, with 13 and 4
-reverse maneuvers respectively. The second lap used SLAM-guided local planning.
-The saved map and trajectory below are onboard estimates.
+The operator selected run **20261024_005311** after confirming the desired
+original-like physical speed and successful two-lap execution: **46.84 s** for
+reconnaissance and **14.59 s** for the second lap, with 8 and 1 reverse maneuvers.
+The second lap used SLAM-guided local planning. The saved map and trajectory
+below are onboard estimates.
 
-![Real-vehicle execution: onboard map, estimated motion and commands](real_vehicle/docs/paper/20261024_000432/figures/real_vehicle_execution.png)
+![Real-vehicle execution: onboard map, estimated motion and commands](real_vehicle/docs/paper/20261024_005311/figures/real_vehicle_execution.png)
 
-[Approved configuration, raw data, English figures and metrics](real_vehicle/docs/paper/20261024_000432/README.md)
+[Retained configuration, raw data, English figures and metrics](real_vehicle/docs/paper/20261024_005311/README.md)
 include the exact source/model snapshot, a verified portable archive and
-the recorded launch helpers. The runtime was restored to this captured version
-on both the PC and Raspberry Pi. No external motion ground truth was available.
+the recorded launch helpers. The PC and Raspberry Pi run the same source.
+The speed inverse now retains its prior until longitudinal identification is
+sufficiently confident. No neural weights were retrained or external motion
+ground truth measured. The [earlier capture](real_vehicle/docs/paper/20261024_000432/README.md)
+remains preserved separately.
 
 ## Autonomous Racing on a Track It Has Never Seen (Simulation)
 

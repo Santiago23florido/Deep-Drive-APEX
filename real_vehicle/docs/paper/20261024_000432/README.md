@@ -1,5 +1,10 @@
 # Approved real-vehicle two-lap capture
 
+This earlier capture remains preserved. The operator subsequently selected
+[run 20261024_005311](../20261024_005311/README.md), which restored the desired
+speed with a confidence gate on the longitudinal inverse, as the retained
+version. Its code/data have a separate snapshot and tag.
+
 ROS run **20261024_000432**, diagnostic **20261024_000431**, October 24, 2026
 (operator date, Europe/Paris). The operator confirmed that the car completed
 both laps and stopped, and selected this configuration for preservation.

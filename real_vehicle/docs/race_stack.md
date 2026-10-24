@@ -1,9 +1,12 @@
 # The race stack on the real car
 
 Status (October 24, 2026): **two physical laps completed and confirmed by the
-operator; the approved configuration is restored and the vehicle is stopped.**
+operator; the retained configuration is deployed and the vehicle is stopped.**
 The preserved run, exact launch helpers, raw evidence and English figures are
-documented in [the approved capture](paper/20261024_000432/README.md).
+documented in [the retained capture](paper/20261024_005311/README.md).
+The operator selected this repeat at the desired original-like speed. Its
+longitudinal inverse keeps unit gain/zero offset until the independent speed
+identifier reaches confidence 0.5 and passes residual consistency checks.
 The second lap used SLAM-guided local planning with reverse recovery; the
 optimized global candidate was rejected. Later trial notes below record the
 development history and do not supersede the approved runtime manifest.
