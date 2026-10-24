@@ -196,6 +196,13 @@ ground-truth odometry accuracy or a statistically established success rate.
 
 ## Commands for the next simulation work
 
+The later [forward speed calibration report](../../real_vehicle/docs/calibration/speed_initialization_20261024/README.md)
+records an opt-in hardware conversion, separate reference logging and additional
+simulation development trials. Motor tracking tests pass; track-level failures,
+including Gazebo localization drift and timeout, remain visible. No new
+physical experiment was performed. The approved capture above remains the real
+evidence, and the simulation campaign below is still required.
+
 From the repository root, after preparing ROS 2/Gazebo, dependencies and v7e
 weights:
 

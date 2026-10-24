@@ -76,6 +76,15 @@ the finite recognition-to-SLAM trial with RAM-backed capture. The
 [main README](../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
 provides the complete SSH commands, prerequisites, deployment and output paths.
 
+An opt-in [forward speed calibration profile](docs/calibration/speed_initialization_20261024/README.md)
+keeps the control law and network weights, and targets the approved physical
+pace through a calibrated forward PWM map. Use
+`./real_vehicle/tools/pc/race_pi.sh --profile initialized run` from the repository
+root for its experimental trial, or add `--dry-run` before `run` to preview it
+without connecting. The command syncs and verifies the required files first.
+Physical validation is pending, and full-track simulation failures are recorded
+in the report. The approved profile remains the default.
+
 The recorded Pi root is `/home/ensta/AiAtonomousRc/APEX`; it contains this
 directory's contents. Learned-odometry dependencies and weights are mounted
 separately from `/home/ensta/odom_rt`. Follow the

@@ -1,0 +1,31 @@
+{
+  "command": [
+    "/home/santiago/AiAtonomousRc/simulation/tools/sim/apex_real2sim_up.sh",
+    "--track",
+    "zs_real_track_replica",
+    "--motion",
+    "slow_variable",
+    "--seed",
+    "1",
+    "--laps",
+    "2",
+    "--no-rviz",
+    "--icp-backend",
+    "polar",
+    "--net-backend",
+    "onnx",
+    "--checkpoint",
+    "/home/santiago/AiAtonomousRc/simulation/learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4/best_model.pt",
+    "--run-name",
+    "initialized_speed_v7e_20261024_s1",
+    "--timeout-s",
+    "900",
+    "--driver-set",
+    "vehicle.steer_plan_deg=12.5 vehicle.steer_max_left_deg=22.5 vehicle.steer_max_right_deg=12.96 vehicle.steer_plan_left_deg=22.5 vehicle.steer_plan_right_deg=12.96 reactive.use_wall_planner=false reactive.preview_while_waiting=false reactive.n_k1=21 reactive.n_k2=11 reactive.w_min_m=0.9 reactive.d_follow_m=0.36 reactive.d_follow_left_m=0.0 reactive.wall_margin_m=0.15 reactive.c_soft_m=0.15 reactive.both_max_width_m=2.0 reactive.wall_min_length_m=1.2 reactive.wall_min_points=12 reactive.v_explore_mps=0.55 reactive.v_min_mps=0.45 reactive.v_blind_mps=0.5 reactive.a_lat_mps2=0.8 reactive.a_acc_mps2=3.78 reactive.a_dec_mps2=1.0 reactive.lane_margin_m=0.25 reactive.local_path_lookahead_m=0.45 reactive.w_smooth=0.1 closure.arm_distance_m=5.0 closure.arm_time_s=12.0 closure.overlap_m=0.0 closure.lateral_tol_m=0.55 closure.return_radius_m=0.55 planner.bound_erosion_m=0.1 planner.none_half_width_m=0.15 planner.wall_component_min_m=1.2 planner.seam_blend_m=1.5 race.v_max_mps=0.55 race.a_lat_mps2=1.2 race.a_acc_mps2=3.78 race.a_dec_mps2=1.2 race.v_tight_base_mps=0.35 race.v_tight_gain=1.5 race.handover_max_lat_m=0.15 race.guide_handover_s=1.0 race.guard_drop_m=0.12 race.finish_margin_m=0.5 adaptive.sat_cmd_frac=1.0 adaptive.lead_preserve_turn=true adaptive.plan_with_identified_model=true adaptive.lookahead_add_m=0.0 adaptive.lookahead_add_s=0.0 adaptive.v_min_update_mps=0.3 adaptive.v_min_steer_mps=0.45 adaptive.slip_arm_v_min_mps=10.0 adaptive.slip_sigma=1e-06 adaptive.recover_creep_mps=0.5 adaptive.recover_speed_mps=0.2 adaptive.recover_clearance_m=0.15 adaptive.recover_enabled=true adaptive.recover_distance_m=0.5 adaptive.recover_timeout_s=3.0 adaptive.recover_exit_free_m=0.6 adaptive.recover_max_per_lap=36 adaptive.recover_max_without_progress=12 adaptive.recover_progress_reset_m=0.75 adaptive.longitudinal_forward_only=true adaptive.longitudinal_allow_overspeed=true adaptive.deadband_margin_mps=0.01 adaptive.launch_forward_command_scale=6.3 adaptive.dead_max_mps=2.125 mission.enabled=true mission.max_distance_m=100.0 mission.max_duration_s=400.0 mission.max_command_mps=2.4 mission.max_reverse_command_mps=0.4 mission.forward_only=false vehicle.min_effective_mps=0.36"
+  ],
+  "sim_only_mission_override": {
+    "max_distance_m": 100.0,
+    "max_duration_s": 400.0
+  },
+  "hardware_launched": false
+}

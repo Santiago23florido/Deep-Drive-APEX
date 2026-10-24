@@ -87,6 +87,15 @@ The approved run ended with raw confidence **0.421**, raw gain/offset
 No neural weights were retrained for this correction. Real and simulated driving
 cores are checked for byte and semantic parity.
 
+An opt-in [forward speed calibration experiment](real_vehicle/docs/calibration/speed_initialization_20261024/README.md)
+normalizes the hardware speed-to-PWM map while retaining the control law and
+approved pace. It adds explicit reference logging. Motor simulation passes;
+full-track integration has documented failures and physical validation is still
+pending. The approved profile remains the default. After reconnecting a prepared,
+stationary car on a clear track, `./real_vehicle/tools/pc/race_pi.sh --profile initialized run`
+deploys the hash-checked payload and performs the bounded experimental trial.
+This command moves the car. Preview it with `--dry-run` before `run`.
+
 ## From the PC: SSH preflight and recognition-to-SLAM run
 
 The PC entry point is [`real_vehicle/tools/pc/race_pi.sh`](real_vehicle/tools/pc/race_pi.sh).
