@@ -1,0 +1,6 @@
+{
+  "extracted_archive_payload_verification_passed": true,
+  "all_four_offline_plot_commands_passed": true,
+  "tracking_metrics_reproduced_exactly": true,
+  "vehicle_ros_ssh_access_used": false
+}

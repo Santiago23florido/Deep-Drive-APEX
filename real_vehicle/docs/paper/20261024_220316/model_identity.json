@@ -1,0 +1,14 @@
+{
+  "unchanged_from_run": "20261024_005311",
+  "weight_files": [
+    {
+      "path": "simulation/learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4/best_model.pt",
+      "sha256": "91ce379099fdd0f58b8a8cd6122dccdbf5162f08bbc705dd8a4f2881767508d0"
+    },
+    {
+      "path": "simulation/learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4/best_model.onnx",
+      "sha256": "eff4ba0e163b49ca7385e57a600835d68ffd18a64899f4e2d935eec487e81e26"
+    }
+  ],
+  "neural_weights_retrained": false
+}

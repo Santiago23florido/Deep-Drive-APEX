@@ -6,13 +6,15 @@ PROFILES = {
         "esc_zero_pct": 15.42, "pct_per_mps": 5.24,
         "command_cap": 2.4, "forward_scale": 6.3,
         "references": [.55, .45, .50, .55], "steering_confidence_gate": True,
+        "w_smooth": .1,
     },
     "tracking": {
         # Median of six moving-segment speed/input ratios from run 211216.
         # Zero moving intercept is an assumption, not a two-parameter fit.
-        "esc_zero_pct": 15.0, "pct_per_mps": 33.0 / 3.8,
-        "command_cap": 1.52, "forward_scale": 3.8,
+        "esc_zero_pct": 15.7, "pct_per_mps": 33.0 / 3.8,
+        "command_cap": 1.43, "forward_scale": 3.8,
         "references": [.42, .36, .36, .42], "steering_confidence_gate": False,
+        "w_smooth": .05, "revision": "forward_trim_20261024",
     },
 }
 

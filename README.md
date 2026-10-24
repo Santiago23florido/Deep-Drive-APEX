@@ -5,7 +5,38 @@ reactive reconnaissance, map-guided planning and online plant identification.
 Gazebo and the physical vehicle use the same driving core. Their ROS workspaces
 are built separately.
 
-## Approved physical implementation
+## Latest accepted calibrated physical result
+
+The operator confirmed **run `20261024_220316`** completed two physical laps
+without contact and **without a second-lap reverse**. This is the current
+recommended PC profile, `tracking`; the historical `approved` profile and
+sealed 005311 data remain available separately.
+
+![Accepted calibrated implementation](real_vehicle/docs/paper/20261024_220316/figures/real_vehicle_execution.png)
+
+| Quantity | Reconnaissance | Second lap |
+| --- | ---: | ---: |
+| Duration | 29.644 s | 10.875 s |
+| Reverse starts | 3 | **0** |
+| Selected forward reference | 0.360 m/s | 0.360 m/s |
+| Selected onboard speed mean | 0.337 m/s | 0.309 m/s |
+| Selected mean absolute reference residual | 0.064 m/s | **0.054 m/s** |
+
+The second lap used SLAM/map-guided local planning; its optimized global
+candidate was rejected for curvature and clearance. The full second-lap MAE
+was 0.0555 m/s. Measurements are onboard estimates, with no external ground truth.
+Longitudinal Kalman identification accepted only **12 of the minimum 20 updates**:
+confidence was zero and its learned inverse was **not applied**. This result
+supports successful calibrated operation, not full model convergence or untouched
+zero-shot transfer of the whole controller stack.
+
+![Reference tracking with unchanged measured values](real_vehicle/docs/paper/20261024_220316/figures/control_tracking.png)
+
+- [Complete accepted report, English figures and interpretation](real_vehicle/docs/paper/20261024_220316/README.md)
+- [Download data, source, configuration and model archive](real_vehicle/docs/paper/20261024_220316/real_vehicle_20261024_220316.zip), [SHA256](real_vehicle/docs/paper/20261024_220316/real_vehicle_20261024_220316.zip.sha256)
+- [Runtime tag](https://github.com/Santiago23florido/Deep-Drive-APEX/tree/real-car-calibrated-20261024-220316), [144-file PC/Pi manifest](real_vehicle/docs/paper/20261024_220316/runtime_manifest.json)
+
+## Historical approved physical implementation
 
 On October 24, 2026, the operator selected **run `20261024_005311`** after
 confirming successful two-lap operation at the desired original-like speed.
@@ -98,7 +129,7 @@ failed at the first curve. After a renewed battery and a raised inner boundary,
 completed two operator-confirmed laps without contact, in 43.842 / 33.922 s,
 with 6 / 4 reverse starts. Its settled second-lap nominal reference was 0.150
 against a 0.354 m/s onboard estimate; physical speed tracking remains unvalidated.
-The approved profile remains the default. With a prepared,
+The historical approved profile remains selectable with `--profile approved`. With a prepared,
 stationary car on a clear track, `./real_vehicle/tools/pc/race_pi.sh --profile initialized run`
 deploys the hash-checked payload and performs the bounded experimental trial.
 This command moves the car. Preview it with `--dry-run` before `run`.
@@ -109,7 +140,7 @@ operator reported multiple physical laps. Its actual forward reference was
 0.360 m/s; selected second-lap onboard mean / MAE were 0.256 / 0.106 m/s.
 Longitudinal confidence remained below acceptance. Use `--profile tracking`
 explicitly for this calibrated experiment; it retains the approved steering
-and reverse selection. It does not replace the approved default or establish
+and reverse selection. Its later refinement is the accepted default above; this earlier trial does not establish
 accurate speed tracking or untouched zero-shot full-stack transfer.
 
 ## From the PC: SSH preflight and recognition-to-SLAM run
@@ -133,22 +164,24 @@ contents; the estimator environment is separate at `/home/ensta/odom_rt`.
 ./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run
 ```
 
-Use `--dry-run` to print either operation without connecting. The wrapper
-refuses a new preflight/run if `apex_pipeline` already exists. It installs the
-exact [recorded helper copies](real_vehicle/tools/core/validated_trial_20261024_000432/README.md)
-at their original diagnostic path before delegating:
+The default is the accepted calibrated `tracking` profile. Use `--profile approved`
+for the historical settings. Use `--dry-run` to preview without connecting.
+The wrapper refuses a new preflight/run if `apex_pipeline` already exists. It
+deploys and SHA256-verifies 13 explicit runtime files for the calibrated profiles,
+and reuses the exact [CPU/capture helper copies](real_vehicle/tools/core/validated_trial_20261024_000432/README.md).
 
 | PC mode | Pi script | Effect |
 | --- | --- | --- |
-| `preflight` | `data/diagnostics/20261022_open_segment/run_oval.py --diagnose-only` | Same onboard preflight; never publishes `arm=true`; captures diagnostics and stops |
-| `run` | `sudo python3 tools/core/run_ram_capture.py --root /home/ensta/AiAtonomousRc/APEX --execute` | Approved two-lap capture on RAM, temporary 2.0 GHz CPU ceiling, then verified persistent copy |
+| `preflight` | `data/diagnostics/20261022_open_segment/run_oval_initialized.py --diagnose-only --forward-profile tracking` | Calibrated onboard checks; never publishes `arm=true`; captures diagnostics and stops |
+| `run` | `sudo python3 tools/core/run_ram_capture.py --root /home/ensta/AiAtonomousRc/APEX --profile tracking --execute` | Accepted two-lap capture on RAM, temporary 2.0 GHz CPU ceiling, then verified persistent copy |
 
 The run retains two laps, at most **40 m estimated / 300 s**, forward/reverse
-command caps of **0.40 m/s**, fresh odometry/map/adaptation state and onboard
+actuator-channel caps of **1.43 / 0.40**, with PWM ceilings **28.2 / 31.2**;
+actual forward references remain **0.36–0.42 m/s**. It resets odometry/map/adaptation and retains onboard
 arm/power/sensor guards. Mapping runs during recognition; the transition starts
 from the current pose. A feasible global plan can be tracked, otherwise the
-guarded MAP_GUIDED fallback uses the mapped/observed route. The approved run
-used that fallback and still reversed once on lap 2.
+guarded MAP_GUIDED fallback uses the mapped/observed route. The latest accepted
+run used that fallback without a lap-2 reverse; recovery remains available.
 
 The standalone preflight writes diagnostics to persistent storage at the normal
 CPU ceiling; `run` repeats its preflight inside the original RAM/2.0 GHz trial

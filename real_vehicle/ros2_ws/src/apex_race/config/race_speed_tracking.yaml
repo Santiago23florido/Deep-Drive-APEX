@@ -1,5 +1,5 @@
-# Experimental forward-only calibration from run 211216; physical validation pending.
-# Steering, reverse, geometry and recovery selection retain approved behavior.
+# Experimental calibration from runs 211216/214635; tracking validation pending.
+# Small forward turn-smoothing adjustment; geometry and recovery limits retained.
 apex_race_driver:
   ros__parameters:
     laps: 2
@@ -45,7 +45,7 @@ apex_race_driver:
       a_dec_mps2: 1.0
       lane_margin_m: 0.25
       local_path_lookahead_m: 0.45
-      w_smooth: 0.1
+      w_smooth: 0.05
     closure:
       arm_distance_m: 5.0
       arm_time_s: 12.0
@@ -100,6 +100,6 @@ apex_race_driver:
       enabled: true
       max_distance_m: 40.0
       max_duration_s: 300.0
-      max_command_mps: 1.52
+      max_command_mps: 1.43
       max_reverse_command_mps: 0.4
       forward_only: false

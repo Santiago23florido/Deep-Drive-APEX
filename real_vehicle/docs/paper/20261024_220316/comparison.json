@@ -1,0 +1,18 @@
+{
+  "previous_run": "20261024_214635",
+  "new_run": "20261024_220316",
+  "reference_mean_mps": [
+    0.36,
+    0.36
+  ],
+  "selected_lap2_mae_mps": [
+    0.10631520789663733,
+    0.05423915581010571
+  ],
+  "observed_mae_reduction_fraction": 0.48982693178911374,
+  "lap2_reverse_starts": [
+    2,
+    0
+  ],
+  "scope": "Descriptive comparison using the same actual reference and mask. Two profile parameters, battery state, initial placement and identified steering differ; not an isolated ablation or statistical result."
+}

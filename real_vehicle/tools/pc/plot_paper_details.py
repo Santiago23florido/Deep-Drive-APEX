@@ -115,9 +115,13 @@ def main() -> None:
             if recovery['start_s'] >= cross[0]:
                 ax.axvspan(recovery['start_s'], recovery['end_s'], color='#d55e00', alpha=.15)
         ax.grid(alpha=.2, lw=.5)
-    axes[0].plot(t, v['v_cmd'], color='.15', label='Command', lw=1.)
+    has_reference = all('v_target' in row for row in rows)
+    plotted_reference = np.array([float(row['v_target']) for row in rows]) if has_reference else v['v_cmd']
+    axes[0].plot(t, plotted_reference, color='.15',
+                 label='Control reference' if has_reference else 'Actuator-channel input', lw=1.)
     axes[0].plot(t, v['speed'], color='#0072b2', label='Onboard estimate', lw=.9)
-    axes[0].set(ylabel='Speed [m/s]', title='Continuous transition to SLAM-guided local execution')
+    axes[0].set(ylabel='Speed / reference' if has_reference else 'Input / estimated speed',
+                title='Continuous transition to SLAM-guided local execution')
     speed_legend = axes[0].legend(loc='lower left', ncol=2)
     axes[0].add_artist(speed_legend)
     axes[0].legend(handles=[
@@ -135,9 +139,13 @@ def main() -> None:
     axes[2].set_xlim(max(0., cross[0] - 4.), min(t[-1], guided + 5.))
     save(fig, 'slam_handover_detail',
          'Recorded transition after the first line crossing, with speed, nominal steering command and '
-         'identified steering gains. The same learned model is retained through asynchronous planning '
-         'and map-guided local execution. Red shading marks the reverse maneuver that started during '
-         'planning and continued into SLAM guidance. Estimates are onboard quantities.')
+         'identified steering gains. Identifier state is retained through asynchronous planning '
+         'and map-guided local execution. ' +
+         ('Red shading marks recorded reverse recoveries.' if any(r['start_s'] >= cross[0] for r in reversals)
+          else 'No reverse recovery was recorded after the first crossing.') +
+         (' The plotted reference is v_target; reverse references retain their command gauge.'
+          if has_reference else ' The actuator-channel input is not the unlogged planner reference.') +
+         ' Estimates are onboard quantities; parameter convergence is not established by this figure.')
 
     if len(cross) >= 2:
         durations = [float(cross[0]), float(cross[1] - cross[0])]

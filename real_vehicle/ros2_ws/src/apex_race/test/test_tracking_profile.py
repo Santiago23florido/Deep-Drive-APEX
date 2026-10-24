@@ -51,7 +51,7 @@ def test_tracking_preserves_lateral_geometry_and_recovery_selection():
     changed = load_ros_params_yaml(CONFIG/'race_speed_tracking.yaml')
     allowed = {'vehicle_yaml', 'reactive.v_explore_mps', 'reactive.v_min_mps', 'reactive.v_blind_mps',
                'reactive.a_acc_mps2', 'race.v_max_mps', 'race.a_acc_mps2', 'adaptive.recover_creep_mps',
-               'mission.max_command_mps'}
+               'mission.max_command_mps', 'reactive.w_smooth'}
     for key, value in original.items():
         if key not in allowed:
             assert changed[key] == value, key
@@ -70,6 +70,7 @@ def test_runner_guards_compile_and_match_selected_profile(name):
     assert profile['references'] == [cfg.reactive.v_explore_mps, cfg.reactive.v_min_mps,
                                      cfg.reactive.v_blind_mps, cfg.race.v_max_mps]
     assert profile['command_cap'] == cfg.mission.max_command_mps
+    assert profile['w_smooth'] == cfg.reactive.w_smooth
     assert profile['esc_zero_pct'] + profile['pct_per_mps'] * profile['command_cap'] <= 28.2 + 1e-10
     assert profile['forward_scale'] == cfg.adaptive.speed_feedback_forward_scale
     assert profile['steering_confidence_gate'] == cfg.adaptive.steering_confidence_gate
@@ -107,7 +108,8 @@ def test_tracking_handles_calibration_scatter_and_delayed_feedback(gain, delay):
         command, _ = shaper.shape(t, 0., target, sensed, ident.model(), shaper.envelope(ident.model()))
         command = max(0., min(cfg.mission.max_command_mps, command))
         assert shaper.v_target == target
-        pwm = 15. + (33./3.8)*command if command > .005 else 0.
+        mapping = forward_profile('tracking')
+        pwm = mapping['esc_zero_pct'] + mapping['pct_per_mps']*command if command > .005 else 0.
         delivered = max(0., gain*(pwm-15.)/33.) if pwm else 0.
         if velocity < .03 and pwm < 17.3:
             delivered = 0.

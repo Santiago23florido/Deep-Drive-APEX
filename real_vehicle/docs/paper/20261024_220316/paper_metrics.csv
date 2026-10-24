@@ -1,0 +1,29 @@
+lap,quantity,value,unit,scope
+1,duration_s,29.644300937652588,s,Recorded commands / crossings
+1,reverse_starts,3,count,Recorded commands / crossings
+1,forward_command_s,13.56286358833313,s,Recorded commands / crossings
+1,reverse_command_s,8.780200004577637,s,Recorded commands / crossings
+1,zero_command_s,7.301237344741821,s,Recorded commands / crossings
+1,selected_forward_duration_s,6.729663372039795,s,No external ground truth
+1,selected_forward_reference_mean,0.36,m/s,No external ground truth
+1,selected_forward_onboard_speed_mean_mps,0.3371325283546304,m/s,No external ground truth
+1,selected_forward_numeric_bias,-0.022867471645369578,m/s,No external ground truth
+1,selected_forward_numeric_mae,0.06378712113197876,m/s,No external ground truth
+1,selected_forward_numeric_rmse,0.07545970898544169,m/s,No external ground truth
+1,selected_forward_feedback_saturated_fraction,0.0,1,No external ground truth
+2,duration_s,10.875135898590088,s,Recorded commands / crossings
+2,reverse_starts,0,count,Recorded commands / crossings
+2,forward_command_s,10.875135898590088,s,Recorded commands / crossings
+2,reverse_command_s,0.0,s,Recorded commands / crossings
+2,zero_command_s,0.0,s,Recorded commands / crossings
+2,selected_forward_duration_s,9.287636041641235,s,No external ground truth
+2,selected_forward_reference_mean,0.36,m/s,No external ground truth
+2,selected_forward_onboard_speed_mean_mps,0.30942702949125955,m/s,No external ground truth
+2,selected_forward_numeric_bias,-0.050572970508740434,m/s,No external ground truth
+2,selected_forward_numeric_mae,0.05423915581010571,m/s,No external ground truth
+2,selected_forward_numeric_rmse,0.06600959727012855,m/s,No external ground truth
+2,selected_forward_feedback_saturated_fraction,0.0,1,No external ground truth
+all,longitudinal_updates,12,,Identifier status
+all,longitudinal_confidence,0,,Identifier status
+all,longitudinal_applied,False,,Identifier status
+all,minimum_longitudinal_updates,20,,Identifier status

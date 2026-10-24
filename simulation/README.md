@@ -4,6 +4,16 @@ This directory is the active development environment when the physical car is un
 
 ## October 24, 2026 integration status
 
+The [latest accepted calibrated physical run `220316`](../real_vehicle/docs/paper/20261024_220316/README.md)
+completed two operator-confirmed laps without contact and with 3 / **0** reverse
+starts. The selected lap-2 onboard speed MAE was **0.054 m/s** at a 0.360 m/s
+reference. Neural weights and shared controller core were unchanged; the
+forward hardware trim and turn-smoothing configuration are recorded. The
+longitudinal inverse remained inactive after 12 updates, below the minimum 20.
+This physical result is not a completed final-profile Gazebo evaluation or
+evidence of full model convergence. The PC hardware launcher now defaults to
+this `tracking` profile; simulator actuator maps still require their own setup.
+
 The simulator includes the final shared driving-core corrections used by
 [approved physical run `20261024_005311`](../real_vehicle/docs/paper/20261024_005311/README.md):
 confidence-gated longitudinal inversion, asymmetric steering authority,
