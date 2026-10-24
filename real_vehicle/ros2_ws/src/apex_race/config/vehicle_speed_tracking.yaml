@@ -1,0 +1,24 @@
+# Forward command gauge = 3.8 * previous forward input; geometry unchanged.
+model:
+  chassis_length_m: 0.46
+  chassis_width_m: 0.28
+  footprint_width_m: 0.32
+  wheelbase_m: 0.3
+  steering_limit_deg: 12.5
+esc:
+  response_tau_s: 0.22
+  accel_limit_mps2: 0.6
+  decel_limit_mps2: 1.2
+  top_speed_mps: 1.52
+  min_effective_speed_mps: 0.266
+  command_rate_hz: 50.0
+servo:
+  response_tau_s: 0.085
+  rate_limit_deg_per_s: 65.0
+  left_ratio: 1.0
+  right_ratio: 1.0
+controller:
+  lookahead_min_m: 0.4
+  lookahead_time_s: 0.32
+  lookahead_base_m: 0.3
+  reference_point: rear_axle

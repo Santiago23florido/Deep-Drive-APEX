@@ -17,6 +17,9 @@ payload=(
   docker/docker-compose.yml
   tools/core/run_ram_capture.py
   tools/core/initialized_trial/run_oval.py
+  tools/core/forward_profiles.py
+  ros2_ws/src/apex_race/config/race_speed_tracking.yaml
+  ros2_ws/src/apex_race/config/vehicle_speed_tracking.yaml
 )
 if ((preview)); then
   printf 'Would deploy and SHA256-verify %d files to %s (only with the stack stopped):\n' "${#payload[@]}" "$target"

@@ -17,7 +17,7 @@ from ram_trial_storage import RamTrialStorage
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
-    parser.add_argument('--profile', choices=['approved', 'initialized'], default='approved')
+    parser.add_argument('--profile', choices=['approved', 'initialized', 'tracking'], default='approved')
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--execute', action='store_true')
     mode.add_argument('--storage-self-test', action='store_true', help='No vehicle stack or actuators; test storage with an isolated Docker process')
@@ -33,12 +33,12 @@ def main():
     result, sampler = None, None
     try:
         storage.mount()
-        if args.profile == 'initialized':
+        if args.profile != 'approved':
             # The original acquisition helpers remain byte-for-byte intact.
             # Only this trial's RAM copy selects the explicit experimental YAML.
             shutil.copyfile(args.root / 'tools/core/initialized_trial/run_oval.py',
                             storage.targets['diagnostics'] / 'run_oval.py')
-            print('Experimental calibrated forward bridge selected; physical validation pending', flush=True)
+            print('Experimental forward profile selected: ' + args.profile + '; physical validation pending', flush=True)
         print('Trial CSV/JSON paths verified on RAM; finite mission guards active', flush=True)
         if args.storage_self_test:
             tag = '.ram_storage_self_test_' + storage.token
@@ -66,7 +66,8 @@ def main():
             # live-power checks, finite mission guards and final disarming.
             command = ['python3', str(storage.targets['diagnostics'] / 'run_segment_cpu_limit.py'),
                        '--max-khz', '2000000', '--runner', 'run_oval.py']
-            result = subprocess.run(command, cwd=args.root, timeout=650).returncode
+            environment = dict(os.environ, APEX_FORWARD_PROFILE=args.profile)
+            result = subprocess.run(command, cwd=args.root, env=environment, timeout=650).returncode
     finally:
         # Stop before copying to SD even after startup/timeout exceptions.
         running = subprocess.check_output(['docker', 'ps', '--format', '{{.Names}}'], text=True).splitlines()
