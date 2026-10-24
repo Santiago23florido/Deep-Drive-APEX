@@ -137,7 +137,7 @@ try:
         "'mission.max_reverse_command_mps','adaptive.recover_distance_m','adaptive.recover_timeout_s','adaptive.recover_max_per_lap','laps','adaptive.lead_preserve_turn','reactive.d_follow_left_m','reactive.d_follow_m','reactive.c_soft_m','adaptive.recover_exit_free_m','adaptive.recover_max_without_progress','adaptive.recover_progress_reset_m','closure.arm_distance_m','adaptive.plan_with_identified_model','closure.overlap_m','race.guide_handover_s',"
         "'reactive.v_explore_mps','reactive.v_min_mps','reactive.v_blind_mps','race.v_max_mps',"
         "'adaptive.longitudinal_forward_only','adaptive.longitudinal_allow_overspeed',"
-        "'adaptive.launch_forward_command_scale','vehicle_yaml']; "
+        "'adaptive.launch_forward_command_scale','vehicle_yaml','adaptive.speed_feedback_forward_scale','adaptive.kp_speed_forward','adaptive.steering_confidence_gate']; "
         "f=c.call_async(q); rclpy.spin_until_future_complete(n,f,timeout_sec=3); "
         "v=f.result().values; "
         "assert [v[0].bool_value,v[1].bool_value,v[5].bool_value,v[6].bool_value]==[True,True,False,True]; "
@@ -155,6 +155,8 @@ try:
         "assert [x.double_value for x in v[38:42]]==[.55,.45,.50,.55]; "
         "assert v[42].bool_value and v[43].bool_value and v[44].double_value==6.3; "
         "assert v[45].string_value=='/work/ros2_ws/src/apex_race/config/vehicle_speed_initialized.yaml'; "
+        "assert v[46].double_value==6.3 and v[47].double_value==.17; "
+        "assert v[48].bool_value; "
         "print('runtime limits verified'); n.destroy_node(); rclpy.shutdown()"
     )
     import shlex

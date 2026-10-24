@@ -92,6 +92,12 @@ normalizes the hardware speed-to-PWM map while retaining the control law and
 approved pace. It adds explicit reference logging. Motor simulation passes;
 full-track integration has documented failures. A [physical follow-up](real_vehicle/docs/calibration/speed_initialization_20261024/physical_trial_190956/README.md)
 completed two laps but exposed weak PWM feedback and persistent speed error.
+Further [initialized-profile trials](real_vehicle/docs/calibration/speed_initialization_20261024/feedback_correction/README.md)
+failed at the first curve. After a renewed battery and a raised inner boundary,
+[run `211216` using the approved profile](real_vehicle/docs/calibration/speed_initialization_20261024/physical_trial_211216/README.md)
+completed two operator-confirmed laps without contact, in 43.842 / 33.922 s,
+with 6 / 4 reverse starts. Its settled second-lap nominal reference was 0.150
+against a 0.354 m/s onboard estimate; physical speed tracking remains unvalidated.
 The approved profile remains the default. With a prepared,
 stationary car on a clear track, `./real_vehicle/tools/pc/race_pi.sh --profile initialized run`
 deploys the hash-checked payload and performs the bounded experimental trial.

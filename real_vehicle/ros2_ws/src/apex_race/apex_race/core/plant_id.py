@@ -679,12 +679,17 @@ class PlantIdentifier:
             return self.prior()
         a = self.a
         speed_ready = self.longitudinal_ready
+        steer_ready = (not a.steering_confidence_gate or
+                       (self.conf_steer >= 0.5 and self.steer.chi <= a.chi_max))
         return PlantModel(
-            gain_left=float(self.steer.x[GAIN_L]), gain_right=float(self.steer.x[GAIN_R]),
-            trim=float(self.steer.x[TRIM]), slip=float(self.steer.x[SLIP]), arm_m=float(self.lever.x[ARM]),
+            gain_left=float(self.steer.x[GAIN_L]) if steer_ready else 1.0,
+            gain_right=float(self.steer.x[GAIN_R]) if steer_ready else float(self.cfg.vehicle.right_ratio),
+            trim=float(self.steer.x[TRIM]) if steer_ready else 0.0,
+            slip=float(self.steer.x[SLIP]) if steer_ready else 0.0, arm_m=float(self.lever.x[ARM]),
             v_gain=float(self.long.x[V_GAIN]) if speed_ready else 1.0,
             v_offset=float(self.long.x[V_OFF]) if speed_ready else 0.0,
-            dead_mps=float(self.dead), dead_rev_mps=float(self.dead_rev), kappa_sat=float(self.kappa_sat),
+            dead_mps=float(self.dead), dead_rev_mps=float(self.dead_rev),
+            kappa_sat=float(self.kappa_sat) if steer_ready else float(self.cfg.vehicle.kappa_max),
             v_ref_mps=math.sqrt(max(self.v2_ref, 0.0)), tau_steer_s=self.tau_k[self.i_steer], tau_speed_s=self.tau_v[self.i_speed],
             confidence=self.confidence, conf_right=self.steer.conf([GAIN_R]),
             reverse_identity=a.longitudinal_forward_only,
@@ -717,6 +722,11 @@ class PlantIdentifier:
             "conf_long": self.conf_long, "conf_right": m.conf_right,
             "longitudinal_applied": self.longitudinal_ready,
             "longitudinal_forward_only": self.a.longitudinal_forward_only,
+            "steering_applied": not (self.latched or self.sign_fault) and
+                                (not self.a.steering_confidence_gate or self.conf_steer >= 0.5),
+            "gain_left_estimated": float(self.steer.x[GAIN_L]),
+            "gain_right_estimated": float(self.steer.x[GAIN_R]),
+            "trim_estimated": float(self.steer.x[TRIM]),
             "v_gain_estimated": float(self.long.x[V_GAIN]),
             "v_offset_estimated": float(self.long.x[V_OFF]),
             "gain_left": m.gain_left, "gain_right": m.gain_right, "trim": m.trim, "slip": m.slip,

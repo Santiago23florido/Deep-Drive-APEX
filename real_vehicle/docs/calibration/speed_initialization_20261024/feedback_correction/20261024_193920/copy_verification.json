@@ -1,0 +1,14 @@
+{
+  "verified_payload_files": 77,
+  "wrapper_files_listed_separately": [
+    "diagnostics/.ram_capture_active.json",
+    "diagnostics/run_oval.py",
+    "diagnostics/run_segment_cpu_limit.py",
+    "diagnostics/sample_resources.py",
+    "diagnostics/save_final_map.py",
+    "runs/.last_run"
+  ],
+  "post_stop_verified": true,
+  "runtime_commit": "b6cb873",
+  "stopped_for_failed_progress": true
+}

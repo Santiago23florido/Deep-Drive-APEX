@@ -1,0 +1,14 @@
+{
+  "run_id": "20261024_211216",
+  "diagnostics_id": "oval_20261024_211216",
+  "selected_profile": "approved",
+  "source_commit": "0adee61313cd3594003c12e24c6362f0f267f889",
+  "condition_changes": {
+    "operator_reports_battery_replaced_or_recharged": true,
+    "inner_boundary_raised_to_improve_lidar_visibility": true,
+    "new_boundary_not_visible_from_initial_pose": true
+  },
+  "new_runtime_retuning_for_this_trial": false,
+  "physical_success_confirmed": null,
+  "ground_truth_available": false
+}

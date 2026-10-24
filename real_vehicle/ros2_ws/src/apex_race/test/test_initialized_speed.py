@@ -131,3 +131,90 @@ def test_physical_profile_retains_geometry_and_pwm_equivalent_command_ceiling():
     assert cfg.vehicle.steer_max_left_deg == 22.5 and cfg.vehicle.steer_max_right_deg == 12.96
     assert 15.42 + 5.24 * cfg.mission.max_command_mps <= 28.2
     assert cfg.mission.max_reverse_command_mps == original.mission.max_reverse_command_mps
+
+
+def test_forward_feedback_preserves_electrical_gain_and_authority():
+    cfg = initialized_config()
+    cfg.adaptive.kp_speed_forward = .25  # isolate the unit conversion from delay damping
+    model = PlantIdentifier(cfg).model()
+    for error in [.2, -.2]:
+        shaper = AdaptiveShaper(cfg)
+        u, _ = shaper.shape(1., 0., .5, .5-error, model, shaper.envelope(model))
+        assert 5.24*(u-.5) == pytest.approx(33.*.25*error, abs=.002)
+    shaper = AdaptiveShaper(cfg)
+    u, _ = shaper.shape(1., 0., .5, 1.5, model, shaper.envelope(model))
+    assert 5.24*(u-.5) == pytest.approx(-33.*.20*.30, abs=.002)
+
+
+def test_sparse_steering_fit_cannot_reduce_authority_or_bias_reverse():
+    cfg = initialized_config()
+    ident = PlantIdentifier(cfg)
+    ident.steer.x[:] = [1.5675, 1.6, -.15, 0.]
+    ident.steer.n = 10  # exactly the failure's premature fitted model
+    model = ident.model()
+    assert model.gain_left == 1. and model.gain_right == cfg.vehicle.right_ratio
+    assert model.trim == 0. and model.kappa_sat == cfg.vehicle.kappa_max
+    assert model.kappa_in(0., .2) == 0.  # a selected straight reverse stays straight
+    assert model.kappa_in(-.6, .2) == pytest.approx(-.6/cfg.vehicle.right_ratio)
+    assert not ident.status()['steering_applied']
+    assert ident.status()['gain_right_estimated'] == 1.6
+
+
+def test_steering_inverse_is_released_only_with_consistent_precise_evidence():
+    cfg = initialized_config()
+    ident = PlantIdentifier(cfg)
+    ident.steer.x[:] = [.9, 1.1, .02, 0.]
+    ident.steer.n = cfg.adaptive.n_steer
+    ident.steer.p *= .01
+    ident.steer.chi = 1.
+    assert ident.conf_steer >= .5
+    assert ident.model().gain_right == 1.1 and ident.status()['steering_applied']
+    ident.steer.chi = 6.
+    assert ident.model().gain_right == cfg.vehicle.right_ratio
+    assert not ident.status()['steering_applied']
+
+
+@pytest.mark.parametrize('gain', [.55, .85, 1., 1.15])
+@pytest.mark.parametrize('delay_s', [.16, .30])
+def test_restored_feedback_with_delayed_speed_and_load_changes(gain, delay_s):
+    """Isolate P feedback while Kalman legitimately retains its uncertain prior."""
+    def simulate(scale):
+        cfg = initialized_config()
+        cfg.adaptive.speed_feedback_forward_scale = scale
+        if scale == 1.:
+            cfg.adaptive.kp_speed_forward = 0.  # exact pre-correction feedback
+        shaper, ident = AdaptiveShaper(cfg), PlantIdentifier(cfg)
+        model = ident.model()
+        velocity, history, records = 0., [0.], []
+        dt, delay_steps = .02, round(delay_s/.02)
+        for index in range(1000):
+            t = index*dt
+            target = [.45, .55, .50][int(t//4.) % 3]
+            measured = history[max(0, len(history)-1-delay_steps)]
+            u, _ = shaper.shape(t, 0., target, measured, model, shaper.envelope(model))
+            u = max(0., min(cfg.mission.max_command_mps, u))
+            pwm = 0. if u < .005 else min(28.2, 15.42+5.24*u)
+            motor_gain = gain if t < 10. else .9*gain
+            delivered = max(0., motor_gain*(6.3*((pwm-15.)/33.)-.08)) if pwm else 0.
+            if velocity < .03 and pwm < 17.3:
+                delivered = 0.
+            velocity += (1.-math.exp(-dt/.22))*(delivered-velocity)
+            history.append(velocity)
+            records.append((t, target, velocity, pwm))
+        return np.array(records)
+    old, fixed = simulate(1.), simulate(6.3)
+    settled = (fixed[:, 0] > 3.) & (np.mod(fixed[:, 0], 4.) > 1.5)
+    old_error = np.mean(abs(old[settled, 1]-old[settled, 2]))
+    fixed_error = np.mean(abs(fixed[settled, 1]-fixed[settled, 2]))
+    if gain < 1.:
+        assert fixed_error < .85*old_error
+    elif gain > 1.:
+        assert fixed_error < old_error
+    # With a 45% loss plus sag and the identifier deliberately frozen, P alone
+    # cannot eliminate static error. Require improvement without claiming it can.
+    assert fixed_error < (.18 if gain < .7 else .075)
+    assert np.max(fixed[:, 3]) <= 28.2 and np.max(fixed[:, 2]) < .8
+    # Delayed measurements must not create a persistent large oscillation.
+    for start in [2., 6., 14., 18.]:
+        keep = (fixed[:, 0] >= start) & (fixed[:, 0] < start+1.)
+        assert np.ptp(fixed[keep, 2]) < .15

@@ -9,6 +9,13 @@ the required feedback unit conversion. The approved acquisition remains run `202
 `real-car-approved-20261024-005311`. Its source snapshot, raw measurements,
 archives and published figures have not been replaced.
 
+Later [feedback and steering-gate trials](feedback_correction/README.md) failed
+at the first curve. With a renewed battery and raised inner boundary,
+[approved-profile run `211216`](physical_trial_211216/README.md) completed two
+operator-confirmed laps without contact. It retained the legacy reference
+convention and did not meet the intended speed-tracking behavior. These reports
+must be kept distinct from the offline calibration below.
+
 This profile retains the geometric controller, bounded proportional speed
 feedback and online Kalman identification. It calibrates the forward hardware
 conversion and declares speed references near the observed pace. It does not
@@ -80,6 +87,10 @@ the actuator input on a separate axis when the reference is available. Old
 captures are explicitly labeled as lacking that reference.
 
 ## Validation, including failures
+
+The following table records the original offline initialization stage. Later
+physical follow-ups, including their failures and reference errors, are linked
+at the beginning of this report.
 
 | Check | Result | Scope |
 | --- | --- | --- |

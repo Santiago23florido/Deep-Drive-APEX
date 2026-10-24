@@ -254,6 +254,7 @@ class AdaptiveConfig:
     gain_min: float = 0.55
     gain_max: float = 1.60
     gain_walk_per_s: float = 0.001
+    steering_confidence_gate: bool = False  # opt-in: do not invert an uncertain early steering fit
     trim_sigma: float = 0.05  # [1/m] about 0.9 deg of servo centre error
     trim_max: float = 0.25
     trim_walk_per_s: float = 0.0005
@@ -314,6 +315,8 @@ class AdaptiveConfig:
     # --- control
     kp_speed: float = 0.25  # proportional only: the identified gain is the integrator
     speed_authority: float = 0.20  # fraction of the command the proportional term may add
+    speed_feedback_forward_scale: float = 1.0  # forward actuator-unit conversion for P gain and its authority floor
+    kp_speed_forward: float = 0.0  # positive: forward-only P gain before command-unit conversion; zero uses kp_speed
     launch_hold_s: float = 0.30  # standstill under a speed command before the launch ramp
     launch_forward_command_scale: float = 1.0  # convert launch constants when the forward command gauge is calibrated
     launch_ramp_mps2: float = 0.50

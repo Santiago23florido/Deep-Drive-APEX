@@ -1,0 +1,212 @@
+[
+  {
+    "reverse_kappa": 1.3807118745769835,
+    "reverse_distance": 0.15,
+    "endpoint": [
+      -0.15208846174983123,
+      -0.014914455274650346,
+      -0.20710678118654752
+    ],
+    "forward_kappa": 0.7434602401568373,
+    "forward_speed": 0.1925,
+    "forward_free": 0.4,
+    "mode": "L",
+    "n_feasible": 165
+  },
+  {
+    "reverse_kappa": 1.3807118745769835,
+    "reverse_distance": 0.3,
+    "endpoint": [
+      -0.30399363413483893,
+      0.0017636674089886242,
+      -0.41421356237309503
+    ],
+    "forward_kappa": 1.3807118745769835,
+    "forward_speed": 0.45,
+    "forward_free": 0.6000000000000001,
+    "mode": "L",
+    "n_feasible": 55
+  },
+  {
+    "reverse_kappa": 1.3807118745769835,
+    "reverse_distance": 0.5,
+    "endpoint": [
+      -0.4950631346346102,
+      0.07172165894004122,
+      -0.6903559372884918
+    ],
+    "forward_kappa": 1.3807118745769835,
+    "forward_speed": 0.45,
+    "forward_free": 0.8,
+    "mode": "L",
+    "n_feasible": 33
+  },
+  {
+    "reverse_kappa": 0.6903559372884918,
+    "reverse_distance": 0.15,
+    "endpoint": [
+      -0.1505238054107376,
+      -0.007518285528623175,
+      -0.10355339059327376
+    ],
+    "forward_kappa": 0.42483442294676416,
+    "forward_speed": 0.1925,
+    "forward_free": 0.4,
+    "mode": "L",
+    "n_feasible": 220
+  },
+  {
+    "reverse_kappa": 0.6903559372884918,
+    "reverse_distance": 0.3,
+    "endpoint": [
+      -0.30101842871747375,
+      0.0005631109090669106,
+      -0.20710678118654752
+    ],
+    "forward_kappa": 0.8496688458935283,
+    "forward_speed": 0.45,
+    "forward_free": 0.6000000000000001,
+    "mode": "L",
+    "n_feasible": 132
+  },
+  {
+    "reverse_kappa": 0.6903559372884918,
+    "reverse_distance": 0.5,
+    "endpoint": [
+      -0.498847943648037,
+      0.0354308491350736,
+      -0.3451779686442459
+    ],
+    "forward_kappa": 0.7434602401568373,
+    "forward_speed": 0.45,
+    "forward_free": 0.8,
+    "mode": "L",
+    "n_feasible": 99
+  },
+  {
+    "reverse_kappa": 0.0,
+    "reverse_distance": 0.15,
+    "endpoint": [
+      -0.14999999999999997,
+      0.0,
+      -0.0
+    ],
+    "forward_kappa": 0.3186258172100731,
+    "forward_speed": 0.1925,
+    "forward_free": 0.4,
+    "mode": "L",
+    "n_feasible": 231
+  },
+  {
+    "reverse_kappa": 0.0,
+    "reverse_distance": 0.3,
+    "endpoint": [
+      -0.3,
+      0.0,
+      -0.0
+    ],
+    "forward_kappa": 0.21241721147338208,
+    "forward_speed": 0.45,
+    "forward_free": 0.6000000000000001,
+    "mode": "L",
+    "n_feasible": 198
+  },
+  {
+    "reverse_kappa": 0.0,
+    "reverse_distance": 0.5,
+    "endpoint": [
+      -0.49999999999999994,
+      0.0,
+      -0.0
+    ],
+    "forward_kappa": 0.3186258172100731,
+    "forward_speed": 0.45,
+    "forward_free": 0.8,
+    "mode": "L",
+    "n_feasible": 176
+  },
+  {
+    "reverse_kappa": -0.3835549455024227,
+    "reverse_distance": 0.15,
+    "endpoint": [
+      -0.15016180884221286,
+      0.004184919741090428,
+      0.0575332418253634
+    ],
+    "forward_kappa": 0.6372516344201462,
+    "forward_speed": 0.45,
+    "forward_free": 0.5,
+    "mode": "L",
+    "n_feasible": 231
+  },
+  {
+    "reverse_kappa": -0.3835549455024227,
+    "reverse_distance": 0.3,
+    "endpoint": [
+      -0.3003158020787945,
+      -0.0002716151362793136,
+      0.1150664836507268
+    ],
+    "forward_kappa": 0.3186258172100731,
+    "forward_speed": 0.45,
+    "forward_free": 0.6000000000000001,
+    "mode": "L",
+    "n_feasible": 231
+  },
+  {
+    "reverse_kappa": -0.3835549455024227,
+    "reverse_distance": 0.5,
+    "endpoint": [
+      -0.4996503664298749,
+      -0.01962632108109428,
+      0.19177747275121135
+    ],
+    "forward_kappa": -0.10958712728640652,
+    "forward_speed": 0.45,
+    "forward_free": 0.8,
+    "mode": "L",
+    "n_feasible": 209
+  },
+  {
+    "reverse_kappa": -0.7671098910048454,
+    "reverse_distance": 0.15,
+    "endpoint": [
+      -0.15064659040756917,
+      0.00834885337483537,
+      0.1150664836507268
+    ],
+    "forward_kappa": 0.5310430286834552,
+    "forward_speed": 0.45,
+    "forward_free": 0.5,
+    "mode": "L",
+    "n_feasible": 231
+  },
+  {
+    "reverse_kappa": -0.7671098910048454,
+    "reverse_distance": 0.3,
+    "endpoint": [
+      -0.3012555326834004,
+      -0.0006536496468673783,
+      0.2301329673014536
+    ],
+    "forward_kappa": 0.10620860573669104,
+    "forward_speed": 0.45,
+    "forward_free": 0.6000000000000001,
+    "mode": "L",
+    "n_feasible": 231
+  },
+  {
+    "reverse_kappa": -0.7671098910048454,
+    "reverse_distance": 0.5,
+    "endpoint": [
+      -0.4985694525824494,
+      -0.039409297017787774,
+      0.3835549455024227
+    ],
+    "forward_kappa": -0.43834850914562595,
+    "forward_speed": 0.45,
+    "forward_free": 0.8,
+    "mode": "L",
+    "n_feasible": 231
+  }
+]

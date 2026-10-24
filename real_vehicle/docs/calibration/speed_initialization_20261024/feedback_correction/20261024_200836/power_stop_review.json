@@ -1,0 +1,119 @@
+{
+  "run_id": "20261024_200836",
+  "profile": "approved",
+  "physical_result": "Operator reports no forward motion",
+  "stop": {
+    "reason": "host_power_fault_or_stale_log",
+    "elapsed_s": 4.397512992999964,
+    "last_status": {
+      "arm_age_s": 0.0,
+      "arm_m": 0.15,
+      "armed": true,
+      "clearance_m": -0.004443602601676061,
+      "cmd_gap_max_ms": 40.53,
+      "confidence": 0.0,
+      "core_hold_ms": {
+        "control": {
+          "max_ms": 1.4,
+          "mean_ms": 0.5,
+          "n": 74
+        },
+        "graph": {
+          "max_ms": 0.2,
+          "mean_ms": 0.0,
+          "n": 91
+        },
+        "map": {
+          "max_ms": 0.2,
+          "mean_ms": 0.1,
+          "n": 91
+        },
+        "odom": {
+          "max_ms": 1.9,
+          "mean_ms": 0.5,
+          "n": 465
+        },
+        "scan": {
+          "max_ms": 230.8,
+          "mean_ms": 17.9,
+          "n": 463
+        },
+        "status": {
+          "max_ms": 0.2,
+          "mean_ms": 0.1,
+          "n": 95
+        }
+      },
+      "counters": {
+        "core_busy_hold": 61,
+        "core_busy_stop": 0,
+        "disarmed": 2245,
+        "pose_age_stop": 0,
+        "scan_stale": 0
+      },
+      "d_target": 0.36,
+      "d_wall": 0.9103138411264553,
+      "direct_tracking_allowed": null,
+      "estimator_reason": "",
+      "estimator_usable": true,
+      "g_left": 1.0,
+      "guided": false,
+      "lap_own": 0,
+      "laps": 2,
+      "map_guide_weight": 0.0,
+      "map_route_s_m": null,
+      "mission": {
+        "distance_m": 0.004261816355016486,
+        "max_command_mps": 0.4,
+        "max_distance_m": 40.0,
+        "max_duration_s": 300.0,
+        "max_reverse_command_mps": 0.4,
+        "stop_reason": null
+      },
+      "mission_time_stop": false,
+      "mode": "L",
+      "phase": "explore",
+      "plan_ready": false,
+      "planner": "arcs",
+      "planning_kappa_left": 1.3807118745769835,
+      "planning_kappa_right": 0.7671098910048454,
+      "predicted_pose_age_s": 0.021320738000000002,
+      "preview_ready": false,
+      "react_ms": 165.19874400000845,
+      "rear_clearance_m": Infinity,
+      "recover": 0,
+      "recover_count": 0,
+      "recover_geometric": false,
+      "recover_max_per_lap": 36,
+      "recover_max_without_progress": 12,
+      "recover_stuck_count": 0,
+      "scan_age_stops": 0,
+      "sign_fault": false,
+      "speed_model": {
+        "forward_only": false,
+        "gain": 1.0,
+        "longitudinal_applied": false,
+        "offset": 0.0,
+        "prior_gain": 1.0,
+        "prior_offset": 0.0
+      },
+      "travel_m": 0.0,
+      "v_target": 0.15
+    }
+  },
+  "live_power_fault_samples": [
+    {
+      "utc_iso": "2026-10-24T19:10:16Z",
+      "lcrit_alarm": "1",
+      "throttled": "0x50005",
+      "temp_c": "64.8",
+      "freq_khz": "2000000"
+    }
+  ],
+  "low_voltage_alarm_samples": 4,
+  "motor_neutral_after_stop": true,
+  "period_ns_after_stop": 20000000,
+  "duty_ns_after_stop": 1500000,
+  "runtime_parameters_changed_during_trial": false,
+  "interpretation": "A live Raspberry Pi undervoltage/throttling event stopped this comparison before it could evaluate the curve. No motor terminal voltage/current was measured."
+}

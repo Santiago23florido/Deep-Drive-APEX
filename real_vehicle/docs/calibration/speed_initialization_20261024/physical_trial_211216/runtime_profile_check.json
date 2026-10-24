@@ -1,0 +1,29 @@
+{
+  "approved_profile_neutral_switches_verified": true,
+  "active_switches": {
+    "longitudinal_forward_only": false,
+    "longitudinal_allow_overspeed": false,
+    "launch_forward_command_scale": 1.0,
+    "speed_feedback_forward_scale": 1.0,
+    "kp_speed_forward": 0.0,
+    "steering_confidence_gate": false
+  },
+  "actual_bridge_map": {
+    "esc_zero_pct": 15.0,
+    "pct_per_mps": 33.0,
+    "max_pct": 28.2,
+    "esc_zero_rev_pct": 18.0,
+    "rev_pct_per_mps": 33.0,
+    "max_rev_pct": 31.2,
+    "full_scale_mps": 0.4,
+    "full_scale_reverse_mps": 0.4
+  },
+  "actual_mission_limits": {
+    "enabled": true,
+    "max_distance_m": 40.0,
+    "max_duration_s": 300.0,
+    "max_command_mps": 0.4,
+    "max_reverse_command_mps": 0.4,
+    "forward_only": false
+  }
+}

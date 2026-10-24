@@ -1,0 +1,10 @@
+{
+  "completed_two_laps_physically": false,
+  "stop_requested_for_failed_progress": true,
+  "observation": "Did not pass first curve; reverse steering prevented escape.",
+  "feedback_verbatim": [
+    "no apso la priemra curva",
+    "estas dadp \u00f1a reversa en la primeraz ucvrva ennuan direccion qubeno lo deja avanazar"
+  ],
+  "vehicle_reset_after_stop": true
+}

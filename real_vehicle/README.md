@@ -87,6 +87,12 @@ completed two laps but did not meet the speed-tracking objective. Weak feedback
 after the unit conversion and the simulation failures are recorded in the
 report. The approved profile remains the default.
 
+The [renewed-battery / raised-boundary follow-up `211216`](docs/calibration/speed_initialization_20261024/physical_trial_211216/README.md)
+used that approved profile and completed two operator-confirmed laps without
+contact: 43.842 / 33.922 s, with 6 / 4 reverse starts. Its separate reference
+logging exposes the remaining speed-calibration mismatch. The report includes
+time-weighted tracking diagnostics, English figures and raw-data locations.
+
 The recorded Pi root is `/home/ensta/AiAtonomousRc/APEX`; it contains this
 directory's contents. Learned-odometry dependencies and weights are mounted
 separately from `/home/ensta/odom_rt`. Follow the
