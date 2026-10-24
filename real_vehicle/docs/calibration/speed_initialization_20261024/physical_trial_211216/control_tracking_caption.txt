@@ -1,0 +1,1 @@
+Recorded internal references and onboard estimates. Dashed lines mark recognized laps. Green points meet the stated settled-motion selection. The original reference convention is retained; numerical residuals do not establish calibrated physical tracking or odometry accuracy. Curvature comparison includes measurement/actuation delay and transients.

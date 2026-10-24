@@ -199,9 +199,13 @@ ground-truth odometry accuracy or a statistically established success rate.
 The later [forward speed calibration report](../../real_vehicle/docs/calibration/speed_initialization_20261024/README.md)
 records an opt-in hardware conversion, separate reference logging and additional
 simulation development trials. Motor tracking tests pass; track-level failures,
-including Gazebo localization drift and timeout, remain visible. No new
-physical experiment was performed. The approved capture above remains the real
-evidence, and the simulation campaign below is still required.
+including Gazebo localization drift and timeout, remain visible. Subsequent
+physical follow-ups include initialized-profile failures and
+[approved-profile run `211216`](../../real_vehicle/docs/calibration/speed_initialization_20261024/physical_trial_211216/README.md),
+which completed two operator-confirmed laps after battery/boundary changes but
+retained substantial nominal reference error. Those development outcomes do not
+establish calibrated speed tracking, external odometry accuracy or statistical
+reliability. The simulation campaign below is still required.
 
 From the repository root, after preparing ROS 2/Gazebo, dependencies and v7e
 weights:

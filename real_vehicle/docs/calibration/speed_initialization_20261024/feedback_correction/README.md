@@ -26,6 +26,7 @@ They have not demonstrated successful physical navigation. Approved acquisition
 | 20261024_193020 | Initialized, c933409 | Did not pass first curve; operator reported reverse in an unhelpful direction; stopped |
 | 20261024_193920 | Initialized, b6cb873 | Operator confirmed corrected reverse direction, but still stuck in first curve; forward commands included +22.5 degrees left; stopped |
 | 20261024_200836 | Approved parameters, neutral new switches | No meaningful forward motion; arm withdrawn after 4.40 s following a live Pi power fault |
+| [20261024_211216](../physical_trial_211216/README.md) | Approved parameters, renewed battery and raised inner boundary | Two operator-confirmed laps without contact, 43.842 / 33.922 s and 6 / 4 reverse starts; legacy speed-reference error remains |
 
 The 200836 record contains `throttled=0x50005`, `lcrit_alarm=1`, temperature
 64.8 C at the fault, and a maximum driver gap of 40.53 ms. This is an actual
@@ -59,9 +60,11 @@ They were not deployed as fixes. The hypothetical endpoint checks are open-loop
 kinematic diagnostics using a correlated onboard cloud, not physical success
 or external ground truth.
 
-The directional planning problem remains unresolved. Supply must also remain
-stable before another physical comparison. The experimental branch is retained
-for inspection; it is not promoted as a replacement for the approved run.
+The initialized-profile failures remain unresolved under their original
+visibility/parameter conditions. The later approved-profile comparison completed
+two physical laps after the battery and inner boundary changed; it cannot
+isolate either change or validate the experimental profile. The experimental
+switches remain opt-in and are not a replacement for the approved run.
 
 Complete local datasets, snapshots, raw sensors and stop records are retained
 under `archive/generated/paper/real_vehicle_<run>/` for all three run IDs.

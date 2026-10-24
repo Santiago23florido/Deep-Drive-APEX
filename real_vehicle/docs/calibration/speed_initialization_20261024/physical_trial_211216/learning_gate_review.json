@@ -1,0 +1,6 @@
+{
+  "lap": 2,
+  "time_weighted_median_forward_actuator_input": 0.105,
+  "forward_time_below_instantaneous_deadband_gate_fraction": 1.0,
+  "scope": "CSV command diagnostic, not an exact replay of the identifier filtered command window."
+}

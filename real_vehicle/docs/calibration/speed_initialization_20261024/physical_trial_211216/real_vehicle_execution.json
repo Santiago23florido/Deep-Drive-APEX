@@ -1,0 +1,50 @@
+{
+  "run_id": "20261024_211216",
+  "source_directory": "/home/santiago/AiAtonomousRc/archive/generated/paper/real_vehicle_20261024_211216/raw/diagnostics",
+  "source_sha256": {
+    "driver.csv": "3ffddfc159b6f7fb81268da9056e97d18a3d2cd243b8a8dc1f2bd182f45120e8",
+    "race_events.json": "f9c37efa1432340d89e0cf324942113d2a24d67e9302e3bef8b87fb61936d355",
+    "slam_map_final.npz": "73691f487470ce7c7f49a399b0cec6bac5497cff0af4167607a6bfe6925ed259",
+    "source_manifest.json": "dd2da24be287e5cbecb8460a2e3c8b4676d601dd70901c188b46fc0495b7d603",
+    "map_route.csv": "ae502683953bce2237f8c3fd8b7ca4646f03566cd17639373c2cd63976f1488c",
+    "plan.json": "e5bb156731fbf496e1dd6e5324ea5013424dd7015cdcd86f7a4a4fd66accb20a",
+    "arm_result.json": "5eb150484349f5c90fb5d775b28d48017df5f3554c4a0e2781116f54909dc75f",
+    "bridge_before.json": "ab992df51472363db0963508fd945b394c922c7dfd873d260f59656a92e9d228"
+  },
+  "recorded_phases": [
+    "explore",
+    "closing",
+    "planning",
+    "map_guided",
+    "final",
+    "done"
+  ],
+  "recognized_laps": 2,
+  "crossings": [
+    {
+      "t": 1792872875.2617502,
+      "x": -0.001969309901200275,
+      "y": 0.07482157555313702,
+      "travel": 6.694754023386264,
+      "lap": 1,
+      "lateral": 0.07477375289970055,
+      "heading_err_deg": 3.734508411833701,
+      "kind": "line"
+    },
+    {
+      "t": 1792872909.1833518,
+      "x": -0.0019625958457149192,
+      "y": 0.09480552778721642,
+      "travel": 13.66387751269571,
+      "lap": 2,
+      "lateral": 0.09475770626164842,
+      "heading_err_deg": 5.8465439642761785,
+      "kind": "line"
+    }
+  ],
+  "mission": null,
+  "direct_tracking_allowed": false,
+  "external_ground_truth": false,
+  "control_reference_logged": true,
+  "caption": "Real-vehicle autonomous execution, run 20261024_211216. (a) Actual SLAM occupancy grid with the estimated vehicle trajectory colored by controller phase. (b) Actual control reference and onboard speed; dotted right-axis trace is the final actuator-channel input. (c) Steering command in nominal servo-angle units. (d) Laps recognized by the onboard return detector. Shading marks recorded controller phases. Map coordinates and motion estimates are onboard estimates, not external ground truth. A SLAM route, when shown, guides live LiDAR local planning; it is not a claim of direct tracking of an infeasible trajectory. The onboard detector recorded 2 completed lap(s) out of 2 requested."
+}

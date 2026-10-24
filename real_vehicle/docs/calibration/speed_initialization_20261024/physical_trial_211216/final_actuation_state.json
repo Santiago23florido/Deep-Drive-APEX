@@ -1,0 +1,6 @@
+{
+  "motor_neutral": true,
+  "pwm_period_ns": 20000000,
+  "pwm_duty_ns": 1500000,
+  "vehicle_container_remaining": false
+}
