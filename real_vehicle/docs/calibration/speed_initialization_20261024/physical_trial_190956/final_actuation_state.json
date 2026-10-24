@@ -1,0 +1,8 @@
+{
+  "container_remaining": false,
+  "pwm_period_ns": 20000000,
+  "pwm_duty_cycle_ns": 1500000,
+  "duty_cycle_percent": 7.5,
+  "motor_neutral": true,
+  "observed_via_ssh_after_stop": true
+}

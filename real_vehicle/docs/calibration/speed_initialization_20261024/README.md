@@ -1,7 +1,11 @@
 # Forward speed calibration — October 24, 2026
 
-**Development profile; physical validation pending.** The car was disconnected
-during this work. The approved acquisition remains run `20261024_005311`, tagged
+**Development profile; speed tracking remains unvalidated.** The offline work
+below was performed with the car disconnected. A subsequent
+[physical trial, 20261024_190956](physical_trial_190956/README.md), completed two
+operator-confirmed laps, but exposed weak proportional PWM correction and
+persistent speed-reference error. That review records the complete result and
+the required feedback unit conversion. The approved acquisition remains run `20261024_005311`, tagged
 `real-car-approved-20261024-005311`. Its source snapshot, raw measurements,
 archives and published figures have not been replaced.
 

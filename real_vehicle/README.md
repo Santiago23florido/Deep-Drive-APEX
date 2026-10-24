@@ -82,8 +82,10 @@ pace through a calibrated forward PWM map. Use
 `./real_vehicle/tools/pc/race_pi.sh --profile initialized run` from the repository
 root for its experimental trial, or add `--dry-run` before `run` to preview it
 without connecting. The command syncs and verifies the required files first.
-Physical validation is pending, and full-track simulation failures are recorded
-in the report. The approved profile remains the default.
+The [physical follow-up](docs/calibration/speed_initialization_20261024/physical_trial_190956/README.md)
+completed two laps but did not meet the speed-tracking objective. Weak feedback
+after the unit conversion and the simulation failures are recorded in the
+report. The approved profile remains the default.
 
 The recorded Pi root is `/home/ensta/AiAtonomousRc/APEX`; it contains this
 directory's contents. Learned-odometry dependencies and weights are mounted

@@ -90,8 +90,9 @@ cores are checked for byte and semantic parity.
 An opt-in [forward speed calibration experiment](real_vehicle/docs/calibration/speed_initialization_20261024/README.md)
 normalizes the hardware speed-to-PWM map while retaining the control law and
 approved pace. It adds explicit reference logging. Motor simulation passes;
-full-track integration has documented failures and physical validation is still
-pending. The approved profile remains the default. After reconnecting a prepared,
+full-track integration has documented failures. A [physical follow-up](real_vehicle/docs/calibration/speed_initialization_20261024/physical_trial_190956/README.md)
+completed two laps but exposed weak PWM feedback and persistent speed error.
+The approved profile remains the default. With a prepared,
 stationary car on a clear track, `./real_vehicle/tools/pc/race_pi.sh --profile initialized run`
 deploys the hash-checked payload and performs the bounded experimental trial.
 This command moves the car. Preview it with `--dry-run` before `run`.
