@@ -23,5 +23,6 @@ this file in isolation from its companion acquisition helpers.
 
 The [calibration report](../../../docs/calibration/speed_initialization_20261024/README.md)
 contains the fit, replay comparison, simulation results and known failures.
-Physical validation of this profile is pending; the approved profile remains
-the default.
+Its physical follow-up completed two laps but exposed persistent speed error;
+the report documents the incomplete feedback unit conversion. The approved
+profile remains the default.

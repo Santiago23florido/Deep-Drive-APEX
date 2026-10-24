@@ -1,0 +1,13 @@
+{
+  "old_bridge_slope": 33.0,
+  "initialized_bridge_slope": 5.24,
+  "unchanged_kp_speed": 0.25,
+  "feedback_pwm_per_mps_error_old": 8.25,
+  "feedback_pwm_per_mps_error_initialized": 1.31,
+  "new_to_old_feedback_ratio": 0.15878787878787878,
+  "example_error_mps": 0.2,
+  "old_additional_pwm": 1.6500000000000001,
+  "initialized_additional_pwm": 0.262,
+  "scope": "Same unsaturated speed error; this arithmetic isolates the conversion error, not all battery/load/localization effects.",
+  "runtime_changed_after_trial": false
+}

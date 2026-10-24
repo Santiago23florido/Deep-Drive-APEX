@@ -1,0 +1,17 @@
+{
+  "verified_payload_files": 94,
+  "ram_files": 100,
+  "uncopied_ram_wrapper_or_pointer": [
+    "diagnostics/.ram_capture_active.json",
+    "runs/.last_run"
+  ],
+  "durable_persistence_verified_after_stop": true,
+  "additional_exact_helpers_recovered_from_local_sources": 4,
+  "verified_payload_plus_helper_files": 98,
+  "recovered_helper_inventory_paths": [
+    "diagnostics/run_oval.py",
+    "diagnostics/run_segment_cpu_limit.py",
+    "diagnostics/sample_resources.py",
+    "diagnostics/save_final_map.py"
+  ]
+}
