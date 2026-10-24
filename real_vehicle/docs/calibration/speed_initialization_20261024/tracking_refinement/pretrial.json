@@ -1,0 +1,49 @@
+{
+  "reference_run": "20261024_214635",
+  "requested_at_initial_position": true,
+  "previous_lap2": {
+    "reference_mps": 0.36,
+    "onboard_mean_mps": 0.2561341054450919,
+    "selected_mae_mps": 0.10631520789663733,
+    "reverse_starts": 2
+  },
+  "changes": {
+    "forward_bridge_intercept": [
+      15.0,
+      15.7
+    ],
+    "forward_bridge_slope_unchanged": 8.68421052631579,
+    "forward_command_cap": [
+      1.52,
+      1.43
+    ],
+    "turn_smoothing_weight": [
+      0.1,
+      0.05
+    ]
+  },
+  "retained": {
+    "reference_bounds_mps": [
+      0.36,
+      0.42
+    ],
+    "pwm_forward_ceiling": 28.2,
+    "pwm_reverse_ceiling": 31.2,
+    "lap_limit": 2,
+    "mission_distance_m": 40,
+    "mission_duration_s": 300,
+    "kalman_confidence_threshold": 0.5,
+    "odometry_weights_unchanged": true
+  },
+  "scope": "Two small profile changes; no controller-core, clearance, steering endpoint or recovery disable changes.",
+  "replay_limitations": "Recorded poses/scans and logged model coefficients are held fixed. Static candidate rescoring is not closed-loop proof of avoiding a recovery. At late blocked snapshots all variants remain blocked.",
+  "map_guided_explanation": {
+    "global_candidate_rejected": true,
+    "rejection_reasons": [
+      "map_clearance",
+      "curvature"
+    ],
+    "candidate_max_curvature_inv_m": 2.1654141490661813,
+    "allowed_curvature_inv_m": 1.2673377824649694
+  }
+}

@@ -149,7 +149,7 @@ try:
         "v=f.result().values; "
         "assert [v[0].bool_value,v[1].bool_value,v[5].bool_value,v[6].bool_value]==[True,True,False,True]; "
         "assert [v[2].double_value,v[3].double_value,v[4].double_value,v[7].double_value]==[40.,300.," + repr(profile['command_cap']) + ",.9]; "
-        "assert [x.double_value for x in v[8:13]]==[12.5,1.,.45,0.,0.]; assert not v[13].bool_value; assert v[14].double_value==.1; "
+        "assert [x.double_value for x in v[8:13]]==[12.5,1.,.45,0.,0.]; assert not v[13].bool_value; assert v[14].double_value==" + repr(profile['w_smooth']) + "; "
         "assert [x.double_value for x in v[15:19]]==[22.5,12.96,22.5,12.96]; "
         "assert not v[19].bool_value; "
         "assert [v[20].integer_value,v[21].integer_value]==[21,11]; "

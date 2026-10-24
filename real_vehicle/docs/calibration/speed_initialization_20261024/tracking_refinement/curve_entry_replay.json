@@ -1,0 +1,612 @@
+[
+  {
+    "relative_s": 30.115389585494995,
+    "phase": "planning",
+    "recorded_n_feasible": 77,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -0.9495568692058145,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.0,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -1.2660758256077527,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.8,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -1.2660758256077527,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.8,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "guide1",
+        "kappa": -0.9495568692058145,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.0,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "guide3",
+        "kappa": -0.9495568692058145,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.0,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "wall09",
+        "kappa": -0.9495568692058145,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.0,
+        "n_feasible": 77,
+        "mode": "L"
+      }
+    ]
+  },
+  {
+    "relative_s": 31.064234018325806,
+    "phase": "planning",
+    "recorded_n_feasible": 176,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -0.6309379128038762,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.6000000000000001,
+        "n_feasible": 176,
+        "mode": "L"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -0.9464068692058143,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.6000000000000001,
+        "n_feasible": 176,
+        "mode": "L"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -0.47320343460290715,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.6000000000000001,
+        "n_feasible": 176,
+        "mode": "L"
+      },
+      {
+        "label": "guide1",
+        "kappa": -0.6309379128038762,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.6000000000000001,
+        "n_feasible": 176,
+        "mode": "L"
+      },
+      {
+        "label": "guide3",
+        "kappa": -0.6309379128038762,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.6000000000000001,
+        "n_feasible": 176,
+        "mode": "L"
+      },
+      {
+        "label": "wall09",
+        "kappa": -0.6309379128038762,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.6000000000000001,
+        "n_feasible": 176,
+        "mode": "L"
+      }
+    ]
+  },
+  {
+    "relative_s": 32.007428884506226,
+    "phase": "planning",
+    "recorded_n_feasible": 0,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.4,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.4,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.4,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "guide1",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.4,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "guide3",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.4,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "wall09",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.4,
+        "n_feasible": 0,
+        "mode": "L"
+      }
+    ]
+  },
+  {
+    "relative_s": 33.167826414108276,
+    "phase": "planning",
+    "recorded_n_feasible": 77,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.8,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.8,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.8,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "guide1",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.8,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "guide3",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.8,
+        "n_feasible": 77,
+        "mode": "L"
+      },
+      {
+        "label": "wall09",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.8,
+        "n_feasible": 77,
+        "mode": "BOTH"
+      }
+    ]
+  },
+  {
+    "relative_s": 34.04325842857361,
+    "phase": "map_guided",
+    "recorded_n_feasible": 11,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -1.2618758256077525,
+        "v": 1.0536712127723509e-08,
+        "feasible": true,
+        "free": 0.30000000000000004,
+        "n_feasible": 11,
+        "mode": "NONE"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -1.2618758256077525,
+        "v": 1.0536712127723509e-08,
+        "feasible": true,
+        "free": 0.30000000000000004,
+        "n_feasible": 11,
+        "mode": "NONE"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -1.2618758256077525,
+        "v": 1.0536712127723509e-08,
+        "feasible": true,
+        "free": 0.30000000000000004,
+        "n_feasible": 11,
+        "mode": "NONE"
+      },
+      {
+        "label": "guide1",
+        "kappa": -1.2618758256077525,
+        "v": 1.0536712127723509e-08,
+        "feasible": true,
+        "free": 0.30000000000000004,
+        "n_feasible": 11,
+        "mode": "NONE"
+      },
+      {
+        "label": "guide3",
+        "kappa": -1.2618758256077525,
+        "v": 1.0536712127723509e-08,
+        "feasible": true,
+        "free": 0.30000000000000004,
+        "n_feasible": 11,
+        "mode": "NONE"
+      },
+      {
+        "label": "wall09",
+        "kappa": -1.2618758256077525,
+        "v": 1.0536712127723509e-08,
+        "feasible": true,
+        "free": 0.30000000000000004,
+        "n_feasible": 11,
+        "mode": "NONE"
+      }
+    ]
+  },
+  {
+    "relative_s": 43.063695669174194,
+    "phase": "map_guided",
+    "recorded_n_feasible": 187,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.1,
+        "n_feasible": 187,
+        "mode": "L"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.1,
+        "n_feasible": 187,
+        "mode": "L"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.1,
+        "n_feasible": 187,
+        "mode": "L"
+      },
+      {
+        "label": "guide1",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.1,
+        "n_feasible": 187,
+        "mode": "L"
+      },
+      {
+        "label": "guide3",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.1,
+        "n_feasible": 187,
+        "mode": "L"
+      },
+      {
+        "label": "wall09",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 1.1,
+        "n_feasible": 187,
+        "mode": "L"
+      }
+    ]
+  },
+  {
+    "relative_s": 44.00628900527954,
+    "phase": "map_guided",
+    "recorded_n_feasible": 132,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.7000000000000001,
+        "n_feasible": 132,
+        "mode": "L"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.7000000000000001,
+        "n_feasible": 132,
+        "mode": "L"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.7000000000000001,
+        "n_feasible": 132,
+        "mode": "L"
+      },
+      {
+        "label": "guide1",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.7000000000000001,
+        "n_feasible": 132,
+        "mode": "L"
+      },
+      {
+        "label": "guide3",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.7000000000000001,
+        "n_feasible": 132,
+        "mode": "L"
+      },
+      {
+        "label": "wall09",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.7000000000000001,
+        "n_feasible": 132,
+        "mode": "L"
+      }
+    ]
+  },
+  {
+    "relative_s": 45.107450008392334,
+    "phase": "map_guided",
+    "recorded_n_feasible": 55,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.4,
+        "n_feasible": 66,
+        "mode": "L"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.4,
+        "n_feasible": 66,
+        "mode": "L"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.4,
+        "n_feasible": 66,
+        "mode": "L"
+      },
+      {
+        "label": "guide1",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.4,
+        "n_feasible": 66,
+        "mode": "L"
+      },
+      {
+        "label": "guide3",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.4,
+        "n_feasible": 66,
+        "mode": "L"
+      },
+      {
+        "label": "wall09",
+        "kappa": -1.2618758256077525,
+        "v": 0.36,
+        "feasible": true,
+        "free": 0.4,
+        "n_feasible": 66,
+        "mode": "BOTH"
+      }
+    ]
+  },
+  {
+    "relative_s": 46.02428197860718,
+    "phase": "map_guided",
+    "recorded_n_feasible": 0,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "guide1",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "guide3",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "wall09",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "BOTH"
+      }
+    ]
+  },
+  {
+    "relative_s": 47.024369955062866,
+    "phase": "map_guided",
+    "recorded_n_feasible": 0,
+    "variants": [
+      {
+        "label": "baseline",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "smooth05",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "smooth02",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "guide1",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "guide3",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      },
+      {
+        "label": "wall09",
+        "kappa": -1.2618758256077525,
+        "v": 0.0,
+        "feasible": false,
+        "free": 0.20000000000000004,
+        "n_feasible": 0,
+        "mode": "L"
+      }
+    ]
+  }
+]
