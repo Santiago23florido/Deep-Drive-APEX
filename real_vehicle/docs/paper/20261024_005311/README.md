@@ -85,6 +85,27 @@ their directory name records their first approved use.
 
 ## Measurement scope
 
+The [main README](../../../../README.md) now presents the additional timing,
+resource and data tables alongside the figures, and documents the
+[PC SSH preflight/run entry point](../../../tools/pc/race_pi.sh). The
+[preprint readiness report](../../../../docs/reports/preprint_readiness_20261024.md)
+separates this approved physical evidence from the remaining simulator campaign.
+The acquisition ZIP, captured source and historical test results remain unchanged.
+
+| Additional recorded quantity | Approved run |
+| --- | ---: |
+| Hybrid processing median / P95 / max | 14.165 / 18.128 / 26.490 ms |
+| Scan stamp to output median / P95 | 149.165 / 164.091 ms |
+| Propagated pose age at control median / P95 | 15.000 / 23.240 ms |
+| Driver / odometry / recorder CPU median | 96.97 / 31.49 / 11.00% of one core |
+| Container CPU median | 195.95% of one core |
+| Odometry RSS | 756.72 MiB |
+| Stationary maximum estimated excursion / observation | 1.866 mm / 9.696 s |
+| Scan consistency mean | 0.03520 m, correlated diagnostic |
+
+The stationary figure describes the deployed pipeline with its hold active,
+not a separate network-only evaluation.
+
 Hybrid odometry processing includes feature preparation, ICP/network or
 stationary hold, deskew and integration. It is not isolated network inference.
 Sensor-header age includes acquisition/waiting; propagated pose freshness is

@@ -2,9 +2,29 @@
 
 ## Scope
 
-The primary real vehicle in this layout is the `voiture_system` stack under `real_vehicle/`. It is the stack that includes SLAM and must be identified as the real vehicle.
+The approved physical implementation is `apex_race` + `apex_telemetry`, learned
+LiDAR–inertial odometry and `slam_toolbox`. The operator selected
+[run 20261024_005311](../real_vehicle/docs/paper/20261024_005311/README.md):
+46.837/14.594 s laps, 8/1 reverse starts and MAP_GUIDED continuation.
 
-## Recommended Real-Vehicle Stack
+## Current implementation
+
+See the [real-vehicle README](../real_vehicle/README.md) for the runtime graph,
+source locations, measured timing/resources and downloadable evidence. The
+[race-stack guide](../real_vehicle/docs/race_stack.md) is the detailed deployed
+configuration reference. The recorded Pi root is
+`/home/ensta/AiAtonomousRc/APEX`; the odometry environment is `/home/ensta/odom_rt`.
+
+The [PC SSH script and commands](../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
+provide disarmed preflight and the finite two-lap run. Recognition builds a fresh
+map; continuation starts from the current pose with learned parameters retained.
+The physical capture used guarded local map guidance, not direct tracking of the
+rejected optimized candidate. Offline figures need no car connection.
+
+## Earlier `voiture_system` stack
+
+The remaining sections preserve the older SLAM/Nav2 workflow and its defaults.
+They are not the configuration used for the approved race capture.
 
 | Layer | Component |
 | --- | --- |
@@ -103,9 +123,11 @@ Nav2 is optional and should only be enabled after map, TF, and parameters are va
 7. Prepare a physical power cutoff.
 8. Keep people away from the test area.
 
-## Auxiliary APEX Workflow
+## Other APEX workflows
 
-`real_vehicle/ros2_ws/src/apex_telemetry`, Docker, and `real_vehicle/tools/` contain additional IMU, LiDAR, fusion, and capture flows. The minimal mode can run without SLAM. It is not the primary real-vehicle stack.
+`real_vehicle/ros2_ws/src/apex_telemetry`, Docker, and `real_vehicle/tools/` also
+retain sensor-only, single-curve and recognition-tour capture tools. These
+earlier entry points are separate from the current race launcher.
 
 ## Legacy Stack Without SLAM
 

@@ -1,4 +1,23 @@
-# APEX Curve-Tracking Documentation
+# APEX physical-vehicle documentation
+
+## Current race runtime and evidence
+
+The approved implementation is `apex_race` + `apex_telemetry`, learned odometry
+and `slam_toolbox`. Run **20261024_005311** completed two physical laps in
+46.837/14.594 s, with 8/1 reverse starts and MAP_GUIDED continuation. Its full
+capture, six English figure sets, metrics and exact source/model snapshot are
+available in [the approved evidence package](paper/20261024_005311/README.md).
+
+- [Race-stack graph, implementation and deployed configuration](race_stack.md)
+- [PC SSH preflight and two-lap recognition/SLAM commands](../../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
+- [RAM capture and verified persistence](ram_logging.md)
+- [Real evaluation and transfer protocol](real_evaluation_protocol.md)
+- [Simulation/preprint readiness report](../../docs/reports/preprint_readiness_20261024.md)
+
+The curve-entry documentation below describes an earlier workflow, not the
+selected two-lap race runtime.
+
+## Earlier curve-tracking workflow
 
 This folder documents the current curve-entry stack implemented in `real_vehicle/ros2_ws/src/apex_telemetry/apex_telemetry`.
 
@@ -22,7 +41,7 @@ The goal of this documentation is to explain the code as a set of cooperating mo
 
 ## End-to-End Pipeline
 
-The final runtime chain is:
+The earlier curve-tracking runtime chain is:
 
 1. `curve_entry_path_planner_node.py`
 2. `curve_window_detection.py`
