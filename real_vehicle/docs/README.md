@@ -9,7 +9,7 @@ capture, six English figure sets, metrics and exact source/model snapshot are
 available in [the approved evidence package](paper/20261024_005311/README.md).
 
 - [Race-stack graph, implementation and deployed configuration](race_stack.md)
-- [PC SSH preflight and two-lap recognition/SLAM commands](../../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
+- [PC SSH preflight and two-lap recognition/SLAM commands](../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
 - [RAM capture and verified persistence](ram_logging.md)
 - [Real evaluation and transfer protocol](real_evaluation_protocol.md)
 - [Simulation/preprint readiness report](../../docs/reports/preprint_readiness_20261024.md)

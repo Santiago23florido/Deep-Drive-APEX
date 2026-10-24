@@ -4,9 +4,10 @@
 
 | Topic | Current reference |
 | --- | --- |
-| Approved physical runtime, data and English figures | [Run 20261024_005311](../real_vehicle/docs/paper/20261024_005311/README.md) |
+| Latest accepted physical demonstration, data and English figures | [Run 20261024_220316](../real_vehicle/docs/paper/20261024_220316/README.md) |
+| Original approved physical runtime and preserved evidence | [Run 20261024_005311](../real_vehicle/docs/paper/20261024_005311/README.md) |
 | Real runtime graph and deployed configuration | [Race stack](../real_vehicle/docs/race_stack.md) |
-| PC SSH preflight and recognition-to-SLAM run | [Main README commands](../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run) |
+| PC SSH preflight and recognition-to-SLAM run | [Real-vehicle README commands](../real_vehicle/README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run) |
 | Current simulator and historical demonstrations | [Simulation README](../simulation/README.md) |
 | Remaining simulation experiments for the preprint | [Readiness report](reports/preprint_readiness_20261024.md) |
 

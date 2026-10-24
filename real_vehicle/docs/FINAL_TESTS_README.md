@@ -3,7 +3,7 @@
 ## Current two-lap workflow
 
 For the approved recognition-to-SLAM implementation, use the
-[PC SSH preflight/run commands](../../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
+[PC SSH preflight/run commands](../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
 and [recorded trial helpers](../tools/core/validated_trial_20261024_000432/README.md).
 The approved run is [20261024_005311](paper/20261024_005311/README.md), with
 46.837/14.594 s laps, 8/1 reverse starts and a complete English figure/data package.

@@ -5,7 +5,7 @@ These unchanged helper bytes were also used by the latest retained run
 46.837/14.594 s and 8/1 reverse starts. The directory name records their first
 approval, not the latest controller version. From the PC, use
 [`race_pi.sh preflight` or `race_pi.sh run`](../../pc/race_pi.sh), as described
-in the [main README](../../../../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run).
+in the [real-vehicle README](../../../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run).
 The PC wrapper delegates to these exact copies and the RAM trial wrapper.
 
 These four Python files are byte-for-byte copies of the helpers used in the

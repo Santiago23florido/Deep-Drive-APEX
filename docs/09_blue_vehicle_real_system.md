@@ -15,7 +15,7 @@ source locations, measured timing/resources and downloadable evidence. The
 configuration reference. The recorded Pi root is
 `/home/ensta/AiAtonomousRc/APEX`; the odometry environment is `/home/ensta/odom_rt`.
 
-The [PC SSH script and commands](../README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
+The [PC SSH script and commands](../real_vehicle/README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run)
 provide disarmed preflight and the finite two-lap run. Recognition builds a fresh
 map; continuation starts from the current pose with learned parameters retained.
 The physical capture used guarded local map guidance, not direct tracking of the

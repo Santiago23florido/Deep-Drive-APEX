@@ -9,8 +9,12 @@ The current publication audit is
 [machine-readable validation](preprint_validation_20261024.json). It covers the
 approved real capture, final simulation source integration, measured timing and
 the remaining Gazebo campaign, baselines and release artifacts. The
-[approved data and English figures](../../real_vehicle/docs/paper/20261024_005311/README.md)
-are already versioned. The French reports below remain historical material.
+[latest accepted data and English figures](../../real_vehicle/docs/paper/20261024_220316/README.md)
+and the [original approved capture](../../real_vehicle/docs/paper/20261024_005311/README.md)
+are versioned separately. Component-level results and commands are in the
+[real-vehicle README](../../real_vehicle/README.md) and
+[simulation README](../../simulation/README.md). The French reports below remain
+historical material.
 
 | Report | Folder | Contents |
 | --- | --- | --- |

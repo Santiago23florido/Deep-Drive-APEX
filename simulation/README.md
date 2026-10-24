@@ -8,11 +8,10 @@ The [latest accepted calibrated physical run `220316`](../real_vehicle/docs/pape
 completed two operator-confirmed laps without contact and with 3 / **0** reverse
 starts. The selected lap-2 onboard speed MAE was **0.054 m/s** at a 0.360 m/s
 reference. Neural weights and shared controller core were unchanged; the
-forward hardware trim and turn-smoothing configuration are recorded. The
-longitudinal inverse remained inactive after 12 updates, below the minimum 20.
-This physical result is not a completed final-profile Gazebo evaluation or
-evidence of full model convergence. The PC hardware launcher now defaults to
-this `tracking` profile; simulator actuator maps still require their own setup.
+forward hardware trim and turn-smoothing configuration are recorded. Full
+run-specific identification statistics remain in the linked report. Final-profile
+Gazebo evaluation is documented separately below. The PC hardware launcher now
+defaults to `tracking`; simulator actuator maps still require their own setup.
 
 The simulator includes the final shared driving-core corrections used by
 [approved physical run `20261024_005311`](../real_vehicle/docs/paper/20261024_005311/README.md):
@@ -58,9 +57,30 @@ its six motor-delay checks are not a completed Gazebo campaign. The calibrated
 hardware profile still requires final simulator integration and controlled
 repeat trials before a speed-tracking claim.
 
-## Run recognition, mapping and planned continuation
+## Simulation and transfer evidence
 
-From the repository root:
+Historical Gazebo experiments demonstrated reactive reconnaissance, automatic lap
+closure, planning on the car's map and faster subsequent laps. The
+[simulation research README](ros2_ws/src/apex_fusion_research/README.md#131-race-mode-explore-map-race)
+and [model catalogue](learning/lidar_imu_pose/README.md#model-catalogue)
+retain the run-specific results and training protocols. Those historical results
+must be distinguished from validation of the final October 24 controller.
+
+The updated simulator includes the shared recovery/mission/steering corrections,
+the confidence gate and the stationary IMU-prediction fix. The
+[preprint readiness report](../docs/reports/preprint_readiness_20261024.md) lists
+the experiments still needed: final-version multi-track evaluation, baselines,
+ablations, failure reporting and reproducible simulation artifacts.
+
+Unchanged learned weights, online identification and manually developed
+controller settings must be described separately. The current real-track
+development record does not establish an untouched zero-shot evaluation of the
+complete stack.
+
+
+## Build and run simulation
+
+From the repository root, with ROS 2 Jazzy and Gazebo installed:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -71,6 +91,18 @@ cd ../..
 ./simulation/tools/sim/apex_real2sim_up.sh \
   --track test_unseen --seed 6 --laps 3 --no-rviz
 ```
+
+The launcher defaults to the v7e checkpoint. Training outputs are Git-ignored;
+prepare the checkpoint using the [learning documentation](learning/lidar_imu_pose/README.md).
+The physical run's exact PT/ONNX weights are also preserved inside its verified
+archive. General simulator bring-up and older workflows are described in
+[simulation/README.md](README.md).
+
+
+## Run recognition, mapping and planned continuation
+
+Use the [build and run commands above](#build-and-run-simulation) from the
+repository root.
 
 Prepare the v7e checkpoint first using the
 [learning README](learning/lidar_imu_pose/README.md). The driver consumes its own
