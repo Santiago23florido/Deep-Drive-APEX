@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PC entry point for the approved trial and opt-in forward hardware calibration.
+# PC entry point for the latest accepted calibrated trial and retained profiles.
 set -euo pipefail
 
 usage() {
@@ -9,10 +9,10 @@ Usage: race_pi.sh [--host ensta@raspberrypi] [--profile approved|initialized|tra
 status     Read current runtime state over SSH.
 preflight  Start a fresh disarmed stack, check sensors/SLAM/control/power,
            collect diagnostic data, then stop. Never publishes arm=true.
-run        Start the approved RAM-backed two-lap recognition + SLAM trial.
+run        Start the accepted RAM-backed two-lap recognition + SLAM trial.
            This mode moves the vehicle after its onboard preflight passes.
 --dry-run  Print the selected SSH invocation and remote script without connecting.
---profile  approved (default), initialized or tracking: deploy the explicit calibrated
+--profile  tracking (default), approved or initialized: deploy the explicit calibrated
            forward profile, verify hashes, then execute the same finite mission.
 
 Requires the deployed APEX tree and odometry environment on the Pi, the ensta
@@ -23,7 +23,7 @@ USAGE
 
 target="ensta@raspberrypi"
 preview=0
-profile=approved
+profile=tracking
 mode=""
 while (($#)); do
   case "$1" in

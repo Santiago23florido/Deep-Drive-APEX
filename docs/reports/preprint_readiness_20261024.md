@@ -5,6 +5,21 @@ experimental gap report, not a conference acceptance checklist.
 
 ## Current conclusion
 
+**Latest accepted calibrated hardware result: [run `220316`](../../real_vehicle/docs/paper/20261024_220316/README.md).**
+The operator confirmed two physical laps without contact and no second-lap
+reverse. Recorded durations were 29.644 / 10.875 s, with 3 / 0 reverse starts.
+Selected lap-2 reference / onboard mean / MAE were 0.360 / 0.309 / 0.054 m/s.
+All 144 selected runtime source/config/model files matched PC/Pi after stop.
+The original approved 005311 acquisition below remains a historical result.
+
+Longitudinal Kalman accepted 12 updates, fewer than the minimum 20; confidence
+was zero and its inverse remained inactive. This supports calibrated deployment
+and reference tracking against an onboard estimate, not full plant convergence,
+external accuracy, a repeated-trial success rate or untouched full-stack
+zero-shot transfer. Runtime `f907cce` is frozen under tag
+`real-car-calibrated-20261024-220316`; the complete source/model/data ZIP is linked
+from its report. The final simulator campaign below remains outstanding.
+
 The physical implementation and its approved data are preserved. The remaining
 work is chiefly a **frozen-version simulation evaluation and a reproducible
 paper package**. The existing real recording can support a deployment case
@@ -12,9 +27,10 @@ study, onboard timing and internal consistency. It cannot supply external
 trajectory accuracy or an untouched full-stack zero-shot benchmark.
 
 The acquisition runtime is commit `661e33e5cf2b8037d5b6129cfd1e991e26d4bcb0`,
-tag `real-car-approved-20261024-005311`. This integration adds documentation,
-simulator regressions and a PC SSH entry point; it does not retune the controller,
-change its neural weights or launch the vehicle.
+tag `real-car-approved-20261024-005311`. That original documentation integration
+did not retune the controller or launch the vehicle. Subsequent physical
+calibration, attempts and their outcomes are recorded separately above and
+below; deployed neural weights remain unchanged.
 
 ## Evidence already available
 
@@ -81,7 +97,7 @@ are not universal publication rules or sample-size requirements.
 | P0 | Compare relevant baselines and contributions | Same declared scenarios/limits and paired random draws where possible; per-run results and uncertainty, including failures |
 | P0 | Evaluate odometry against simulator truth | Open-loop and closed-loop metrics at fixed horizons/distances; separate estimator-only and SLAM-corrected pose |
 | P0 | Package simulation evidence | Raw/per-run outputs, source/config hashes, dataset/checkpoint retrieval or regeneration instructions, CSV tables and English vector figures |
-| P0 | Write the method and limitations around actual execution | MAP_GUIDED real result, one remaining second-lap reverse, no real ATE/RPE, manually developed hardware settings and online adaptation disclosed |
+| P0 | Write the method and limitations around actual execution | Latest MAP_GUIDED result has no lap-2 reverse; disclose inactive longitudinal inverse, no real ATE/RPE, hardware tuning and online identification |
 | P1 | Stress timing, recovery and observability | Low speed, stop/restart, tight turns in both directions, sparse scans, delayed/lost scans, bias and plant mismatch; failure/guard counts |
 | P1 | Repeatability and sensitivity | Multiple independent starts; confidence-gate/sample/excitation sensitivity; median, spread and trial-level confidence intervals |
 | Optional | Distill v7 into the smaller v6 encoder | Only if compute reduction is claimed; v6 currently uses the older teacher and is not the deployed model |

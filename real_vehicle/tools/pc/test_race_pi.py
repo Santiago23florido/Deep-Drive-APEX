@@ -22,7 +22,7 @@ def ssh_mock(tmp_path):
 @pytest.mark.parametrize('mode', ['status', 'preflight', 'run'])
 def test_explicit_mode_is_forwarded_and_ssh_failure_is_preserved(ssh_mock, mode):
     env, args, body = ssh_mock
-    result = subprocess.run(['bash', str(SCRIPT), '--host', 'ensta@pi-test', mode],
+    result = subprocess.run(['bash', str(SCRIPT), '--profile', 'approved', '--host', 'ensta@pi-test', mode],
                             env=env, capture_output=True, text=True)
     assert result.returncode == 23
     assert args.read_text().splitlines()[-6:] == ['ensta@pi-test', 'bash', '-s', '--', mode, 'approved']
@@ -57,5 +57,7 @@ def test_preview_prints_the_invocation_without_connecting(ssh_mock):
                             env=env, capture_output=True, text=True)
     assert result.returncode == 0
     assert 'bash -s -- preflight' in result.stdout
+    assert 'bash -s -- preflight tracking' in result.stdout
+    assert 'Would deploy and SHA256-verify 13 files' in result.stdout
     assert '--diagnose-only' in result.stdout
     assert not args.exists() and not body.exists()

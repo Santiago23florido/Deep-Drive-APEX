@@ -1,5 +1,17 @@
 # Small forward trim and turn-anticipation follow-up
 
+**Accepted physical result: run `20261024_220316`.** The operator confirmed two
+laps without contact and no lap-2 reverse. Recorded durations were 29.644 /
+10.875 s, reverse starts 3 / 0. Selected lap-2 speed MAE was 0.0542 m/s at the
+unchanged 0.360 m/s reference, versus 0.1063 in the previous run. Longitudinal
+identification accepted 12 updates, below the minimum 20; its inverse remained
+inactive. The improvement does not demonstrate full Kalman convergence.
+
+The [accepted paper package](../../../paper/20261024_220316/README.md) contains
+the complete ZIP, exact source/model snapshot, operator confirmation, metrics,
+English figures and limitations. The PC launcher now defaults to this refined
+`tracking` profile. The protocol below records the design before that trial.
+
 This experiment follows captured run `20261024_214635`, whose selected lap-2
 speed MAE was 0.106 m/s at a 0.360 m/s reference and which made two reverse
 recoveries on that lap. The new profile retains the reference and measured
@@ -26,5 +38,5 @@ The same Kalman confidence threshold remains; no learned coefficients are
 forced into use. Neural weights and shared controller core code are unchanged.
 The next finite two-lap trial records raw sensors, actual references, commands,
 model confidence and timing to RAM for comparison after stop. Hardware
-performance of this refinement is pending. The earlier capture and approved
-baseline remain available separately.
+performance is documented in the accepted report above. The earlier capture
+and original approved baseline remain available separately.

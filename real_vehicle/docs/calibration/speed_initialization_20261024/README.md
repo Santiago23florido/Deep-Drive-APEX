@@ -1,5 +1,12 @@
 # Forward speed calibration — October 24, 2026
 
+**Latest accepted calibrated run: [220316](../../paper/20261024_220316/README.md).**
+The operator confirmed two laps without contact and no second-lap reverse.
+The refined `tracking` profile is now the PC launcher's default. Selected lap-2
+MAE was 0.054 m/s at reference 0.360 m/s, while the longitudinal inverse remained
+inactive after only 12 accepted updates. This is not full model convergence.
+The original approved acquisition and earlier failures below remain separate.
+
 **Development profile; speed tracking remains unvalidated.** The offline work
 below was performed with the car disconnected. A subsequent
 [physical trial, 20261024_190956](physical_trial_190956/README.md), completed two
@@ -162,8 +169,9 @@ To inspect that command without connecting:
 ./real_vehicle/tools/pc/race_pi.sh --profile initialized --dry-run run
 ```
 
-The default `--profile approved` still selects the approved settings and helper
-copies. Choose it to reproduce the retained baseline rather than this experiment.
+Explicit `--profile approved` selects the historical approved settings and helper
+copies. The later accepted `tracking` profile is now the PC default; select this
+report's initialized experiment explicitly with `--profile initialized`.
 The initialized sync touches only the explicit runtime payload, refuses an
 existing `apex_pipeline` container and requires neutral/disabled motor output.
 It does not deploy network weights. A standalone disarmed check is available

@@ -5,9 +5,26 @@ LiDAR–inertial odometry and `slam_toolbox`, as deployed in operator-approved r
 **`20261024_005311`** on October 24, 2026. The old `voiture_system` and curve-entry
 flows remain in the tree as earlier implementations.
 
+## Latest accepted calibrated profile
+
+**Run `20261024_220316`** completed two operator-confirmed laps without contact,
+with **3 / 0 reverses** and durations **29.644 / 10.875 s**. At the same actual
+0.360 m/s reference, selected lap-2 onboard mean / MAE were **0.309 / 0.054 m/s**.
+Longitudinal Kalman accepted 12 updates, below the minimum 20, so its inverse
+remained inactive. This is successful calibrated operation, not full model
+convergence or external odometry accuracy.
+
+![Latest accepted calibrated execution](docs/paper/20261024_220316/figures/real_vehicle_execution.png)
+
+[Latest report and complete data/source/model ZIP](docs/paper/20261024_220316/README.md)
+include English figures, actual reference tracking, runtime/resource diagnostics,
+operator confirmation and 144 matching selected PC/Pi files. The PC launcher
+now defaults to this `tracking` profile. Select `--profile approved` for the
+original historical settings and data below.
+
 ![Approved physical execution, using onboard estimates](docs/paper/20261024_005311/figures/real_vehicle_execution.png)
 
-## Results and downloadable evidence
+## Historical approved results and downloadable evidence
 
 | Result | Approved run |
 | --- | ---: |
@@ -85,7 +102,7 @@ without connecting. The command syncs and verifies the required files first.
 The [physical follow-up](docs/calibration/speed_initialization_20261024/physical_trial_190956/README.md)
 completed two laps but did not meet the speed-tracking objective. Weak feedback
 after the unit conversion and the simulation failures are recorded in the
-report. The approved profile remains the default.
+report. Its historical approved settings remain selectable explicitly.
 
 The [renewed-battery / raised-boundary follow-up `211216`](docs/calibration/speed_initialization_20261024/physical_trial_211216/README.md)
 used that approved profile and completed two operator-confirmed laps without
@@ -100,7 +117,8 @@ physical laps. Forward reference 0.360 m/s versus selected lap-2 onboard speed
 0.256 m/s leaves MAE 0.106 m/s. It remains an experiment with unaccepted
 longitudinal adaptation. From the PC, `./real_vehicle/tools/pc/race_pi.sh --profile tracking run`
 selects its finite captured trial; add `--dry-run` before `run` to preview.
-The default stays `approved` and the former acquisition is preserved.
+The later accepted refinement is now the default `tracking` profile; the former
+acquisition is preserved.
 
 The recorded Pi root is `/home/ensta/AiAtonomousRc/APEX`; it contains this
 directory's contents. Learned-odometry dependencies and weights are mounted
