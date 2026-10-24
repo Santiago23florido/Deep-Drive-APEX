@@ -95,6 +95,8 @@ apex_race_driver:
       longitudinal_allow_overspeed: true
       deadband_margin_mps: 0.01
       launch_forward_command_scale: 6.3
+      speed_feedback_forward_scale: 6.3
+      kp_speed_forward: 0.17  # damp the converted P gain for the measured feedback delay
       dead_max_mps: 2.125
     mission:
       enabled: true

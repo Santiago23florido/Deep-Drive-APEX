@@ -159,8 +159,12 @@ class AdaptiveShaper:
             self.launch_since, self.launch_extra = None, 0.0
             return 0.0
         u = model.speed_in(v_des)
-        authority = a.speed_authority * max(abs(v_des), 0.3)
-        u += max(-authority, min(authority, a.kp_speed * (v_des - speed)))
+        scale = a.speed_feedback_forward_scale if v_des > 0.0 else 1.0
+        # Convert both the P gain and its command-space authority. References
+        # and measured speeds remain physical; reverse keeps its original gauge.
+        authority = a.speed_authority * max(abs(v_des), 0.3 * scale)
+        kp = a.kp_speed_forward if v_des > 0.0 and a.kp_speed_forward > 0.0 else a.kp_speed
+        u += max(-authority, min(authority, scale * kp * (v_des - speed)))
         # The motor does not start below its threshold, so a command meant to
         # move a standing car must clear it; if the car is still standing after
         # launch_hold_s, ramp until it breaks away. That ramp is also how the
