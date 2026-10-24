@@ -88,7 +88,16 @@ def main() -> None:
     ax_map.scatter(values['x_map'][-1], values['y_map'][-1], s=20, marker='x', c='#111111', label='Final estimate', zorder=5)
     ax_map.set(xlabel='Map x [m]', ylabel='Map y [m]', title='(a) Onboard SLAM and estimated trajectory', aspect='equal')
     ax_map.legend(loc='lower left', framealpha=.95)
-    ax_v.plot(t, values['v_cmd'], lw=.8, c='#222222', label='Command')
+    has_reference = all('v_target' in row for row in rows)
+    if has_reference:
+        reference = np.array([float(row['v_target']) for row in rows])
+        ax_v.plot(t, reference, lw=.8, c='#222222', label='Control reference')
+        actuator_axis = ax_v.twinx()
+        actuator_axis.plot(t, values['v_cmd'], lw=.5, ls=':', c='#888888', alpha=.65)
+        actuator_axis.set_ylabel('Actuator-channel input', color='#666666')
+        actuator_axis.tick_params(axis='y', colors='#666666')
+    else:
+        ax_v.plot(t, values['v_cmd'], lw=.8, c='#222222', label='Actuator-channel command')
     ax_v.plot(t, values['speed'], lw=.7, c='#0072b2', alpha=.85, label='Onboard estimate')
     ax_v.set(ylabel='Speed [m/s]', title='(b) Longitudinal motion')
     ax_v.axhline(0, c='.5', lw=.4)
@@ -109,18 +118,20 @@ def main() -> None:
         fig.savefig(base.with_suffix('.' + suffix), dpi=600)
     plt.close(fig)
 
-    fields = ('time_s', 'phase', 'map_x_m', 'map_y_m', 'estimated_speed_mps', 'commanded_speed_mps',
-              'steering_command_deg', 'recognized_laps', 'recovery_mode')
+    fields = ('time_s', 'phase', 'map_x_m', 'map_y_m', 'estimated_speed_mps', 'actuator_channel_input',
+              'steering_command_deg', 'recognized_laps', 'recovery_mode', 'control_reference_mps')
     with base.with_name(base.name + '_trace.csv').open('w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(fields)
         for i, row in enumerate(rows):
             writer.writerow([t[i], phase[i], *(values[k][i] for k in
-                ('x_map', 'y_map', 'speed', 'v_cmd', 'steer_deg', 'lap_own', 'recover'))])
+                ('x_map', 'y_map', 'speed', 'v_cmd', 'steer_deg', 'lap_own', 'recover')), row.get('v_target', '')])
     run_id = (source / 'run_id.txt').read_text().strip() if (source / 'run_id.txt').exists() else source.name
     caption = (f'Real-vehicle autonomous execution, run {run_id}. '
                '(a) Actual SLAM occupancy grid with the estimated vehicle trajectory colored by controller phase. '
-               '(b) Commanded and estimated longitudinal speed. (c) Steering command in nominal servo-angle units. '
+               + ('(b) Actual control reference and onboard speed; dotted right-axis trace is the final actuator-channel input. '
+                if has_reference else '(b) Final actuator-channel command and onboard speed; the planner reference was not logged. ')
+               + '(c) Steering command in nominal servo-angle units. '
                '(d) Laps recognized by the onboard return detector. Shading marks recorded controller phases. '
                'Map coordinates and motion estimates are onboard estimates, not external ground truth. '
                'A SLAM route, when shown, guides live LiDAR local planning; it is not a claim of direct tracking of an infeasible trajectory. '
@@ -137,7 +148,7 @@ def main() -> None:
                 'recorded_phases': phases_present, 'recognized_laps': maximum_lap,
                 'crossings': events.get('crossings', []), 'mission': events.get('mission'),
                 'direct_tracking_allowed': events.get('plan', {}).get('direct_tracking_allowed'),
-                'external_ground_truth': False, 'caption': caption}
+                'external_ground_truth': False, 'control_reference_logged': has_reference, 'caption': caption}
     base.with_suffix('.json').write_text(json.dumps(metadata, indent=2) + '\n')
     print(json.dumps({'figure_pdf': str(base.with_suffix('.pdf')), 'figure_png': str(base.with_suffix('.png')),
                       'recorded_phases': phases_present, 'recognized_laps': maximum_lap}, indent=2))

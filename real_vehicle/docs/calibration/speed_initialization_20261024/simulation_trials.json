@@ -1,0 +1,273 @@
+[
+  {
+    "variant": "profile",
+    "source": "simulation/data/race_harness/initialized_speed_20261024/summary_zs_real_track_replica.json",
+    "source_sha256": "047d524d18d3ef4eaf8a9cb1a9c733c55903415b1d4e5c825abdc956b31af3f0",
+    "track": "zs_real_track_replica",
+    "seed": 1,
+    "status": "completed",
+    "failure_reason": "",
+    "true_progress_m": 41.28432180446022,
+    "lap_len_m": 20.582404804669466,
+    "min_true_clearance_m": 0.10354702446401154,
+    "true_lap_times_s": [
+      42.620000000008396,
+      65.78199999991602
+    ],
+    "crossings": [
+      {
+        "t": 44.42523046073813,
+        "lap": 1,
+        "lateral": -0.11500725724594359,
+        "kind": "line",
+        "true_progress_error_m": -0.019918699187002176
+      },
+      {
+        "t": 110.20411549124005,
+        "lap": 2,
+        "lateral": -0.08610849022532975,
+        "kind": "line",
+        "true_progress_error_m": -6.679101716144942e-13
+      }
+    ],
+    "guard_events": 0,
+    "adaptation": {
+      "confidence": 0.907824722004976,
+      "conf_steer": 0.9498523733969366,
+      "conf_lever": 0.907824722004976,
+      "conf_long": 0.706669145345959,
+      "conf_right": 0.9579903483553237,
+      "longitudinal_applied": true,
+      "longitudinal_forward_only": true,
+      "v_gain_estimated": 0.9975109221180833,
+      "v_offset_estimated": 0.00619662576351401,
+      "gain_left": 0.8054197974065278,
+      "gain_right": 0.850942366896539,
+      "trim": -0.02016007871012396,
+      "slip": -5.279737764641682e-12,
+      "arm_m": 0.17682727409363797,
+      "v_gain": 0.9975109221180833,
+      "v_offset": 0.00619662576351401,
+      "dead_mps": 0.09905839059238297,
+      "dead_rev_mps": 0.07530006065894106,
+      "kappa_sat": 0.5369769237033918,
+      "v_ref_mps": 0.5222720148008337,
+      "tau_steer_s": 0.06,
+      "tau_speed_s": 0.22,
+      "n": {
+        "lever": 427,
+        "steer": 567,
+        "long": 412,
+        "dead": 9
+      },
+      "chi": {
+        "lever": 0.891099507749231,
+        "steer": 0.7107505150900573,
+        "long": 0.4174871457919449
+      },
+      "sigma": {
+        "arm": 0.004608763899751199,
+        "gain_left": 0.005737106332880596,
+        "gain_right": 0.012602895493402889,
+        "trim": 0.002507381330153168,
+        "v_gain": 0.05773877332504221
+      },
+      "sign_fault": false,
+      "trips": 0,
+      "latched": false,
+      "rejected": {
+        "dt": 1,
+        "sigma": 0,
+        "health": 0,
+        "slow": 443,
+        "saturated": 95,
+        "transient": 535,
+        "braking": 0,
+        "deadband": 79,
+        "no_command": 0,
+        "latched": 0
+      },
+      "envelope": {
+        "v_max_mps": 0.5423955395654106,
+        "a_lat_mps2": 1.1778779332811942,
+        "lap1_v_scale": 0.9861737083007465,
+        "blind_margin_add_m": 0.004608763899751201,
+        "kappa_limit": 0.5369769237033918,
+        "kappa_limit_left": 0.9664983122038885,
+        "kappa_limit_right": 0.5369769237033918
+      }
+    }
+  },
+  {
+    "variant": "profile",
+    "source": "simulation/data/race_harness/initialized_speed_20261024/summary_zs_real_track_replica.json",
+    "source_sha256": "047d524d18d3ef4eaf8a9cb1a9c733c55903415b1d4e5c825abdc956b31af3f0",
+    "track": "zs_real_track_replica",
+    "seed": 2,
+    "status": "failed",
+    "failure_reason": "stuck in explore",
+    "true_progress_m": 14.188989113596577,
+    "lap_len_m": 21.30575720285882,
+    "min_true_clearance_m": 0.10780333491643264,
+    "true_lap_times_s": [],
+    "crossings": [],
+    "guard_events": 0,
+    "adaptation": {
+      "confidence": 0.7756047777908046,
+      "conf_steer": 0.7861423213206703,
+      "conf_lever": 0.7756047777908046,
+      "conf_long": 0.4899445065292175,
+      "conf_right": 0.9491186083371703,
+      "longitudinal_applied": false,
+      "longitudinal_forward_only": true,
+      "v_gain_estimated": 0.9787609357376309,
+      "v_offset_estimated": 0.023951612259232473,
+      "gain_left": 1.1112997267467202,
+      "gain_right": 0.996821501612142,
+      "trim": 0.03573434942250804,
+      "slip": 7.996446500439351e-12,
+      "arm_m": 0.14227370910189624,
+      "v_gain": 1.0,
+      "v_offset": 0.0,
+      "dead_mps": 0.19197294208408522,
+      "dead_rev_mps": 0.06266541674723212,
+      "kappa_sat": 0.5369769237033918,
+      "v_ref_mps": 0.4930222347237205,
+      "tau_steer_s": 0.06,
+      "tau_speed_s": 0.22,
+      "n": {
+        "lever": 106,
+        "steer": 160,
+        "long": 98,
+        "dead": 8
+      },
+      "chi": {
+        "lever": 0.9873124679152203,
+        "steer": 0.9075144322959506,
+        "long": 0.49270112357575196
+      },
+      "sigma": {
+        "arm": 0.01121976111045977,
+        "gain_left": 0.06415730360379891,
+        "gain_right": 0.015264417498848904,
+        "trim": 0.00480329621006686,
+        "v_gain": 0.1020110986941565
+      },
+      "sign_fault": false,
+      "trips": 0,
+      "latched": false,
+      "rejected": {
+        "dt": 1,
+        "sigma": 0,
+        "health": 0,
+        "slow": 659,
+        "saturated": 27,
+        "transient": 383,
+        "braking": 0,
+        "deadband": 204,
+        "no_command": 0,
+        "latched": 0
+      },
+      "envelope": {
+        "v_max_mps": 0.5314873941677414,
+        "a_lat_mps2": 1.146145146669793,
+        "lap1_v_scale": 0.9663407166686206,
+        "blind_margin_add_m": 0.01121976111045977,
+        "kappa_limit": 0.5369769237033918,
+        "kappa_limit_left": 0.9664983122038885,
+        "kappa_limit_right": 0.5369769237033918
+      }
+    }
+  },
+  {
+    "variant": "unadopted_v_min_0_40",
+    "source": "simulation/data/race_harness/initialized_speed_floor04_20261024/summary_zs_real_track_replica.json",
+    "source_sha256": "c4d325008891a3e0edb161a59c08d2f58961273255df90389724c06d4cf5a28c",
+    "track": "zs_real_track_replica",
+    "seed": 2,
+    "status": "failed",
+    "failure_reason": "stuck in map_guided",
+    "true_progress_m": 35.49474631645502,
+    "lap_len_m": 21.30575720285882,
+    "min_true_clearance_m": 0.11482995466255154,
+    "true_lap_times_s": [
+      72.44000000000824
+    ],
+    "crossings": [
+      {
+        "t": 75.06669078761841,
+        "lap": 1,
+        "lateral": -0.020981704785490093,
+        "kind": "line",
+        "true_progress_error_m": 0.03636363636363882
+      }
+    ],
+    "guard_events": 0,
+    "adaptation": {
+      "confidence": 0.8738182169604385,
+      "conf_steer": 0.927221738801914,
+      "conf_lever": 0.8738182169604385,
+      "conf_long": 0.7331959552013978,
+      "conf_right": 0.9594873595646506,
+      "longitudinal_applied": true,
+      "longitudinal_forward_only": true,
+      "v_gain_estimated": 1.070601184927213,
+      "v_offset_estimated": -0.0334494999932409,
+      "gain_left": 1.0785172396421354,
+      "gain_right": 0.969508561274425,
+      "trim": 0.03072466915717759,
+      "slip": 8.237901914232916e-12,
+      "arm_m": 0.1441008398261688,
+      "v_gain": 1.070601184927213,
+      "v_offset": -0.0334494999932409,
+      "dead_mps": 0.14958594273459022,
+      "dead_rev_mps": 0.0721135454053448,
+      "kappa_sat": 0.6037818918253016,
+      "v_ref_mps": 0.5129537203800381,
+      "tau_steer_s": 0.06,
+      "tau_speed_s": 0.22,
+      "n": {
+        "lever": 391,
+        "steer": 243,
+        "long": 266,
+        "dead": 10
+      },
+      "chi": {
+        "lever": 1.1955152989878959,
+        "steer": 0.7840324312258511,
+        "long": 0.5383077068158336
+      },
+      "sigma": {
+        "arm": 0.006309089151978076,
+        "gain_left": 0.016179742038693243,
+        "gain_right": 0.012153792130604817,
+        "trim": 0.0036389130599042956,
+        "v_gain": 0.05336080895972043
+      },
+      "sign_fault": false,
+      "trips": 0,
+      "latched": false,
+      "rejected": {
+        "dt": 1,
+        "sigma": 0,
+        "health": 0,
+        "slow": 1510,
+        "saturated": 21,
+        "transient": 902,
+        "braking": 0,
+        "deadband": 328,
+        "no_command": 0,
+        "latched": 0
+      },
+      "envelope": {
+        "v_max_mps": 0.5395900028992362,
+        "a_lat_mps2": 1.169716372070505,
+        "lap1_v_scale": 0.9810727325440658,
+        "blind_margin_add_m": 0.006309089151978076,
+        "kappa_limit": 0.6037818918253016,
+        "kappa_limit_left": 1.0867397715413945,
+        "kappa_limit_right": 0.6037818918253016
+      }
+    }
+  }
+]

@@ -24,6 +24,13 @@ for the remaining experiments and publication artifacts. The real archive
 includes six English figures and the exact PT/ONNX weights; broader training
 outputs and generated simulation runs remain Git-ignored.
 
+The subsequent [forward speed calibration experiment](../real_vehicle/docs/calibration/speed_initialization_20261024/README.md)
+uses the same control law and unchanged odometry weights. All 204 research
+regression tests pass. A two-dimensional replica trial completed two laps, a
+second seed failed, and full Gazebo timed out after localization drift prevented
+the second recognized lap. These are development outcomes, not a completed
+final-version campaign or a new approved physical result.
+
 ## Run recognition, mapping and planned continuation
 
 From the repository root:

@@ -140,6 +140,7 @@ class PlantModel:
     tau_speed_s: float
     confidence: float
     conf_right: float
+    reverse_identity: bool = False  # an explicit forward-only bridge calibration leaves reverse unchanged
 
     def gain_at(self, kappa: float, speed: float) -> float:
         """Curvature delivered per unit of curvature commanded, at this speed.
@@ -169,7 +170,20 @@ class PlantModel:
 
     def speed_in(self, v_des: float) -> float:
         """Speed to command so that ``v_des`` is delivered (inverse)."""
-        return (v_des - math.copysign(self.v_offset, v_des)) / max(self.v_gain, 0.2)
+        if self.reverse_identity and v_des < 0.0:
+            return v_des
+        if v_des == 0.0:
+            return 0.0
+        # Preserve a negative moving-branch intercept instead of discarding its sign.
+        return (v_des - math.copysign(1.0, v_des) * self.v_offset) / max(self.v_gain, 0.2)
+
+    def speed_out(self, command: float) -> float:
+        """Steady moving-branch prediction, not an instantaneous measurement."""
+        if command == 0.0:
+            return 0.0
+        if self.reverse_identity and command < 0.0:
+            return command
+        return math.copysign(max(0.0, self.v_gain * abs(command) + self.v_offset), command)
 
     def dead_for(self, v_cmd: float) -> float:
         return self.dead_rev_mps if v_cmd < 0.0 else self.dead_mps
@@ -523,6 +537,10 @@ class PlantIdentifier:
         self.v_meas = speed
         u = float(eff[self.i_speed])
         self._update_dead(speed, u)
+        if a.longitudinal_forward_only and u <= 0.0:
+            # Reverse keeps its original inverse and automatic launch learning.
+            self.prev_speed = speed
+            return
         for i in range(len(self.tau_v)):
             pred = self.long.x[V_GAIN] * float(eff[i]) + self.long.x[V_OFF]
             self.res_v[i] += (speed - pred) ** 2
@@ -536,7 +554,10 @@ class PlantIdentifier:
         if abs(u) < self.dead + a.deadband_margin_mps:
             self._refuse("deadband")
             return
-        if abs(u) + 3.0 * sig[0] / dt < abs(speed) or abs(accel) > a.accel_max_update_mps2:
+        nominal_overspeed = abs(u) + 3.0 * sig[0] / dt < abs(speed)
+        if ((a.longitudinal_allow_overspeed and u * speed < 0.0)
+                or (nominal_overspeed and not a.longitudinal_allow_overspeed)
+                or abs(accel) > a.accel_max_update_mps2):
             # Coasting or braking: the car is slowed by drag and by the brake,
             # neither of which is the gain this block identifies.
             self._refuse("braking")
@@ -666,6 +687,7 @@ class PlantIdentifier:
             dead_mps=float(self.dead), dead_rev_mps=float(self.dead_rev), kappa_sat=float(self.kappa_sat),
             v_ref_mps=math.sqrt(max(self.v2_ref, 0.0)), tau_steer_s=self.tau_k[self.i_steer], tau_speed_s=self.tau_v[self.i_speed],
             confidence=self.confidence, conf_right=self.steer.conf([GAIN_R]),
+            reverse_identity=a.longitudinal_forward_only,
         )
 
     def prior(self) -> PlantModel:
@@ -677,6 +699,7 @@ class PlantIdentifier:
             dead_mps=float(veh.min_effective_mps), dead_rev_mps=float(a.dead_rev_prior_mps),
             kappa_sat=float(veh.kappa_max), v_ref_mps=0.0, tau_steer_s=a.tau_steer_prior_s, tau_speed_s=a.tau_speed_prior_s,
             confidence=0.0, conf_right=0.0,
+            reverse_identity=a.longitudinal_forward_only,
         )
 
     def fresh_kappa(self, t: float, max_age: float = 0.15) -> float:
@@ -693,6 +716,7 @@ class PlantIdentifier:
             "confidence": m.confidence, "conf_steer": self.conf_steer, "conf_lever": self.conf_lever,
             "conf_long": self.conf_long, "conf_right": m.conf_right,
             "longitudinal_applied": self.longitudinal_ready,
+            "longitudinal_forward_only": self.a.longitudinal_forward_only,
             "v_gain_estimated": float(self.long.x[V_GAIN]),
             "v_offset_estimated": float(self.long.x[V_OFF]),
             "gain_left": m.gain_left, "gain_right": m.gain_right, "trim": m.trim, "slip": m.slip,

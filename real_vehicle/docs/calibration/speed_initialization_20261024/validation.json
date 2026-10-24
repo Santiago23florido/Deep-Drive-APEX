@@ -1,0 +1,237 @@
+{
+  "hardware_validated": false,
+  "neural_retraining": false,
+  "control_law": "Existing geometric control, inverse plant model and bounded P feedback",
+  "forward_bridge": {
+    "esc_zero_pct": 15.42,
+    "pct_per_mps": 5.24,
+    "max_pct": 28.2,
+    "kalman_initial_gain": 1.0,
+    "kalman_initial_offset": 0.0
+  },
+  "replay_validation": [
+    {
+      "role": "replay_validation",
+      "run_id": "real_vehicle_20261024_005311",
+      "segments": [
+        {
+          "start_s": 0.1623392105102539,
+          "end_s": 1.9592392444610596,
+          "samples": 6,
+          "command_median": 0.09,
+          "speed_median": 0.406
+        },
+        {
+          "start_s": 28.019939184188843,
+          "end_s": 29.441639184951782,
+          "samples": 4,
+          "command_median": 0.105,
+          "speed_median": 0.3305
+        },
+        {
+          "start_s": 40.71903920173645,
+          "end_s": 47.87933921813965,
+          "samples": 52,
+          "command_median": 0.09,
+          "speed_median": 0.5325
+        },
+        {
+          "start_s": 54.27923917770386,
+          "end_s": 59.17933917045593,
+          "samples": 33,
+          "command_median": 0.09,
+          "speed_median": 0.494
+        },
+        {
+          "start_s": 59.63923907279968,
+          "end_s": 61.38253903388977,
+          "samples": 7,
+          "command_median": 0.099,
+          "speed_median": 0.355
+        }
+      ],
+      "source_sha256": {
+        "driver.csv": "ff3f7eb01461e8d29cd769fcf530834b517788fbdbd765427783d75af8b696b1",
+        "race_events.json": "8354cae3e14663ab544323627457a0bacd4a1769203e76dd0dcc0cf94e473a73"
+      },
+      "nominal_identity_mae_mps": 0.32880000000000004,
+      "initialized_model_mae_mps": 0.11464000000000003
+    }
+  ],
+  "gazebo": {
+    "run": "initialized_speed_v7e_20261024_s1",
+    "source_sha256": {
+      "driver.csv": "fdef1d4061b8e14b4a544297e9b863bbbd1e1f33b93882beeaf9f9e49fe776ea",
+      "run_result.json": "41a2c741f1916cbac42fb9e2e718034df00eede1ec875fa74f5ecac1f8d32299",
+      "run_config.json": "a342bd00bb4c69c3cb38aa18bd8c413eae0c5e869902a9d33bc5995b77cead23",
+      "race_events.json": "19476e3db34dc4be920915876c96670b244792ea7be157739b5accdd3df6626a",
+      "slam_metrics.json": "963d24dddfa94bb980c3b481b97160fb74b3d15d68d169d3cac05e6f79a6e842"
+    },
+    "result": {
+      "status": "failed",
+      "failure_reason": "timeout",
+      "lap_completed": false,
+      "progress_m": 62.14267705068997,
+      "planned_m": 41.271368843485725,
+      "driven_m": 63.58853393417095,
+      "max_lateral_error_m": 0.2685941620362714,
+      "max_roll_pitch_deg": 6.131948380819115e-07,
+      "t_end_s": 171.858,
+      "drive_s": 163.18,
+      "track": "zs_real_track_replica",
+      "motion": "slow_variable",
+      "seed": 1,
+      "laps": 2.0,
+      "spawn": [
+        1.546566856766976,
+        4.558413971957486,
+        2.019327470660358
+      ],
+      "nominal_start": [
+        1.5877624262437735,
+        4.579397636589161,
+        2.041909444043636
+      ],
+      "plan": {
+        "kind": "variable",
+        "v_ref_mps": 2.5,
+        "total_distance_m": 41.271368843485725,
+        "straight_mps": 0.6052031222305757,
+        "lateral_accel_mps2": 1.8182340250181555,
+        "a_acc_mps2": 0.7441885013933653,
+        "a_dec_mps2": 0.9636237877349159,
+        "segments": [
+          [
+            0.0,
+            0.4
+          ],
+          [
+            4.55,
+            1.0
+          ],
+          [
+            6.8,
+            0.4
+          ],
+          [
+            12.2,
+            1.0
+          ],
+          [
+            15.0,
+            0.4
+          ],
+          [
+            17.95,
+            1.0
+          ],
+          [
+            23.3,
+            0.4
+          ],
+          [
+            27.6,
+            0.4
+          ],
+          [
+            30.75,
+            0.6
+          ],
+          [
+            35.05,
+            0.8
+          ],
+          [
+            39.95,
+            1.0
+          ],
+          [
+            44.6,
+            0.6
+          ]
+        ],
+        "stops": []
+      },
+      "mode": "race",
+      "lap_times_s": [
+        47.620000000000005,
+        59.36,
+        55.540000000000006
+      ],
+      "lap_len_m": 20.635684421742862,
+      "lap_min_clearance_m": [
+        0.15567359150846538,
+        0.1114823025977901,
+        0.08501575866573063,
+        0.21160444005646048
+      ],
+      "min_clearance_m": 0.08501575866573063,
+      "max_lane_excess_m": -0.08717312777110786
+    },
+    "recognized_laps": 1,
+    "tracking": {
+      "reference_mean_mps": 0.4583989033718389,
+      "onboard_mean_mps": 0.3988254566031846,
+      "mae_mps": 0.060091697887397204,
+      "selected_duration_s": 153.74399999999997,
+      "selection": "v_target > 0.1, onboard speed > 0.05, positive time interval",
+      "interpretation": "Reference tracking against onboard estimates; not odometry accuracy"
+    },
+    "slam_metrics": {
+      "run_dir": "/home/santiago/AiAtonomousRc/simulation/data/real2sim/initialized_speed_v7e_20261024_s1",
+      "threshold_m": 0.1,
+      "reference": "observed_track",
+      "n_track_points": 15575,
+      "n_reference_points": 5858,
+      "slams": {
+        "learned": {
+          "occupied_cells": 5150,
+          "anchored": {
+            "precision": 0.16155339805825242,
+            "coverage": 0.5423352680095596,
+            "chamfer_m": 0.6594206744197431,
+            "mean_est_to_ref_m": 1.0839596922170374,
+            "mean_ref_to_est_m": 0.23488165662244864,
+            "n_reference": 5858,
+            "n_estimate": 5150,
+            "threshold_m": 0.1
+          },
+          "shape": {
+            "precision": 0.16097087378640776,
+            "coverage": 0.48292932741550015,
+            "chamfer_m": 0.6271476415675594,
+            "mean_est_to_ref_m": 0.9932335586278978,
+            "mean_ref_to_est_m": 0.2610617245072211,
+            "n_reference": 5858,
+            "n_estimate": 5150,
+            "threshold_m": 0.1
+          },
+          "icp": {
+            "x": 0.28722676485470755,
+            "y": -0.2874689157156457,
+            "yaw_deg": -0.7530669010127358,
+            "rms_m": 0.24694894565019773
+          },
+          "ate": {
+            "rmse_m": 5.30519987160359,
+            "mean_m": 4.411772678345839,
+            "max_m": 10.237728778640967,
+            "final_m": 10.237728778640967,
+            "n": 1624
+          },
+          "duration_s": 167.0923
+        }
+      },
+      "truth_distance_m": 64.15843118442547
+    },
+    "vehicle_yaml": "/home/santiago/AiAtonomousRc/simulation/tools/pose_dataset/config/vehicle.yaml",
+    "initial_deadband_command": 0.07,
+    "limitation": "Full mission failed timeout. Simulator vehicle YAML was used; vehicle.min_effective_mps override was superseded by that YAML."
+  },
+  "limitations": [
+    "No new physical validation while the car is disconnected.",
+    "Existing physical data informed this calibration; it is not untouched zero-shot evidence.",
+    "The complete Gazebo mission is a failure even though longitudinal tracking is close.",
+    "The approved physical acquisition and its figures remain unchanged."
+  ]
+}

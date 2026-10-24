@@ -1,0 +1,204 @@
+{
+  "scope": "Nominal forward moving-branch calibration from onboard estimates; no external ground truth",
+  "fit": {
+    "gain": 6.3238181336885955,
+    "offset": -0.07997836702598034,
+    "loss": "soft_l1",
+    "equal_weight_per_segment": true
+  },
+  "configured_prior": {
+    "gain": 6.3,
+    "offset": -0.08
+  },
+  "command_for_reference_0_5_mps": 0.09206349206349206,
+  "normalized_forward_bridge": {
+    "esc_zero_pct": 15.42,
+    "pct_per_mps": 5.24,
+    "max_pct": 28.2,
+    "kalman_initial_gain": 1.0,
+    "kalman_initial_offset": 0.0
+  },
+  "selection": {
+    "trim_start_s": 0.8,
+    "trim_end_s": 0.15,
+    "min_samples": 4,
+    "min_onboard_speed_mps": 0.05
+  },
+  "runs": [
+    {
+      "role": "training",
+      "run_id": "real_vehicle_20261023_222959",
+      "segments": [
+        {
+          "start_s": 0.14004087448120117,
+          "end_s": 1.7199409008026123,
+          "samples": 5,
+          "command_median": 0.09,
+          "speed_median": 0.469
+        },
+        {
+          "start_s": 28.700040817260742,
+          "end_s": 32.660340785980225,
+          "samples": 23,
+          "command_median": 0.09,
+          "speed_median": 0.567
+        },
+        {
+          "start_s": 33.220040798187256,
+          "end_s": 35.899940967559814,
+          "samples": 19,
+          "command_median": 0.09,
+          "speed_median": 0.508
+        },
+        {
+          "start_s": 43.3200409412384,
+          "end_s": 49.0199408531189,
+          "samples": 42,
+          "command_median": 0.09,
+          "speed_median": 0.5085
+        }
+      ],
+      "source_sha256": {
+        "driver.csv": "98011d2c22bc80a3262b1b71320377093b1191d9d31967d3c75a0e41c42b66b8",
+        "race_events.json": "457dd5df834388d81525066d2458e6fe8a74eb05d1c42025bd49455784e3310e"
+      },
+      "nominal_identity_mae_mps": 0.423125,
+      "initialized_model_mae_mps": 0.03512500000000002
+    },
+    {
+      "role": "training",
+      "run_id": "real_vehicle_20261024_000431",
+      "segments": [
+        {
+          "start_s": 0.1598951816558838,
+          "end_s": 2.220895290374756,
+          "samples": 8,
+          "command_median": 0.09,
+          "speed_median": 0.4645
+        },
+        {
+          "start_s": 16.66009521484375,
+          "end_s": 18.44199514389038,
+          "samples": 8,
+          "command_median": 0.036,
+          "speed_median": 0.078
+        },
+        {
+          "start_s": 28.76199507713318,
+          "end_s": 31.559895277023315,
+          "samples": 15,
+          "command_median": 0.022,
+          "speed_median": 0.131
+        },
+        {
+          "start_s": 34.1798951625824,
+          "end_s": 35.740095138549805,
+          "samples": 5,
+          "command_median": 0.02,
+          "speed_median": 0.143
+        },
+        {
+          "start_s": 39.939895153045654,
+          "end_s": 42.98069524765015,
+          "samples": 16,
+          "command_median": 0.036,
+          "speed_median": 0.0775
+        },
+        {
+          "start_s": 76.88019514083862,
+          "end_s": 79.87989521026611,
+          "samples": 14,
+          "command_median": 0.0325,
+          "speed_median": 0.091
+        },
+        {
+          "start_s": 81.46339511871338,
+          "end_s": 83.98029518127441,
+          "samples": 16,
+          "command_median": 0.016,
+          "speed_median": 0.1575
+        },
+        {
+          "start_s": 84.221595287323,
+          "end_s": 89.58029508590698,
+          "samples": 30,
+          "command_median": 0.03,
+          "speed_median": 0.1025
+        },
+        {
+          "start_s": 94.15989518165588,
+          "end_s": 106.7261950969696,
+          "samples": 92,
+          "command_median": 0.0315,
+          "speed_median": 0.095
+        },
+        {
+          "start_s": 120.4998950958252,
+          "end_s": 126.4998950958252,
+          "samples": 39,
+          "command_median": 0.035,
+          "speed_median": 0.079
+        }
+      ],
+      "source_sha256": {
+        "driver.csv": "441636ade3dc5333b4f3f3fb6d50302086289b5faf4b3ebc9391f905d4fd764b",
+        "race_events.json": "01637ce4db46e31350206232172fa44019f8e64c0e483a618489393f81bc16b6"
+      },
+      "nominal_identity_mae_mps": 0.10700000000000003,
+      "initialized_model_mae_mps": 0.05918999999999998
+    },
+    {
+      "role": "replay_validation",
+      "run_id": "real_vehicle_20261024_005311",
+      "segments": [
+        {
+          "start_s": 0.1623392105102539,
+          "end_s": 1.9592392444610596,
+          "samples": 6,
+          "command_median": 0.09,
+          "speed_median": 0.406
+        },
+        {
+          "start_s": 28.019939184188843,
+          "end_s": 29.441639184951782,
+          "samples": 4,
+          "command_median": 0.105,
+          "speed_median": 0.3305
+        },
+        {
+          "start_s": 40.71903920173645,
+          "end_s": 47.87933921813965,
+          "samples": 52,
+          "command_median": 0.09,
+          "speed_median": 0.5325
+        },
+        {
+          "start_s": 54.27923917770386,
+          "end_s": 59.17933917045593,
+          "samples": 33,
+          "command_median": 0.09,
+          "speed_median": 0.494
+        },
+        {
+          "start_s": 59.63923907279968,
+          "end_s": 61.38253903388977,
+          "samples": 7,
+          "command_median": 0.099,
+          "speed_median": 0.355
+        }
+      ],
+      "source_sha256": {
+        "driver.csv": "ff3f7eb01461e8d29cd769fcf530834b517788fbdbd765427783d75af8b696b1",
+        "race_events.json": "8354cae3e14663ab544323627457a0bacd4a1769203e76dd0dcc0cf94e473a73"
+      },
+      "nominal_identity_mae_mps": 0.32880000000000004,
+      "initialized_model_mae_mps": 0.11464000000000003
+    }
+  ],
+  "limitations": [
+    "Inputs are closed-loop observations, with unmeasured battery/load changes.",
+    "Replay validation is not a new physical or untouched zero-shot trial.",
+    "Gain and offset retain declared uncertainty; no Kalman confidence is forced.",
+    "The controller reference is used directly; only the forward hardware map and declared speed parameters are calibrated."
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "byte_identical": true,
+  "files_sha256": {
+    "adaptive.py": "f083702af5b2980f67bd6fe722ee2076da0d97ce983592108a98cb66f1f04649",
+    "plant_id.py": "f1fb8f70d1c51bbbd04a5eb1e3be4db4bc3277c109db0146837642db08c4a0c4",
+    "race_config.py": "fcc4bc83ae43fdbeb49ee68d8d28d4c1781cdf104dfa4a6d7370dda909e41d51",
+    "race_driver.py": "2fbb7bed8c3ffd43723c89032fb09b380a56e2d8e0cad13d42033688897472cc"
+  },
+  "fit_reproduction_byte_identical": true
+}

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import shutil
 import subprocess
 import sys
 import time
@@ -16,6 +17,7 @@ from ram_trial_storage import RamTrialStorage
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--profile', choices=['approved', 'initialized'], default='approved')
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--execute', action='store_true')
     mode.add_argument('--storage-self-test', action='store_true', help='No vehicle stack or actuators; test storage with an isolated Docker process')
@@ -31,7 +33,13 @@ def main():
     result, sampler = None, None
     try:
         storage.mount()
-        print('Trial CSV/JSON paths verified on RAM; controller and bounds unchanged', flush=True)
+        if args.profile == 'initialized':
+            # The original acquisition helpers remain byte-for-byte intact.
+            # Only this trial's RAM copy selects the explicit experimental YAML.
+            shutil.copyfile(args.root / 'tools/core/initialized_trial/run_oval.py',
+                            storage.targets['diagnostics'] / 'run_oval.py')
+            print('Experimental calibrated forward bridge selected; physical validation pending', flush=True)
+        print('Trial CSV/JSON paths verified on RAM; finite mission guards active', flush=True)
         if args.storage_self_test:
             tag = '.ram_storage_self_test_' + storage.token
             run = storage.targets['runs'] / tag
