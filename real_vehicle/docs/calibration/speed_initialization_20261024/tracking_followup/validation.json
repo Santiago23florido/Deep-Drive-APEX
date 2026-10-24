@@ -1,0 +1,10 @@
+{
+  "pre_selection_transport_fix": {
+    "real_telemetry_pc_tests_passed": 311,
+    "duration_s": 21.79
+  },
+  "selection_transport_storage_regression_tests_passed": 27,
+  "controller_core_changed": false,
+  "physical_profile_validation": "Completed captured mission; tracking residual and recoveries remain",
+  "runtime_payload_files_sha256_verified_before_launch": 13
+}

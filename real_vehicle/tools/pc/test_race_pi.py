@@ -40,13 +40,14 @@ def test_missing_or_ambiguous_mode_and_host_injection_never_connect(ssh_mock, ar
     assert not args.exists() and not body.exists()
 
 
-def test_initialized_preview_lists_the_deployment_without_connecting(ssh_mock):
+@pytest.mark.parametrize('profile', ['initialized', 'tracking'])
+def test_initialized_preview_lists_the_deployment_without_connecting(ssh_mock, profile):
     env, args, body = ssh_mock
-    result = subprocess.run(['bash', str(SCRIPT), '--profile', 'initialized', '--dry-run', 'run'],
+    result = subprocess.run(['bash', str(SCRIPT), '--profile', profile, '--dry-run', 'run'],
                             env=env, capture_output=True, text=True)
     assert result.returncode == 0
-    assert 'Would deploy and SHA256-verify 10 files' in result.stdout
-    assert 'bash -s -- run initialized' in result.stdout
+    assert 'Would deploy and SHA256-verify 13 files' in result.stdout
+    assert 'bash -s -- run ' + profile in result.stdout
     assert not args.exists() and not body.exists()
 
 

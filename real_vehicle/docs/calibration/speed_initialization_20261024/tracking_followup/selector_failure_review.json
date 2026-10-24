@@ -1,0 +1,17 @@
+{
+  "run_id": "20261024_214318",
+  "requested_profile": "tracking",
+  "selected_profile": "initialized",
+  "root_cause": "Canonical CPU wrapper changes user via sudo and discarded the environment-based selection.",
+  "external_stop_issued": true,
+  "arm_elapsed_s": 7.780058734999784,
+  "estimated_travel_m": 0.8939631143718472,
+  "recognized_laps": 0,
+  "arm_stop_reason": "host_power_fault_or_stale_log",
+  "power_csv_live_fault_samples": 0,
+  "interpretation": "External teardown made power log/status unavailable; the arm reason is not evidence of live undervoltage in this attempt.",
+  "neutral_verified": true,
+  "local_payload_files_sha256_verified": 80,
+  "operator_confirmed_reset_before_corrected_trial": true,
+  "fixed_in_source_commit": "eee4988"
+}

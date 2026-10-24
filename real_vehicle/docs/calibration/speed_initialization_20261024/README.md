@@ -16,6 +16,13 @@ operator-confirmed laps without contact. It retained the legacy reference
 convention and did not meet the intended speed-tracking behavior. These reports
 must be kept distinct from the offline calibration below.
 
+A separate [longitudinal-only `tracking` follow-up](tracking_followup/README.md)
+uses a 3.8 moving-branch normalization from run 211216 while retaining approved
+steering/recovery behavior. Run 214635 reached two recognized laps and normal
+stop, with 4 / 2 reverses. Actual reference 0.360 m/s versus selected second-lap
+estimate 0.256 m/s left MAE 0.106 m/s; adaptation confidence was still insufficient.
+Its report preserves the failed selector attempt and the captured corrected run.
+
 This profile retains the geometric controller, bounded proportional speed
 feedback and online Kalman identification. It calibrates the forward hardware
 conversion and declares speed references near the observed pace. It does not

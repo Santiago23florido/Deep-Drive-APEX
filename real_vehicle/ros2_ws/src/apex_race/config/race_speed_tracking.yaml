@@ -1,0 +1,105 @@
+# Experimental forward-only calibration from run 211216; physical validation pending.
+# Steering, reverse, geometry and recovery selection retain approved behavior.
+apex_race_driver:
+  ros__parameters:
+    laps: 2
+    vehicle_yaml: /work/ros2_ws/src/apex_race/config/vehicle_speed_tracking.yaml
+    rate_hz: 50.0
+    static_start_s: 1.5
+    require_arm: true
+    arm_timeout_s: 0.5
+    max_pose_age_s: 0.3
+    max_scan_age_s: 0.6
+    scan_stale_s: 0.5
+    core_busy_stop_s: 0.25
+    imu_rate_hz: 100.0
+    lidar_rate_hz: 10.0
+    planner_in_process: false
+    planner_cpus:
+    - 2
+    - 3
+    vehicle:
+      steer_plan_deg: 12.5
+      steer_max_left_deg: 22.5
+      steer_max_right_deg: 12.96
+      steer_plan_left_deg: 22.5
+      steer_plan_right_deg: 12.96
+    reactive:
+      use_wall_planner: false
+      preview_while_waiting: false
+      n_k1: 21
+      n_k2: 11
+      w_min_m: 0.9
+      d_follow_m: 0.36
+      d_follow_left_m: 0.0
+      wall_margin_m: 0.15
+      c_soft_m: 0.15
+      both_max_width_m: 2.0
+      wall_min_length_m: 1.2
+      wall_min_points: 12
+      v_explore_mps: 0.42
+      v_min_mps: 0.36
+      v_blind_mps: 0.36
+      a_lat_mps2: 0.8
+      a_acc_mps2: 2.28
+      a_dec_mps2: 1.0
+      lane_margin_m: 0.25
+      local_path_lookahead_m: 0.45
+      w_smooth: 0.1
+    closure:
+      arm_distance_m: 5.0
+      arm_time_s: 12.0
+      overlap_m: 0.0
+      lateral_tol_m: 0.55
+      return_radius_m: 0.55
+    planner:
+      bound_erosion_m: 0.1
+      none_half_width_m: 0.15
+      wall_component_min_m: 1.2
+      seam_blend_m: 1.5
+    race:
+      v_max_mps: 0.42
+      a_lat_mps2: 1.2
+      a_acc_mps2: 2.28
+      a_dec_mps2: 1.2
+      v_tight_base_mps: 0.35
+      v_tight_gain: 1.5
+      handover_max_lat_m: 0.15
+      guide_handover_s: 1.0
+      guard_drop_m: 0.12
+      finish_margin_m: 0.5
+    adaptive:
+      sat_cmd_frac: 1.0
+      lead_preserve_turn: true
+      plan_with_identified_model: true
+      lookahead_add_m: 0.0
+      lookahead_add_s: 0.0
+      v_min_update_mps: 0.3
+      v_min_steer_mps: 0.45
+      slip_arm_v_min_mps: 10.0
+      slip_sigma: 1.0e-06
+      recover_creep_mps: 0.36
+      recover_speed_mps: 0.2
+      recover_clearance_m: 0.15
+      recover_enabled: true
+      recover_distance_m: 0.5
+      recover_timeout_s: 3.0
+      recover_exit_free_m: 0.6
+      recover_max_per_lap: 36
+      recover_max_without_progress: 12
+      recover_progress_reset_m: 0.75
+      longitudinal_forward_only: true
+      longitudinal_allow_overspeed: true
+      deadband_margin_mps: 0.01
+      launch_forward_command_scale: 3.8
+      speed_feedback_forward_scale: 3.8
+      kp_speed_forward: 0.17
+      steering_confidence_gate: false
+      dead_max_mps: 1.282
+    mission:
+      enabled: true
+      max_distance_m: 40.0
+      max_duration_s: 300.0
+      max_command_mps: 1.52
+      max_reverse_command_mps: 0.4
+      forward_only: false

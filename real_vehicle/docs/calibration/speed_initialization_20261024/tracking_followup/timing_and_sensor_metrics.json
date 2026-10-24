@@ -1,0 +1,638 @@
+{
+  "run_id": "20261024_214635",
+  "ground_truth_available": false,
+  "model_weights_updated": false,
+  "scope": "Deployed hybrid odometry pipeline, including ICP and stationary hold; not the neural model in isolation.",
+  "active_estimator_samples": 541,
+  "analysis_window_duration_s": 54.819952964782715,
+  "stop_reason": "driver_done",
+  "window_end": "driver_done",
+  "command_gap_diagnostics": [],
+  "estimator": {
+    "compute_ms": {
+      "n": 541,
+      "mean": 13.755693160813308,
+      "p50": 14.57,
+      "p95": 18.7,
+      "p99": 21.590000000000007,
+      "max": 36.87,
+      "min": 5.04
+    },
+    "latency_ms": {
+      "n": 541,
+      "mean": 151.29214417744916,
+      "p50": 149.54,
+      "p95": 174.33,
+      "p99": 196.366,
+      "max": 215.89,
+      "min": 126.17
+    },
+    "dt": {
+      "n": 541,
+      "mean": 0.10128388170055454,
+      "p50": 0.10003,
+      "p95": 0.10183,
+      "p99": 0.10887400000000001,
+      "max": 0.40421,
+      "min": 0.08528
+    },
+    "imu_samples": {
+      "n": 541,
+      "mean": 10.140480591497226,
+      "p50": 10.0,
+      "p95": 11.0,
+      "p99": 11.0,
+      "max": 40.0,
+      "min": 8.0
+    },
+    "compute_over_100ms_count": 0,
+    "update_intervals_above_150ms_count": 3,
+    "stationary_hold_fraction": 0.22735674676524953
+  },
+  "control": {
+    "pose_age_s": {
+      "n": 535,
+      "mean": 0.014937570093457943,
+      "p50": 0.0148,
+      "p95": 0.019829999999999997,
+      "p99": 0.02679399999999997,
+      "max": 0.0406,
+      "min": 0.0083
+    },
+    "react_ms": {
+      "n": 535,
+      "mean": 90.54280373831774,
+      "p50": 90.3,
+      "p95": 115.8,
+      "p99": 124.764,
+      "max": 135.8,
+      "min": 0.0
+    }
+  },
+  "timing_definitions": {
+    "compute_ms": "Per-estimate processing: feature preparation, hybrid ICP/network or hold, deskew and state integration; excludes input waiting and output publication.",
+    "latency_ms": "Scan header stamp to estimator output-handler entry; includes sweep acquisition, waiting and processing; not pure inference or measured actuator latency.",
+    "pose_age_s": "Age of the propagated pose read by the driver; not the age of the last independent LiDAR correction.",
+    "receipt_age_ms": "Raw message header stamp to passive recorder callback entry; includes acquisition/driver transport and recorder scheduling.",
+    "react_ms": "Sensor-callback reactive planning computation, logged at control rate; scan-pair diagnostics below use one record per scan."
+  },
+  "stationary_10s_before_motion": {
+    "samples": 97,
+    "observed_duration_s": 9.774791168,
+    "net_displacement_m": 0.00016765738874263794,
+    "max_displacement_from_first_m": 0.0013871993367933822,
+    "accumulated_position_variation_m": 0.030773817063754587,
+    "yaw_span_deg": 0.0036669298888372644,
+    "stationary_hold_fraction": 1.0,
+    "note": "Car confirmed stationary by operator before launch. Values describe the full deployed pipeline including stationary hold."
+  },
+  "laps": [
+    {
+      "lap": 1,
+      "duration_s": 28.72358751296997,
+      "reverse_starts": 4
+    },
+    {
+      "lap": 2,
+      "duration_s": 25.65043306350708,
+      "reverse_starts": 2
+    }
+  ],
+  "guidance": {
+    "t_map_guided": 33.920116662979126
+  },
+  "plan": {
+    "mode": "min_curvature",
+    "lap_ref_length_m": 3.539160249343526,
+    "race_length_m": 4.793045745825795,
+    "stations": 46,
+    "max_kappa": 2.1654141490661813,
+    "kappa_limit": 1.2673377824649694,
+    "max_kappa_ref": 3.303233416503678,
+    "min_map_clearance_m": 0.09758022566886915,
+    "p5_map_clearance_m": 0.11860359965101241,
+    "forced_stations": 30,
+    "tightened_stations": 37,
+    "max_offset_m": 0.11628519969949544,
+    "blind_left_frac": 0.043478260869565216,
+    "blind_right_frac": 0.8478260869565217,
+    "mean_width_m": 0.04922288253601859,
+    "min_width_m": 0.0,
+    "t_lap_pred_s": 12.300264821659276,
+    "v_mean_mps": 0.38967012623873126,
+    "compute_s": 3.8972777349999888,
+    "w_min_m": 0.9,
+    "direct_tracking_allowed": false,
+    "direct_tracking_rejection": [
+      "map_clearance",
+      "curvature"
+    ],
+    "t_done": 1792874925.9950578
+  },
+  "recoveries": [
+    {
+      "t": 1792874897.4748082,
+      "kind": 2,
+      "free_m": 0.20000000000000004,
+      "rear_clear_m": 0.9760576023997078,
+      "distance_limit_m": 0.375,
+      "phase": "explore",
+      "kappa": -0.6401602494451196,
+      "forward_free_probe_m": 0.8500000000000001,
+      "t_relative_s": 5.399867057800293
+    },
+    {
+      "t_end": 1792874898.414892,
+      "kind": 2,
+      "travel_m": 0.05319981657245217,
+      "rear_blocked": true,
+      "t_relative_s": 6.339950799942017
+    },
+    {
+      "t": 1792874900.1551366,
+      "kind": 2,
+      "free_m": 0.30000000000000004,
+      "rear_clear_m": 0.19686791239423593,
+      "distance_limit_m": 0.5,
+      "phase": "explore",
+      "kappa": 0.6638836006471662,
+      "forward_free_probe_m": 0.75,
+      "t_relative_s": 8.080195426940918
+    },
+    {
+      "t_end": 1792874901.715856,
+      "kind": 2,
+      "travel_m": 0.1302314143411606,
+      "rear_blocked": false,
+      "t_relative_s": 9.640914916992188
+    },
+    {
+      "t": 1792874910.07635,
+      "kind": 2,
+      "free_m": 0.20000000000000004,
+      "rear_clear_m": 0.7437519388569649,
+      "distance_limit_m": 0.5,
+      "phase": "explore",
+      "kappa": -1.2653156262391596,
+      "forward_free_probe_m": 0.75,
+      "t_relative_s": 18.00140881538391
+    },
+    {
+      "t_end": 1792874913.2148955,
+      "kind": 2,
+      "travel_m": 0.15277824531157447,
+      "rear_blocked": false,
+      "t_relative_s": 21.139954328536987
+    },
+    {
+      "t": 1792874915.6748426,
+      "kind": 2,
+      "free_m": 0.30000000000000004,
+      "rear_clear_m": null,
+      "distance_limit_m": 0.5,
+      "phase": "explore",
+      "kappa": 0.0,
+      "forward_free_probe_m": 0.8,
+      "t_relative_s": 23.5999014377594
+    },
+    {
+      "t_end": 1792874917.7755358,
+      "kind": 2,
+      "travel_m": 0.28550176606444894,
+      "rear_blocked": false,
+      "t_relative_s": 25.700594663619995
+    },
+    {
+      "t": 1792874926.5155785,
+      "kind": 2,
+      "free_m": 0.30000000000000004,
+      "rear_clear_m": 0.928696570821022,
+      "distance_limit_m": 0.5,
+      "phase": "map_guided",
+      "kappa": -0.6309357945728258,
+      "forward_free_probe_m": 1.6500000000000001,
+      "t_relative_s": 34.4406373500824
+    },
+    {
+      "t_end": 1792874929.194946,
+      "kind": 2,
+      "travel_m": 0.2468246688727677,
+      "rear_blocked": false,
+      "t_relative_s": 37.12000489234924
+    },
+    {
+      "t": 1792874939.5549495,
+      "kind": 2,
+      "free_m": 0.20000000000000004,
+      "rear_clear_m": 0.8160417087797038,
+      "distance_limit_m": 0.5,
+      "phase": "map_guided",
+      "kappa": -1.2618715891456516,
+      "forward_free_probe_m": 0.7000000000000001,
+      "t_relative_s": 47.480008363723755
+    },
+    {
+      "t_end": 1792874942.6148655,
+      "kind": 2,
+      "travel_m": 0.16992750727240177,
+      "rear_blocked": false,
+      "t_relative_s": 50.53992438316345
+    }
+  ],
+  "raw_sensors": {
+    "imu": {
+      "recorded_messages": 8410,
+      "active_messages": 5490,
+      "active_header_rate_hz": 100.13366954645231,
+      "period_ms": {
+        "n": 5489,
+        "mean": 9.986650889050829,
+        "p50": 9.985775,
+        "p95": 10.0192684,
+        "p99": 10.08041744,
+        "max": 10.605781,
+        "min": 9.372285000000002
+      },
+      "receipt_age_ms": {
+        "n": 5490,
+        "mean": 2.7047767032786885,
+        "p50": 2.4122015,
+        "p95": 4.736385200000001,
+        "p99": 6.9127014399999975,
+        "max": 12.731043,
+        "min": 0.819467
+      },
+      "nonpositive_period_count": 0,
+      "gaps_above_1_5_nominal_periods": 0,
+      "receipt_older_than_50ms_count": 0,
+      "note": "Gap counts are timing anomalies, not a measured transport packet-loss count."
+    },
+    "lidar": {
+      "recorded_messages": 827,
+      "active_messages": 541,
+      "active_header_rate_hz": 9.873015160184758,
+      "period_ms": {
+        "n": 540,
+        "mean": 101.2861809462963,
+        "p50": 100.03430700000001,
+        "p95": 101.832305,
+        "p99": 108.87507512000002,
+        "max": 404.20682100000005,
+        "min": 85.278321
+      },
+      "receipt_age_ms": {
+        "n": 541,
+        "mean": 137.1369961238447,
+        "p50": 136.037694,
+        "p95": 158.885535,
+        "p99": 184.5122230000001,
+        "max": 198.844155,
+        "min": 113.79968799999999
+      },
+      "nonpositive_period_count": 0,
+      "gaps_above_1_5_nominal_periods": 3,
+      "receipt_older_than_50ms_count": 541,
+      "note": "Gap counts are timing anomalies, not a measured transport packet-loss count."
+    }
+  },
+  "power": {
+    "recorded_samples": 158,
+    "live_fault_samples": 0,
+    "temperature_c": {
+      "n": 158,
+      "mean": 64.75443037974682,
+      "p50": 65.3,
+      "p95": 70.8,
+      "p99": 71.058,
+      "max": 71.9,
+      "min": 53.8
+    },
+    "cpu_frequency_khz": {
+      "n": 158,
+      "mean": 1995569.6202531646,
+      "p50": 2000000.0,
+      "p95": 2000000.0,
+      "p99": 2000000.0,
+      "max": 2000000.0,
+      "min": 1600000.0
+    },
+    "note": "Entire startup-and-execution log; not a motor battery voltage measurement."
+  },
+  "preflight_cpu": [
+    {
+      "name": "cpu governor",
+      "ok": null,
+      "detail": "ondemand"
+    },
+    {
+      "name": "cpu lidar",
+      "ok": true,
+      "detail": "7 % of one core"
+    },
+    {
+      "name": "cpu imu",
+      "ok": true,
+      "detail": "17 % of one core"
+    },
+    {
+      "name": "cpu estimator",
+      "ok": true,
+      "detail": "25 % of one core"
+    },
+    {
+      "name": "cpu slam",
+      "ok": true,
+      "detail": "2 % of one core"
+    },
+    {
+      "name": "cpu driver",
+      "ok": true,
+      "detail": "50 % of one core"
+    },
+    {
+      "name": "cpu bridge",
+      "ok": true,
+      "detail": "26 % of one core"
+    },
+    {
+      "name": "cpu total",
+      "ok": true,
+      "detail": "127 % of 300 % budget (4 cores present)"
+    }
+  ],
+  "runtime": {
+    "final_counters": {
+      "core_busy_hold": 2214,
+      "core_busy_stop": 0,
+      "disarmed": 2401,
+      "pose_age_stop": 0,
+      "scan_stale": 0
+    },
+    "final_core_holds": {
+      "control": {
+        "max_ms": 21.7,
+        "mean_ms": 1.0,
+        "n": 608
+      },
+      "graph": {
+        "max_ms": 0.1,
+        "mean_ms": 0.0,
+        "n": 127
+      },
+      "map": {
+        "max_ms": 0.1,
+        "mean_ms": 0.1,
+        "n": 119
+      },
+      "odom": {
+        "max_ms": 4.2,
+        "mean_ms": 0.5,
+        "n": 1031
+      },
+      "scan": {
+        "max_ms": 151.9,
+        "mean_ms": 57.6,
+        "n": 938
+      },
+      "status": {
+        "max_ms": 0.6,
+        "mean_ms": 0.1,
+        "n": 209
+      }
+    },
+    "driver_command_max_gap_ms": 57.83,
+    "bridge_command_max_gap_ms": 80.2,
+    "bridge_timeout_samples": 0
+  },
+  "execution_resources": {
+    "samples": 55,
+    "sampling_nominal_hz": 1.0,
+    "cpu_percent_one_core": {
+      "bridge": {
+        "n": 55,
+        "mean": 23.213455320788945,
+        "p50": 22.998246360709,
+        "p95": 26.970855608083497,
+        "p99": 28.457795196279633,
+        "max": 28.997811129230286,
+        "min": 18.9963361006743
+      },
+      "driver": {
+        "n": 55,
+        "mean": 94.23607142249861,
+        "p50": 95.99211367193462,
+        "p95": 96.99288436936332,
+        "p99": 98.99178907213827,
+        "max": 98.99271928350011,
+        "min": 70.99430611466556
+      },
+      "imu": {
+        "n": 55,
+        "mean": 17.832817216711252,
+        "p50": 17.99854352186019,
+        "p95": 18.994451980612794,
+        "p99": 18.998520313638284,
+        "max": 18.998565912254325,
+        "min": 15.998099745707073
+      },
+      "lidar": {
+        "n": 55,
+        "mean": 7.343960971025779,
+        "p50": 6.999485201863645,
+        "p95": 7.999394780991091,
+        "p99": 8.459392053014096,
+        "max": 8.999349796978043,
+        "min": 5.999518826591457
+      },
+      "odometry": {
+        "n": 55,
+        "mean": 30.88465447682536,
+        "p50": 32.98439211549929,
+        "p95": 34.28345431831225,
+        "p99": 34.98847186506769,
+        "max": 34.993788112699924,
+        "min": 21.998336551780113
+      },
+      "other": {
+        "n": 55,
+        "mean": 12.958673506552664,
+        "p50": 5.999561318077137,
+        "p95": 70.95808581887486,
+        "p99": 101.76030991098553,
+        "max": 103.99165966091859,
+        "min": 4.999621568644815
+      },
+      "recorder": {
+        "n": 55,
+        "mean": 10.670614137095006,
+        "p50": 10.998432734333255,
+        "p95": 10.999232364675002,
+        "p99": 11.98922316153826,
+        "max": 11.996359968484132,
+        "min": 9.990875892536366
+      },
+      "slam": {
+        "n": 55,
+        "mean": 3.5809570828196366,
+        "p50": 2.9997535522479573,
+        "p95": 7.299463012129175,
+        "p99": 8.45386685847444,
+        "max": 8.98735774449383,
+        "min": 1.9986383137256365
+      }
+    },
+    "rss_mb": {
+      "bridge": {
+        "n": 55,
+        "mean": 193.40767045454547,
+        "p50": 193.453125,
+        "p95": 193.453125,
+        "p99": 193.453125,
+        "max": 193.453125,
+        "min": 192.953125
+      },
+      "driver": {
+        "n": 55,
+        "mean": 227.95454545454547,
+        "p50": 227.84375,
+        "p95": 228.853125,
+        "p99": 229.2546875,
+        "max": 229.296875,
+        "min": 226.953125
+      },
+      "imu": {
+        "n": 55,
+        "mean": 197.4375,
+        "p50": 197.4375,
+        "p95": 197.4375,
+        "p99": 197.4375,
+        "max": 197.4375,
+        "min": 197.4375
+      },
+      "lidar": {
+        "n": 55,
+        "mean": 197.390625,
+        "p50": 197.390625,
+        "p95": 197.390625,
+        "p99": 197.390625,
+        "max": 197.390625,
+        "min": 197.390625
+      },
+      "odometry": {
+        "n": 55,
+        "mean": 756.875,
+        "p50": 756.875,
+        "p95": 756.875,
+        "p99": 756.875,
+        "max": 756.875,
+        "min": 756.875
+      },
+      "other": {
+        "n": 55,
+        "mean": 1240.7727272727273,
+        "p50": 1240.296875,
+        "p95": 1241.34375,
+        "p99": 1241.34375,
+        "max": 1241.34375,
+        "min": 1240.296875
+      },
+      "recorder": {
+        "n": 55,
+        "mean": 195.390625,
+        "p50": 195.390625,
+        "p95": 195.390625,
+        "p99": 195.390625,
+        "max": 195.390625,
+        "min": 195.390625
+      },
+      "slam": {
+        "n": 55,
+        "mean": 382.7369318181818,
+        "p50": 382.546875,
+        "p95": 383.046875,
+        "p99": 383.046875,
+        "max": 383.046875,
+        "min": 381.0
+      }
+    },
+    "container_cpu_percent_one_core": {
+      "n": 55,
+      "mean": 200.72120413431728,
+      "p50": 196.98425524544393,
+      "p95": 248.73731442002844,
+      "p99": 300.3795013289587,
+      "max": 305.5701633127902,
+      "min": 163.968374763715
+    },
+    "host_cpu_percent_all_cores": {
+      "n": 55,
+      "mean": 51.93420678205757,
+      "p50": 50.259067357512954,
+      "p95": 63.45902395355776,
+      "p99": 76.2292430194848,
+      "max": 76.5463917525773,
+      "min": 45.07772020725389
+    },
+    "host_mem_available_mb": {
+      "n": 55,
+      "mean": 4551.526704545455,
+      "p50": 4570.53125,
+      "p95": 4575.140625,
+      "p99": 4575.71,
+      "max": 4575.828125,
+      "min": 4475.9375
+    },
+    "notes": "Passive host /proc samples for processes in this container cgroup. 100% CPU equals one core. Other includes launch/planner worker processes. Per-role RSS sums may double-count shared pages; they are not unique physical memory."
+  },
+  "scan_geometry_consistency": {
+    "scan_pairs": 394,
+    "odom_compensated_capped_mean_residual_m": {
+      "n": 394,
+      "mean": 0.036347407362034706,
+      "p50": 0.03580917807161751,
+      "p95": 0.04978712197167724,
+      "p99": 0.0542119573555515,
+      "max": 0.05751544832311576,
+      "min": 0.014841540228438572
+    },
+    "identity_pose_capped_mean_residual_m": {
+      "n": 394,
+      "mean": 0.044253176457146486,
+      "p50": 0.04146516573303724,
+      "p95": 0.06613916516279537,
+      "p99": 0.08232972702501146,
+      "max": 0.0904762972839461,
+      "min": 0.019784791095779148
+    },
+    "usable_correspondence_fraction": {
+      "n": 394,
+      "mean": 0.8433803999125927,
+      "p50": 0.8426308102616205,
+      "p95": 0.9074631705735198,
+      "p99": 0.9312580113532319,
+      "max": 0.969811320754717,
+      "min": 0.7349397590361446
+    },
+    "method": "Consecutive deskewed scans, 0.15..4.0 m ranges, measured body mask; 7-neighbor PCA normals, planar eigenvalue ratio <0.1, patch radius <0.25 m; unmatched/nonplanar points penalized at 0.20 m. Each point contributes, including failures. Recorded stamp poses transform current scan into previous base frame.",
+    "limitation": "Correlated, scene-dependent self-consistency only; LiDAR deskew and poses both depend on the deployed estimator. Neither residuals nor identity comparison are absolute odometry error or a competitive baseline.",
+    "moving_pairs": 230,
+    "moving_odom_residual_m": {
+      "n": 230,
+      "mean": 0.03776652238458328,
+      "p50": 0.037629903064920284,
+      "p95": 0.051726526119885465,
+      "p99": 0.05455353960208784,
+      "max": 0.05751544832311576,
+      "min": 0.014841540228438572
+    },
+    "moving_identity_residual_m": {
+      "n": 230,
+      "mean": 0.0509943084319135,
+      "p50": 0.05039839955599462,
+      "p95": 0.07191703205390113,
+      "p99": 0.08429535399316013,
+      "max": 0.0904762972839461,
+      "min": 0.022113475984238337
+    }
+  }
+}

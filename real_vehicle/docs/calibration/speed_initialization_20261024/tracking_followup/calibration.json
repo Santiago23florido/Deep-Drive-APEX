@@ -1,0 +1,81 @@
+{
+  "source": {
+    "run_id": "real_vehicle_20261024_211216",
+    "segments": [
+      {
+        "start_s": 0.13983559608459473,
+        "end_s": 2.999635696411133,
+        "samples": 16,
+        "command_median": 0.097,
+        "speed_median": 0.3605
+      },
+      {
+        "start_s": 3.859435558319092,
+        "end_s": 8.921435594558716,
+        "samples": 35,
+        "command_median": 0.091,
+        "speed_median": 0.386
+      },
+      {
+        "start_s": 42.49953556060791,
+        "end_s": 45.07963562011719,
+        "samples": 13,
+        "command_median": 0.094,
+        "speed_median": 0.376
+      },
+      {
+        "start_s": 57.29963564872742,
+        "end_s": 64.79963564872742,
+        "samples": 56,
+        "command_median": 0.095,
+        "speed_median": 0.371
+      },
+      {
+        "start_s": 70.42003560066223,
+        "end_s": 72.22113561630249,
+        "samples": 18,
+        "command_median": 0.1305,
+        "speed_median": 0.22949999999999998
+      },
+      {
+        "start_s": 75.62063550949097,
+        "end_s": 77.73953557014465,
+        "samples": 13,
+        "command_median": 0.118,
+        "speed_median": 0.28
+      }
+    ],
+    "source_sha256": {
+      "driver.csv": "3ffddfc159b6f7fb81268da9056e97d18a3d2cd243b8a8dc1f2bd182f45120e8",
+      "race_events.json": "f9c37efa1432340d89e0cf324942113d2a24d67e9302e3bef8b87fb61936d355"
+    }
+  },
+  "ratio_per_segment": [
+    3.7164948453608244,
+    4.241758241758242,
+    4.0,
+    3.9052631578947365,
+    1.7586206896551722,
+    2.3728813559322037
+  ],
+  "median_ratio": 3.8108790016277805,
+  "configured_gain": 3.8,
+  "configured_offset": 0.0,
+  "bridge": {
+    "esc_zero_pct": 15.0,
+    "pct_per_mps": 8.68421052631579,
+    "max_pct": 28.2
+  },
+  "reference_range_mps": [
+    0.36,
+    0.42
+  ],
+  "selection": "Existing steady_segments: trim first .8 s, last .15 s, positive input and onboard speed > .05; six equal-weight segment medians.",
+  "limitations": [
+    "Closed-loop onboard observations, no external ground truth.",
+    "Insufficient independent excitation to identify gain and offset separately; moving offset fixed to zero.",
+    "This is calibration data, not an independent validation set.",
+    "Actual references will be recorded; measured speed is not rescaled.",
+    "Physical validation pending; no longitudinal or steering confidence is forced."
+  ]
+}

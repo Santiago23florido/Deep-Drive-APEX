@@ -13,6 +13,7 @@ import time
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--execute', action='store_true', help='activate the bridge and perform the agreed trial')
 parser.add_argument('--diagnose-only', action='store_true', help='perform the same preflight, never publish arm=true')
+parser.add_argument('--forward-profile', choices=['initialized', 'tracking'])
 args = parser.parse_args()
 if args.execute and args.diagnose_only:
     parser.error('choose either --execute or --diagnose-only')
@@ -23,6 +24,8 @@ root = Path.home() / 'AiAtonomousRc/APEX'
 os.chdir(root)
 sys.path.insert(0, str(root / 'tools/core'))
 from power_stability import wait_for_stable_power
+from forward_profiles import select_forward_profile
+profile = select_forward_profile(Path(__file__).parent, args.forward_profile)
 out = root / 'data/diagnostics/20261022_open_segment' / ('oval_' + time.strftime('%Y%m%d_%H%M%S'))
 out.mkdir()
 shutil.copyfile(root / "tools/core/arm_until_done.py", out / "arm_until_done.py")
@@ -30,8 +33,9 @@ shutil.copyfile(Path(__file__).with_name('save_final_map.py'), out / 'save_final
 # Keep the exact sources/config with each trial so a working run is reproducible.
 snapshot = out / 'source_snapshot'
 sources = sorted((root / 'ros2_ws/src/apex_race/apex_race').rglob('*.py'))
-sources += [root / 'ros2_ws/src/apex_race/config/race_speed_initialized.yaml',
-            root / 'ros2_ws/src/apex_race/config/vehicle_speed_initialized.yaml']
+sources += [root / profile['race_yaml'], root / profile['vehicle_yaml'],
+            root / 'tools/core/forward_profiles.py',
+            root / 'tools/core/initialized_trial/run_oval.py']
 manifest = {}
 for source in sources:
     relative = source.relative_to(root)
@@ -40,10 +44,13 @@ for source in sources:
     shutil.copyfile(source, target)
     manifest[str(relative)] = hashlib.sha256(source.read_bytes()).hexdigest()
 (out / 'source_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+(out / 'forward_profile.json').write_text(json.dumps(profile, indent=2) + '\n')
+print('Recorded forward profile: ' + profile['name'], flush=True)
 env = dict(os.environ,
-           APEX_RACE_PARAMS_FILE='/work/ros2_ws/src/apex_race/config/race_speed_initialized.yaml',
-           APEX_RACE_VEHICLE_YAML='/work/ros2_ws/src/apex_race/config/vehicle_speed_initialized.yaml',
-           APEX_BRIDGE_ESC_ZERO_PCT='15.42', APEX_BRIDGE_SPEED_PCT_PER_MPS='5.24',
+           APEX_RACE_PARAMS_FILE='/work/' + profile['race_yaml'],
+           APEX_RACE_VEHICLE_YAML='/work/' + profile['vehicle_yaml'],
+           APEX_BRIDGE_ESC_ZERO_PCT=str(profile['esc_zero_pct']),
+           APEX_BRIDGE_SPEED_PCT_PER_MPS=str(profile['pct_per_mps']),
            APEX_BRIDGE_MAX_SPEED_PCT='28.2',
            APEX_BRIDGE_MAX_STEERING_LEFT_DEG='22.5',
            APEX_BRIDGE_MAX_STEERING_RIGHT_DEG='12.96',
@@ -92,8 +99,8 @@ try:
     assert current['APEX_BRIDGE_MAX_STEERING_RIGHT_DEG'] == '12.96'
     assert current['APEX_BRIDGE_MAX_REVERSE_SPEED_PCT'] == '31.2'
     assert current['APEX_RACE_LAPS'] == '2'
-    assert current['APEX_BRIDGE_ESC_ZERO_PCT'] == '15.42'
-    assert current['APEX_BRIDGE_SPEED_PCT_PER_MPS'] == '5.24'
+    assert float(current['APEX_BRIDGE_ESC_ZERO_PCT']) == profile['esc_zero_pct']
+    assert float(current['APEX_BRIDGE_SPEED_PCT_PER_MPS']) == profile['pct_per_mps']
     initial_text = ros('timeout 5 ros2 topic echo /apex/race_driver/status --once --field data')
     (out / 'startup_status.txt').write_text(initial_text)
     initial = json.loads(next(line for line in initial_text.splitlines() if line.startswith('{')))
@@ -141,7 +148,7 @@ try:
         "f=c.call_async(q); rclpy.spin_until_future_complete(n,f,timeout_sec=3); "
         "v=f.result().values; "
         "assert [v[0].bool_value,v[1].bool_value,v[5].bool_value,v[6].bool_value]==[True,True,False,True]; "
-        "assert [v[2].double_value,v[3].double_value,v[4].double_value,v[7].double_value]==[40.,300.,2.4,.9]; "
+        "assert [v[2].double_value,v[3].double_value,v[4].double_value,v[7].double_value]==[40.,300.," + repr(profile['command_cap']) + ",.9]; "
         "assert [x.double_value for x in v[8:13]]==[12.5,1.,.45,0.,0.]; assert not v[13].bool_value; assert v[14].double_value==.1; "
         "assert [x.double_value for x in v[15:19]]==[22.5,12.96,22.5,12.96]; "
         "assert not v[19].bool_value; "
@@ -152,11 +159,11 @@ try:
         "assert v[32].integer_value==12 and v[33].double_value==.75; "
         "assert v[34].double_value==5.; "
         "assert v[35].bool_value and v[36].double_value==0. and v[37].double_value==1.; "
-        "assert [x.double_value for x in v[38:42]]==[.55,.45,.50,.55]; "
-        "assert v[42].bool_value and v[43].bool_value and v[44].double_value==6.3; "
-        "assert v[45].string_value=='/work/ros2_ws/src/apex_race/config/vehicle_speed_initialized.yaml'; "
-        "assert v[46].double_value==6.3 and v[47].double_value==.17; "
-        "assert v[48].bool_value; "
+        "assert [x.double_value for x in v[38:42]]==" + repr(profile['references']) + "; "
+        "assert v[42].bool_value and v[43].bool_value and v[44].double_value==" + repr(profile['forward_scale']) + "; "
+        "assert v[45].string_value==" + repr('/work/' + profile['vehicle_yaml']) + "; "
+        "assert v[46].double_value==" + repr(profile['forward_scale']) + " and v[47].double_value==.17; "
+        "assert v[48].bool_value==" + repr(profile['steering_confidence_gate']) + "; "
         "print('runtime limits verified'); n.destroy_node(); rclpy.shutdown()"
     )
     import shlex
@@ -205,13 +212,14 @@ try:
     status = json.loads(next(s for s in status_text.splitlines() if s.startswith('{')))
     (out / 'before.json').write_text(json.dumps(status, indent=2))
     assert status['phase'] == 'wait' and not status['armed'] and status['estimator_usable']
-    assert status['mission']['max_command_mps'] == 2.4
+    assert status['mission']['max_command_mps'] == profile['command_cap']
     assert not status['sign_fault']
     bridge_text = ros('timeout 5 ros2 topic echo /apex/vehicle/drive_bridge_status --once --field data')
     bridge = json.loads(next(s for s in bridge_text.splitlines() if s.startswith('{')))
     (out / 'bridge_before.json').write_text(json.dumps(bridge, indent=2))
     assert bridge['actuation_profile'] == 'affine'
-    assert bridge['speed_map']['esc_zero_pct'] == 15.42 and bridge['speed_map']['pct_per_mps'] == 5.24
+    assert bridge['speed_map']['esc_zero_pct'] == profile['esc_zero_pct']
+    assert bridge['speed_map']['pct_per_mps'] == profile['pct_per_mps']
     assert bridge['speed_map']['esc_zero_rev_pct'] == 18.0 and bridge['speed_map']['rev_pct_per_mps'] == 33.0
     assert bridge['max_speed_pct'] == 28.2 and bridge['max_steering_deg'] <= 12.5
     assert bridge['max_steering_left_deg'] == 22.5 and bridge['max_steering_right_deg'] == 12.96

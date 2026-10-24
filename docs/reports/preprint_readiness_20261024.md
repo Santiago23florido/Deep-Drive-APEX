@@ -207,6 +207,15 @@ retained substantial nominal reference error. Those development outcomes do not
 establish calibrated speed tracking, external odometry accuracy or statistical
 reliability. The simulation campaign below is still required.
 
+The [later longitudinal-only follow-up `214635`](../../real_vehicle/docs/calibration/speed_initialization_20261024/tracking_followup/README.md)
+also reached the two-lap stop, with 4 / 2 reverse starts. Its declared forward
+reference was 0.360 m/s; selected lap-2 speed mean / MAE were 0.256 / 0.106 m/s.
+The operator reported multiple physical laps, without specifying exact count,
+contact or pace. The learned longitudinal inverse remained inactive. This is
+onboard-data hardware calibration with fixed neural weights, not untouched
+zero-shot full-stack evidence. Final simulator validation, repeatability and
+accurate longitudinal tracking remain open.
+
 From the repository root, after preparing ROS 2/Gazebo, dependencies and v7e
 weights:
 
