@@ -25,18 +25,28 @@ def test_explicit_mode_is_forwarded_and_ssh_failure_is_preserved(ssh_mock, mode)
     result = subprocess.run(['bash', str(SCRIPT), '--host', 'ensta@pi-test', mode],
                             env=env, capture_output=True, text=True)
     assert result.returncode == 23
-    assert args.read_text().splitlines()[-5:] == ['ensta@pi-test', 'bash', '-s', '--', mode]
+    assert args.read_text().splitlines()[-6:] == ['ensta@pi-test', 'bash', '-s', '--', mode, 'approved']
     assert 'BatchMode=yes' in args.read_text()
     assert body.read_text().startswith('set -euo pipefail\n')
     assert subprocess.run(['bash', '-n'], input=body.read_text(), text=True).returncode == 0
 
 
 @pytest.mark.parametrize('arguments', [[], ['run', 'preflight'], ['--host', '-oProxyCommand=bad', 'run'],
-                                       ['--host', 'pi;touch /tmp/unwanted', 'run']])
+                                       ['--host', 'pi;touch /tmp/unwanted', 'run'], ['--profile', 'unknown', 'run']])
 def test_missing_or_ambiguous_mode_and_host_injection_never_connect(ssh_mock, arguments):
     env, args, body = ssh_mock
     result = subprocess.run(['bash', str(SCRIPT), *arguments], env=env, capture_output=True)
     assert result.returncode == 2
+    assert not args.exists() and not body.exists()
+
+
+def test_initialized_preview_lists_the_deployment_without_connecting(ssh_mock):
+    env, args, body = ssh_mock
+    result = subprocess.run(['bash', str(SCRIPT), '--profile', 'initialized', '--dry-run', 'run'],
+                            env=env, capture_output=True, text=True)
+    assert result.returncode == 0
+    assert 'Would deploy and SHA256-verify 10 files' in result.stdout
+    assert 'bash -s -- run initialized' in result.stdout
     assert not args.exists() and not body.exists()
 
 
