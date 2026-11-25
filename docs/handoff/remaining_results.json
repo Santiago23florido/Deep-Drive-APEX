@@ -82,9 +82,10 @@
       "purpose": "A layout the controller was never tuned on",
       "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run",
       "repetitions": 3,
-      "varies": "track layout, rearranged once before the session and measured",
+      "varies": "track layout, rearranged once before the session and measured, laid out so the car turns mainly in the direction opposite to S1",
       "unlocks": [
-        "generalization beyond the development track"
+        "generalization beyond the development track",
+        "both turn directions, without an extra session"
       ],
       "status": "open",
       "minimum_delivery": false
@@ -112,34 +113,6 @@
       ],
       "status": "open",
       "minimum_delivery": true
-    },
-    {
-      "id": "S6",
-      "purpose": "Hand-driven capture with varied motion, for the estimator evaluation on real data",
-      "command": "Pi: tools/core/apex_manual_control_up.sh (estimator and raw logging on, autonomous planners off); PC: real_vehicle/tools/pc/run_windows_gamepad_ros_bridge_pc.sh",
-      "command_status": "not exercised recently; verify bring-up before recording and report instead of modifying the scripts if it fails",
-      "repetitions": 3,
-      "repetition_length": "2-3 minutes each",
-      "varies": "nothing in the setup; the variety is in the driving",
-      "must_contain": [
-        ">= 3 complete stops of >= 5 s",
-        "one pass along the longest available straight at roughly constant speed",
-        "at least one left and one right turn",
-        "a return to the start marks with the final pose measured"
-      ],
-      "unlocks": [
-        "RPE at fixed horizons and segment drift on real data",
-        "stop-and-go and degenerate-corridor behaviour",
-        "the real-data counterpart of the simulated odometry comparison"
-      ],
-      "constraints": [
-        "entirely inside the camera field of view",
-        "video running",
-        "driven slowly by hand, no mission, no autonomy"
-      ],
-      "status": "open",
-      "minimum_delivery": false,
-      "note": "highest-value optional session for the odometry contribution"
     }
   ],
   "blocked_without_new_code": {
@@ -222,5 +195,5 @@
     "do not rearrange the track mid-session except where S3 and S4 require it, and then only before that session's first run",
     "onboard map and estimated trajectory are onboard estimates, not ground truth"
   ],
-  "physical_runs_role": "The physical runs validate transfer; the controlled comparisons and ablations live in simulation, where ground truth is available. S6 supplies the real sequences needed to compute the same open-loop estimator metrics on hardware."
+  "physical_runs_role": "The physical runs validate transfer; the controlled comparisons and ablations live in simulation, where ground truth is available. The autonomous runs already contain stops, reverses and turns, so the open-loop estimator metrics are computed from them against the external reference."
 }

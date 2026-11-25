@@ -53,26 +53,9 @@ Every `run` moves the car. Clear the track, car at the marked start pose.
 | --- | --- | --- | --- | --- |
 | S1 | Repeatability of the accepted configuration | `./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run` | **5** | Nothing. Same track, same start pose, fresh battery state logged each time |
 | S2 | Controller A/B against the retained profile | `./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi --profile approved run` | **5** | Nothing. Alternate order with S1 (S1, S2, S1, S2, …), not five of one then five of the other |
-| S3 | A track the controller was never tuned on | same command as S1 | **3** | Rearrange the poles into a different layout **before** the first run and never touch them again. Photograph and measure the new layout as in §5 |
+| S3 | A track the controller was never tuned on | same command as S1 | **3** | Rearrange the poles into a different layout **before** the first run and never touch them again, and lay it out so the car turns mainly in the **opposite** direction to S1. Photograph and measure the new layout as in §5 |
 | S4 | Longest straight that fits the room | same command as S1 | **3** | Layout with the longest possible straight, so the onboard identifier accumulates more valid updates. Measure and photograph this layout too |
 | S5 | Stationary reference, car never moves | `./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi preflight` | **2** | None. Leave the car parked and untouched for the whole check; it never arms |
-| S6 | Hand-driven capture with varied motion | teleoperated, see below | **3** captures of 2–3 min | Nothing in the setup; the variety is in how you drive it |
-
-**S6 in detail.** The autonomous runs all drive the same oval at nearly constant
-speed, which is not enough to characterise the estimator. S6 fills that in, and
-it is the lowest-risk session: no mission, no autonomy, you drive by hand and
-slowly. The estimator and raw logging run while the autonomous planners stay
-off, through `tools/core/apex_manual_control_up.sh` on the Pi, driven from
-`real_vehicle/tools/pc/run_windows_gamepad_ros_bridge_pc.sh`. **This path has
-not been exercised recently: bring it up once and confirm sensors, estimator and
-steering respond before recording. If it does not come up, say so in the pull
-request and skip the session — do not modify the scripts to force it.**
-
-Each capture must happen entirely inside the camera's field of view, with the
-video running, and must contain: at least 3 complete stops of 5 s or more; one
-run along the longest available straight at roughly constant speed; at least one
-left and one right turn; and a return to the start marks, with the final pose
-measured as in §4.
 
 **Minimum useful delivery** if time or batteries run out: the §5 track reference
 + S1 + S5. Stop there and upload rather than skipping §5 or the per-run
