@@ -1,7 +1,7 @@
 {
   "_instructions": "Copy to real_vehicle/docs/paper/<run_id>/handover.json and fill in. Facts only; leave analysis out. Use null for anything not measured, never a guess. Keep a value even when it looks bad.",
   "run_id": "YYYYMMDD_HHMMSS",
-  "session": "S1 | S2 | S3 | S4 | S5",
+  "session": "S1 | S2 | S3",
   "date_local": "YYYY-MM-DD",
   "operator": "name or initials",
   "command_executed": "exact command line, copied from the terminal",

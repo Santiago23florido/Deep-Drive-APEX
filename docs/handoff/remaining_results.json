@@ -56,7 +56,8 @@
       "purpose": "Repeatability of the accepted configuration",
       "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run",
       "repetitions": 5,
-      "varies": "nothing; fresh state each run, battery condition logged",
+      "varies": "nothing at all; battery state logged each run",
+      "order": 1,
       "unlocks": [
         "success rate",
         "spread across independent starts",
@@ -67,52 +68,32 @@
     },
     {
       "id": "S2",
-      "purpose": "Controller A/B against the retained profile",
-      "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi --profile approved run",
-      "repetitions": 5,
-      "varies": "profile only; alternate order with S1 run by run",
-      "unlocks": [
-        "the one controlled comparison available without new code"
-      ],
-      "status": "open",
-      "minimum_delivery": false
-    },
-    {
-      "id": "S3",
-      "purpose": "A layout the controller was never tuned on",
-      "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run",
-      "repetitions": 3,
-      "varies": "track layout, rearranged once before the session and measured, laid out so the car turns mainly in the direction opposite to S1",
-      "unlocks": [
-        "generalization beyond the development track",
-        "both turn directions, without an extra session"
-      ],
-      "status": "open",
-      "minimum_delivery": false
-    },
-    {
-      "id": "S4",
-      "purpose": "Longest straight that fits the room",
-      "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run",
-      "repetitions": 3,
-      "varies": "track layout maximizing straight length, measured like any other layout",
-      "unlocks": [
-        "more valid longitudinal identifier updates, so the online identification claim can be decided"
-      ],
-      "status": "open",
-      "minimum_delivery": false
-    },
-    {
-      "id": "S5",
       "purpose": "Stationary reference with the car parked and never armed",
       "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi preflight",
       "repetitions": 2,
       "varies": "nothing; the car must not move or be touched",
+      "order": 2,
       "unlocks": [
         "stationary false-motion measurement against a known zero"
       ],
       "status": "open",
       "minimum_delivery": true
+    },
+    {
+      "id": "S3",
+      "purpose": "The same method on a track it was never tuned on",
+      "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run",
+      "repetitions": 3,
+      "varies": "only the track: one new layout with the longest straight that fits and the car turning mainly opposite to S1, built once before the session",
+      "order": 3,
+      "unlocks": [
+        "generalization beyond the development track",
+        "both turn directions",
+        "more valid longitudinal identifier updates"
+      ],
+      "status": "open",
+      "minimum_delivery": false,
+      "note": "run last; a failure here is a result, to be retained with its stop reason, not rescued by adjusting anything"
     }
   ],
   "blocked_without_new_code": {
@@ -189,11 +170,23 @@
     ]
   },
   "hard_rules": [
+    "one command, one profile, one method: the one that produced the accepted run",
     "retain every attempt, including failures and operator stops",
     "never weaken a confidence gate, clearance limit, speed cap or recovery behaviour to obtain a cleaner run",
-    "never retrain or replace the weights; the listed hashes must keep matching",
-    "do not rearrange the track mid-session except where S3 and S4 require it, and then only before that session's first run",
+    "never retrain, replace or redeploy the weights; the listed hashes must keep matching",
+    "do not rearrange the track mid-session; S3's layout is built once, before its first run",
     "onboard map and estimated trajectory are onboard estimates, not ground truth"
   ],
-  "physical_runs_role": "The physical runs validate transfer; the controlled comparisons and ablations live in simulation, where ground truth is available. The autonomous runs already contain stops, reverses and turns, so the open-loop estimator metrics are computed from them against the external reference."
+  "physical_runs_role": "The physical runs validate transfer; the controlled comparisons and ablations live in simulation, where ground truth is available. The autonomous runs already contain stops, reverses and turns, so the open-loop estimator metrics are computed from them against the external reference.",
+  "movement_command": {
+    "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run",
+    "profile": "tracking (default)",
+    "rule": "the only movement method used is the one that produced the accepted run; no --profile, no parameter edits, no other mode, no manual driving"
+  },
+  "no_redeploy": "The Pi already holds the frozen runtime and weights from the accepted run. Do not sync code or weights; if status reports a mismatch, a missing file or a leftover apex_pipeline container, ask instead of fixing it.",
+  "removed_from_scope": {
+    "controller A/B against the retained profile": "a comparison between two hand-tuned calibrations is not a paper result; the comparisons live in simulation",
+    "separate long-straight layout": "folded into S3, which is a new layout anyway",
+    "teleoperated varied-motion capture": "needs a bring-up path not exercised recently, and the autonomous runs already contain stops, reverses and turns"
+  }
 }

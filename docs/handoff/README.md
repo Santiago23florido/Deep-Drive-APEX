@@ -26,47 +26,54 @@ Do not edit source, YAML, thresholds or weights. If something had to change to
 make the car run at all, do not hide it: record the exact file and reason in
 `handover.json` and say so in the pull request.
 
-## 2. One-time setup
+## 2. Before the first run
 
 ```bash
-# From the repository root on the PC. Confirm access without touching the car.
+# From the repository root on the PC. Neither command touches the car.
 ./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi status
 ./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi --dry-run run
-
-# Deploy the frozen runtime and the exact v7e weights (car stopped, no container).
-./real_vehicle/tools/core/sync_apex_code_to_pi.sh \
-  ensta@raspberrypi:/home/ensta/AiAtonomousRc/APEX/ \
-  --exclude '/docs/' --exclude '/data/'
-APEX_PI_HOST=ensta@raspberrypi \
-APEX_ODOM_CKPT_DIR=simulation/learning/outputs/real2sim_v7e_standstill/hybrid_submap_v4 \
-  ./real_vehicle/tools/core/sync_odom_rt_to_pi.sh
 ```
 
+The Pi already holds the frozen runtime and the v7e weights from the accepted
+run. **Do not redeploy anything.** If `status` reports a mismatch, a missing
+file or a leftover `apex_pipeline` container, stop and ask instead of syncing or
+clearing it yourself.
+
 Then build the track reference and the camera rig once, as described in §5.
-Full command reference: [real-vehicle README](../../real_vehicle/README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run).
 
 ## 3. Runs to collect
 
+There is **one** movement command, and it is the one that produced the accepted
+run. The profile is the default `tracking`. Never pass `--profile`, never edit a
+parameter, never try a different mode. What varies between sessions is the
+furniture, never the method.
+
+```bash
+./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run
+```
+
 Every `run` moves the car. Clear the track, car at the marked start pose.
 
-| # | Purpose | Command | Repetitions | What changes between repetitions |
+| # | Purpose | Command | Repetitions | What is different |
 | --- | --- | --- | --- | --- |
-| S1 | Repeatability of the accepted configuration | `./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run` | **5** | Nothing. Same track, same start pose, fresh battery state logged each time |
-| S2 | Controller A/B against the retained profile | `./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi --profile approved run` | **5** | Nothing. Alternate order with S1 (S1, S2, S1, S2, …), not five of one then five of the other |
-| S3 | A track the controller was never tuned on | same command as S1 | **3** | Rearrange the poles into a different layout **before** the first run and never touch them again, and lay it out so the car turns mainly in the **opposite** direction to S1. Photograph and measure the new layout as in §5 |
-| S4 | Longest straight that fits the room | same command as S1 | **3** | Layout with the longest possible straight, so the onboard identifier accumulates more valid updates. Measure and photograph this layout too |
-| S5 | Stationary reference, car never moves | `./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi preflight` | **2** | None. Leave the car parked and untouched for the whole check; it never arms |
+| S1 | Repeatability of the accepted configuration | the command above | **5** | Nothing at all. Same track, same start pose, battery state logged each time |
+| S2 | Stationary reference, the car never moves | `./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi preflight` | **2** | Nothing. The car stays parked and untouched; this mode never arms it |
+| S3 | The same method on a track it was never tuned on | the command above | **3** | Only the track: rearrange the poles **once** before the session, with the longest straight that fits the room and the car turning mainly in the **opposite** direction to S1. Measure and photograph the new layout as in §5, then do not touch it again |
 
-**Minimum useful delivery** if time or batteries run out: the §5 track reference
-+ S1 + S5. Stop there and upload rather than skipping §5 or the per-run
-measurements. Partial sessions are fine; undocumented ones are not.
+Run them in that order: S1 first so the core data is banked before anything
+else, then S2, and S3 last because it is the only session where the car meets
+geometry it has never driven. **If time or batteries run out, the §5 track
+reference + S1 + S2 is already a useful delivery.** Stop there and upload rather
+than skipping §5 or the per-run measurements.
 
-**Not your job, and do not improvise:** switching the learned estimator off,
-disabling online adaptation, or disabling the standstill hold would each need a
-runtime switch that does not exist today. Those comparisons are made in
-simulation and by replaying your recorded sensor data offline, which is why the
-raw capture and the track dimensions matter more than any extra on-car variant.
-Do not edit `start_apex_pipeline.sh` or the YAML to emulate them.
+If the car fails on S3, that is a result: retain the attempt, write the stop
+reason, and do not adjust anything to rescue it.
+
+**Why there are no other variants.** Switching the learned estimator off,
+disabling online adaptation or disabling the standstill hold are all evaluated
+in simulation and by replaying your recorded sensor data offline, so they need
+no extra runs here. The raw capture, the measured track and the video are worth
+more than any additional on-car configuration.
 
 ## 4. Per-run procedure — every run, including failures
 
@@ -189,8 +196,10 @@ pull requests are better than one large late one.
 - Never weaken a confidence gate, clearance limit, speed cap or the recovery
   behaviour to obtain a cleaner run.
 - Never retrain or replace the weights; the hashes above must keep matching.
-- Do not rearrange the track mid-session, except where S3 and S4 say to, and
-  then only before the first run of that session.
+- One command, one profile, one method: the one that produced the accepted run.
+  No `--profile`, no parameter edits, no other mode, no manual driving.
+- Do not rearrange the track mid-session; S3's layout is built once, before its
+  first run.
 - Report the onboard map and estimated trajectory as onboard estimates. The
   external reference is the measured geometry and the video, nothing else.
 - When in doubt, upload more raw data and describe the doubt in `handover.json`.
