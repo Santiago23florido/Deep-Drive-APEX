@@ -10,6 +10,7 @@
 | PC SSH preflight and recognition-to-SLAM run | [Real-vehicle README commands](../real_vehicle/README.md#from-the-pc-ssh-preflight-and-recognition-to-slam-run) |
 | Current simulator and historical demonstrations | [Simulation README](../simulation/README.md) |
 | Remaining simulation experiments for the preprint | [Readiness report](reports/preprint_readiness_20261024.md) |
+| Physical data still to be collected, with commands and handover format | [Run sheet and handover spec](handoff/README.md) |
 
 The active physical implementation is `apex_race` + `apex_telemetry`, learned
 odometry and `slam_toolbox`. Older architecture pages may describe the earlier

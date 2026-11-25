@@ -1,0 +1,86 @@
+{
+  "_instructions": "Copy to real_vehicle/docs/paper/<run_id>/handover.json and fill in. Facts only; leave analysis out. Use null for anything not measured, never a guess. Keep a value even when it looks bad.",
+  "run_id": "YYYYMMDD_HHMMSS",
+  "session": "S1 | S2 | S3 | S4 | S5",
+  "date_local": "YYYY-MM-DD",
+  "operator": "name or initials",
+  "command_executed": "exact command line, copied from the terminal",
+  "profile": "tracking | approved",
+  "layout_id": "name of the track layout used, matching the track/ folder",
+  "outcome": {
+    "completed": true,
+    "stop_reason": "driver_done | operator_stop | guard_stop | crash | other (describe)",
+    "ram_evidence_verified_line_seen": true,
+    "laps_observed_by_operator": 0,
+    "contacts_observed": 0,
+    "contact_description": "",
+    "stalls_observed": 0,
+    "operator_interventions": 0,
+    "intervention_description": ""
+  },
+  "physical_measurements": {
+    "start_marks_photographed": true,
+    "final_pose_vs_start": {
+      "longitudinal_offset_m": null,
+      "lateral_offset_m": null,
+      "heading_offset_deg": null,
+      "measured_with": "tape measure, +/- 0.01 m"
+    },
+    "notes": ""
+  },
+  "battery": {
+    "swapped_before_run": false,
+    "packs_used": "identifier if the packs are labelled",
+    "measured_voltage_v": null
+  },
+  "video": {
+    "recorded": true,
+    "files": [
+      {
+        "filename": "",
+        "sha256": "",
+        "resolution": "1920x1080",
+        "fps": 30,
+        "shared_link": ""
+      }
+    ],
+    "camera_moved_during_session": false,
+    "camera_position_relative_to_pole_corner": {
+      "reference_corner_id": "",
+      "x_m": null,
+      "y_m": null,
+      "height_m": null
+    },
+    "marker_on_car": {
+      "type": "aruco | printed cross | none",
+      "height_above_floor_m": null,
+      "offset_from_lidar_forward_m": null,
+      "offset_from_lidar_lateral_m": null
+    },
+    "time_sync": {
+      "screen_clock_filmed": true,
+      "wall_clock_launch_time": "HH:MM:SS local",
+      "notes": ""
+    }
+  },
+  "track_reference": {
+    "folder": "track/ in this run directory, or the run_id that holds it",
+    "pole_lengths_m": [],
+    "lane_width_m": null,
+    "sketch_file": "",
+    "photo_files": [],
+    "floor_surface": "",
+    "anything_moved_during_session": ""
+  },
+  "deviations_from_the_frozen_configuration": {
+    "any": false,
+    "files_changed": [],
+    "reason": ""
+  },
+  "upload": {
+    "raw_copied_from_pi": true,
+    "sha256sum_manifest_present": true,
+    "pi_data_still_present": true,
+    "uncertainties_for_the_analyst": ""
+  }
+}
