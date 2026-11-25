@@ -61,10 +61,12 @@ Every `run` moves the car. Clear the track, car at the marked start pose.
 + S1 + S5. Stop there and upload rather than skipping §5 or the per-run
 measurements. Partial sessions are fine; undocumented ones are not.
 
-**Blocked, do not improvise:** switching the learned estimator off, disabling
-online adaptation, or disabling the standstill hold would each need a runtime
-switch that does not exist today. Do not edit `start_apex_pipeline.sh` or the
-YAML to fake them. Ask first; those runs may be added later.
+**Not your job, and do not improvise:** switching the learned estimator off,
+disabling online adaptation, or disabling the standstill hold would each need a
+runtime switch that does not exist today. Those comparisons are made in
+simulation and by replaying your recorded sensor data offline, which is why the
+raw capture and the track dimensions matter more than any extra on-car variant.
+Do not edit `start_apex_pipeline.sh` or the YAML to emulate them.
 
 ## 4. Per-run procedure — every run, including failures
 
@@ -97,10 +99,20 @@ mean speed per lap from true path length ÷ lap time. Deliver:
 - Length of every pole/segment in metres, measured with a tape to ±1 cm.
 - A hand sketch of the layout with those lengths and the lane width written on
   it; a phone photo of the sketch is fine.
+- **Pole height above the floor, cross-section shape and width/diameter, and
+  material or surface finish** (wood, plastic, painted, matte, shiny). State
+  whether every pole is identical, and list the exceptions if not.
 - 4+ photos of the assembled track from different corners, plus the highest
   viewpoint available, with a tape measure or a known-length object visible in
   at least one of them.
 - Floor surface type, and a note of anything that moved mid-session.
+
+These dimensions are used for two things: the metric reference above, and
+rebuilding each layout in the simulator so that simulated and physical runs are
+compared on the same geometry. Height, cross-section and material matter because
+they determine what the LiDAR returns. If a layout cannot be reconstructed from
+what you upload, the comparison is lost — when in doubt, measure and photograph
+more.
 
 **Tier B — one fixed camera (adds trajectory accuracy, ~1–3 cm).** With the
 known pole positions as the calibration target, a static video yields the car's

@@ -3,8 +3,18 @@
   "updated": "2026-11-25",
   "target_venue": "IROS",
   "scope": "real_vehicle_only",
-  "collector_responsibilities": ["execute the listed runs", "measure the track and the start/stop poses", "record video", "upload raw outputs with a filled handover.json"],
-  "not_collector_responsibilities": ["computing metrics", "producing figures", "judging whether a run succeeded", "writing conclusions"],
+  "collector_responsibilities": [
+    "execute the listed runs",
+    "measure the track and the start/stop poses",
+    "record video",
+    "upload raw outputs with a filled handover.json"
+  ],
+  "not_collector_responsibilities": [
+    "computing metrics",
+    "producing figures",
+    "judging whether a run succeeded",
+    "writing conclusions"
+  ],
   "frozen": {
     "runtime_commit": "f907cce",
     "runtime_tag": "real-car-calibrated-20261024-220316",
@@ -47,7 +57,11 @@
       "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run",
       "repetitions": 5,
       "varies": "nothing; fresh state each run, battery condition logged",
-      "unlocks": ["success rate", "spread across independent starts", "lap-time and reverse-count distribution"],
+      "unlocks": [
+        "success rate",
+        "spread across independent starts",
+        "lap-time and reverse-count distribution"
+      ],
       "status": "open",
       "minimum_delivery": true
     },
@@ -57,7 +71,9 @@
       "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi --profile approved run",
       "repetitions": 5,
       "varies": "profile only; alternate order with S1 run by run",
-      "unlocks": ["the one controlled comparison available without new code"],
+      "unlocks": [
+        "the one controlled comparison available without new code"
+      ],
       "status": "open",
       "minimum_delivery": false
     },
@@ -67,7 +83,9 @@
       "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run",
       "repetitions": 3,
       "varies": "track layout, rearranged once before the session and measured",
-      "unlocks": ["generalization beyond the development track"],
+      "unlocks": [
+        "generalization beyond the development track"
+      ],
       "status": "open",
       "minimum_delivery": false
     },
@@ -77,7 +95,9 @@
       "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi run",
       "repetitions": 3,
       "varies": "track layout maximizing straight length, measured like any other layout",
-      "unlocks": ["more valid longitudinal identifier updates, so the online identification claim can be decided"],
+      "unlocks": [
+        "more valid longitudinal identifier updates, so the online identification claim can be decided"
+      ],
       "status": "open",
       "minimum_delivery": false
     },
@@ -87,20 +107,32 @@
       "command": "./real_vehicle/tools/pc/race_pi.sh --host ensta@raspberrypi preflight",
       "repetitions": 2,
       "varies": "nothing; the car must not move or be touched",
-      "unlocks": ["stationary false-motion measurement against a known zero"],
+      "unlocks": [
+        "stationary false-motion measurement against a known zero"
+      ],
       "status": "open",
       "minimum_delivery": true
     }
   ],
   "blocked_without_new_code": {
-    "note": "These need a runtime switch that does not exist today. Do not emulate them by editing start_apex_pipeline.sh or the YAML; ask first.",
-    "items": ["learned estimator vs geometric/ICP-only baseline", "online adaptation disabled", "standstill hold disabled", "per-command applied-PWM latency trace"]
+    "note": "These need a runtime switch that does not exist today and are not part of the collection scope. They are evaluated in simulation and by offline replay of the recorded raw sensor data. Do not emulate them by editing start_apex_pipeline.sh or the YAML.",
+    "items": [
+      "learned estimator vs geometric/ICP-only baseline",
+      "online adaptation disabled",
+      "standstill hold disabled",
+      "per-command applied-PWM latency trace"
+    ],
+    "handled_by": [
+      "simulation campaign on the reconstructed layouts",
+      "offline replay of the uploaded raw scans and IMU"
+    ]
   },
   "track_reference": {
     "verdict": "Measured pole lengths plus photos are sufficient for a metric ground-truth map (scale error, loop-closure error, true mean speed from path length over lap time). Per-timestamp accuracy (ATE/RPE) additionally requires one immobile camera; the known pole positions serve as its calibration target. Expected reference budget with 1080p covering the whole track: 1-3 cm.",
     "tier_a_required": [
       "length of every pole/segment in metres, tape-measured to +/- 0.01 m",
       "hand sketch of the layout with lengths and lane width",
+      "pole height above the floor, cross-section shape and width/diameter, material or surface finish, and whether all poles are identical",
       "4+ photos from different corners plus the highest viewpoint available",
       "a tape measure or known-length object visible in at least one photo",
       "floor surface type and anything that moved during the session"
@@ -114,11 +146,23 @@
       "time sync: film a screen running 'date -Ins' for ~5 s with the camera already recording, and note each run's wall-clock launch time",
       "originals never re-encoded or downscaled"
     ],
-    "insufficient_alone": "a still photo carries no information about where the car was at a given instant"
+    "insufficient_alone": "a still photo carries no information about where the car was at a given instant",
+    "used_for": [
+      "metric ground-truth map for the physical runs",
+      "calibration target for the fixed-camera trajectory reference",
+      "rebuilding each layout in the simulator so simulated and physical runs are compared on the same geometry"
+    ],
+    "why_pole_geometry": "height, cross-section and material determine what the LiDAR returns, so a layout that cannot be reconstructed from the upload cannot be compared against simulation"
   },
   "delivery": {
     "run_directory": "real_vehicle/docs/paper/<run_id>/",
-    "contents": ["handover.json", "raw/", "sha256sum.txt", "track/", "physical/"],
+    "contents": [
+      "handover.json",
+      "raw/",
+      "sha256sum.txt",
+      "track/",
+      "physical/"
+    ],
     "raw_only": true,
     "pull_from_pi": [
       "/home/ensta/AiAtonomousRc/APEX/ros2_ws/apex_race/<run_id>/",
@@ -130,8 +174,18 @@
       "video stays out of git (100 MB per-file limit): share a link and record each file's sha256 in handover.json",
       "nothing is deleted from the Pi until the upload is confirmed"
     ],
-    "pull_request_must_state": ["session id", "exact command", "attempts vs completions with stop reasons", "any deviation from the frozen configuration", "open uncertainties"],
-    "must_not_contain": ["derived metrics", "figures", "conclusions"]
+    "pull_request_must_state": [
+      "session id",
+      "exact command",
+      "attempts vs completions with stop reasons",
+      "any deviation from the frozen configuration",
+      "open uncertainties"
+    ],
+    "must_not_contain": [
+      "derived metrics",
+      "figures",
+      "conclusions"
+    ]
   },
   "hard_rules": [
     "retain every attempt, including failures and operator stops",
@@ -139,5 +193,6 @@
     "never retrain or replace the weights; the listed hashes must keep matching",
     "do not rearrange the track mid-session except where S3 and S4 require it, and then only before that session's first run",
     "onboard map and estimated trajectory are onboard estimates, not ground truth"
-  ]
+  ],
+  "physical_runs_role": "The physical runs demonstrate transfer; the controlled comparisons live in simulation. The external reference is what makes the transfer claim quantitative rather than anecdotal."
 }
